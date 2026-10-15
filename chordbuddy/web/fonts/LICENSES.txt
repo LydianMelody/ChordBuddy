@@ -1,0 +1,5 @@
+Bundled fonts, downloaded from Google Fonts (fonts.google.com), all under the SIL Open Font License 1.1 (https://openfontlicense.org):
+- Bricolage Grotesque (variable), (c) The Bricolage Grotesque Project Authors
+- Courier Prime Regular/Bold/Italic, (c) Quote-Unquote Apps
+- Space Mono Regular/Bold, (c) Colophon Foundry
+The files are the Latin subsets served by Google Fonts. They may be used, bundled and redistributed with the app.

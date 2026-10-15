@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chord Buddy · Stage Light</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600;800&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* STAGE LIGHT — built for playing along, not filing paperwork.
+   Opinions: the chart is read from a music stand two metres away, so chords are huge and
+   the section you're in sits in a spotlight while the rest dims. The library hides in a slim rail.
+   Stems are stage lights: on, off or solo, glowing with the music. */
+:root{
+  --bg:#0D0B16; --s1:#15121F; --s2:#1D1930; --line:#2B2642; --text:#F1ECFF; --dim:#8D86A8; --faint:#4E4868;
+  --amber:#FFC46B; --pink:#FF6BA8; --cyan:#62E3FF; --violet:#9F82FF; --lime:#B8F06A;
+  --u:'Unbounded',system-ui,sans-serif; --o:'Outfit',system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+html{scrollbar-color:var(--line) transparent}
+body{background:var(--bg);color:var(--text);font:15px/1.45 var(--o);overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+.ic{width:20px;height:20px;flex:none}
+.app{display:grid;grid-template-columns:76px 1fr;height:100vh}
+
+/* Rail */
+.rail{position:relative;z-index:30;background:var(--s1);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:8px}
+.logo{width:46px;height:46px;border-radius:15px;background:conic-gradient(from 210deg,var(--pink),var(--amber),var(--cyan),var(--violet),var(--pink));display:grid;place-items:center;margin-bottom:14px;position:relative}
+.logo::after{content:'♮';position:absolute;inset:3px;border-radius:12px;background:var(--bg);display:grid;place-items:center;font:800 22px/1 var(--u);color:var(--text)}
+.rail button{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;color:var(--dim);position:relative}
+.rail button:hover{background:var(--s2);color:var(--text)}
+.rail button.on{background:var(--s2);color:var(--amber)}
+.rail button.on::before{content:'';position:absolute;left:-14px;top:12px;bottom:12px;width:4px;border-radius:0 4px 4px 0;background:var(--amber)}
+.rail .sp{flex:1}
+.rail .dot{position:absolute;top:10px;right:10px;width:8px;height:8px;border-radius:50%;background:var(--lime);box-shadow:0 0 8px var(--lime)}
+
+/* Library drawer (peek) */
+.drawer{position:fixed;left:76px;top:0;bottom:0;width:300px;background:#120F1Df2;backdrop-filter:blur(12px);border-right:1px solid var(--line);padding:22px 16px;transform:translateX(calc(-100% - 80px));transition:transform .25s ease;z-index:20;box-shadow:30px 0 60px -30px #000;display:flex;flex-direction:column;gap:8px}
+.lib-open .drawer{transform:none}
+.drawer h3{margin:0 0 6px;font:600 12px var(--u);letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+.setlist{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border-radius:12px;color:var(--dim);font-weight:600}
+.setlist em{margin-left:auto;font-style:normal;font-size:12px}
+.setlist.active{background:var(--s2);color:var(--text)}
+.setlist.active .ic{color:var(--amber)}
+.song{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 12px;border-radius:12px}
+.song .grip{color:var(--faint)}.song .grip .ic{width:14px}
+.song-body{flex:1;min-width:0}.song-body strong{display:block;font-weight:600}
+.song-body small{color:var(--dim);font-size:12px}
+.song-len{color:var(--faint);font-size:12px}
+.song.active{background:linear-gradient(90deg,#FFC46B22,transparent);box-shadow:inset 3px 0 0 var(--amber)}
+.song[data-status="busy"] small{color:var(--cyan)}
+.songs{display:flex;flex-direction:column;gap:2px;overflow:auto}
+
+/* Main */
+.main{display:grid;grid-template-rows:auto 1fr auto;min-height:0;min-width:0;position:relative}
+.top{display:flex;align-items:center;gap:18px;padding:18px 34px}
+.top h1{margin:0;font:800 22px/1 var(--u);letter-spacing:-.01em}
+.top .sub{color:var(--dim);font-size:13px;margin-top:5px}
+.top .sub b{color:var(--amber);font-weight:600}
+.where{display:flex;align-items:center;gap:10px;margin-left:24px;padding:8px 14px;border-radius:999px;background:var(--s1);border:1px solid var(--line);font-weight:600;font-size:13px}
+.where i{width:8px;height:8px;border-radius:50%;background:var(--pink);box-shadow:0 0 10px var(--pink)}
+.where span:last-child{color:var(--dim)}
+.views{margin-left:auto;display:flex;padding:4px;border-radius:14px;background:var(--s1);border:1px solid var(--line)}
+.views button{display:flex;align-items:center;gap:7px;padding:8px 14px;border-radius:10px;font-weight:600;font-size:13px;color:var(--dim)}
+.views .ic{width:16px}
+.views button.active{background:var(--s2);color:var(--text)}
+.tool{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:var(--dim);border:1px solid var(--line)}
+.tool:hover{color:var(--text);background:var(--s2)}
+.tool .ic{width:17px}
+
+.stage-wrap{display:grid;grid-template-columns:1fr 250px;min-height:0;gap:0}
+.stage{overflow:auto;min-height:0;padding:40px 50px 45vh;position:relative;scroll-behavior:smooth;
+  -webkit-mask:linear-gradient(transparent,#000 70px,#000 calc(100% - 90px),transparent);mask:linear-gradient(transparent,#000 70px,#000 calc(100% - 90px),transparent)}
+.spot{position:absolute;pointer-events:none;inset:0;background:radial-gradient(60% 40% at 40% 30%,#FFC46B12,transparent 70%)}
+
+.sec{position:relative;padding:24px 30px 26px;margin:0 0 10px;border-radius:26px;opacity:.28;filter:saturate(.4);transition:opacity .45s,filter .45s,background .45s}
+.sec.now{opacity:1;filter:none;background:radial-gradient(120% 120% at 0 0,#FFC46B14,transparent 60%),var(--s1);box-shadow:0 0 0 1px var(--line),0 30px 80px -40px #FFC46B44}
+.stage:hover .sec{opacity:.6}.stage:hover .sec.now{opacity:1}
+.sec-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.sec-num{font:600 12px var(--u);color:var(--faint)}
+.sec-name{margin:0;font:600 14px var(--u);letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+.sec.now .sec-name{color:var(--amber)}
+.sec[data-name="chorus"].now .sec-name{color:var(--pink)}
+.sec-time{color:var(--faint);font-size:13px}
+.sec-tools{margin-left:auto;display:flex;gap:6px;opacity:0;transition:.2s}
+.sec:hover .sec-tools{opacity:1}
+.sec-tools button{display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:var(--s2);font-weight:600;font-size:12px;color:var(--dim)}
+.sec-tools .ic{width:14px}
+.row{margin:4px 0 14px}
+.bars{display:flex;flex-wrap:wrap;row-gap:22px;align-items:flex-start}
+.tail{display:flex;align-items:flex-start}
+.bar{display:flex;gap:26px;padding:0 30px 0 22px;border-left:2px solid var(--line);min-height:56px}
+.bar.last{border-right:2px solid var(--line)}
+.row:not(.has-lyrics) .bar{min-width:190px}
+.pass-labels{display:none;flex-direction:column;padding-top:60px;margin-left:-14px}
+.bar.line-start .pass-labels{display:flex}
+.pass-labels span{font:600 11px/32px var(--u);color:var(--faint)}
+.chunk{display:flex;flex-direction:column;min-width:2.4em}
+.chord{font:600 38px/1 var(--u);letter-spacing:-.02em;text-align:left;padding:6px 10px;margin:0 0 8px -10px;border-radius:14px;align-self:flex-start;color:var(--text);transition:all .18s}
+.chord .q{font-size:.55em;font-weight:400;vertical-align:.6em;margin-left:2px}
+.chord .acc{font-size:.75em}
+.chord:hover{background:var(--s2)}
+.chord.selected{box-shadow:0 0 0 2px var(--cyan)}
+.lyr{font:300 22px/32px var(--o);white-space:nowrap;color:#D9D2F0}
+.repeat{font:600 20px/56px var(--u);color:var(--violet);margin-left:10px}
+.chunk.now .chord{background:var(--amber);color:#1A1206;box-shadow:0 0 0 6px #FFC46B26,0 10px 40px -6px #FFC46Baa;transform:scale(1.04)}
+.sec[data-name="chorus"] .chunk.now .chord{background:var(--pink);color:#1d0611;box-shadow:0 0 0 6px #FF6BA826,0 10px 40px -6px #FF6BA8aa}
+.row[data-cur] .lyr,.row[data-cur] .pass-labels span{opacity:.3;transition:opacity .25s}
+.row[data-cur="0"] [data-pass="0"],.row[data-cur="1"] [data-pass="1"]{opacity:1!important}
+.row[data-cur="0"] .pass-labels [data-pass="0"],.row[data-cur="1"] .pass-labels [data-pass="1"]{color:var(--amber)}
+.chunk.now .lyr{color:#fff;font-weight:500}
+
+/* Next-up column */
+.cue{border-left:1px solid var(--line);padding:30px 26px;display:flex;flex-direction:column;gap:26px}
+.cap{font:600 11px var(--u);letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+.nowbig{font:800 92px/0.9 var(--u);letter-spacing:-.04em;background:linear-gradient(180deg,#fff,var(--amber));-webkit-background-clip:text;background-clip:text;color:transparent;margin-top:8px}
+.nowbig .q{font-size:.5em;font-weight:600}
+.nextbig{font:600 44px/1 var(--u);color:var(--dim);margin-top:8px}
+.nextbig .q{font-size:.55em}
+.beat-dots{display:flex;gap:10px;margin-top:12px}
+.beat-dots i{width:30px;height:30px;border-radius:50%;background:var(--s2);border:1px solid var(--line);transition:background .05s,box-shadow .05s}
+.beat-dots[style*="--b: 0"] i:nth-child(1){background:var(--pink);box-shadow:0 0 18px var(--pink)}
+.beat-dots[style*="--b: 1"] i:nth-child(2),.beat-dots[style*="--b: 2"] i:nth-child(3),.beat-dots[style*="--b: 3"] i:nth-child(4){background:var(--amber);box-shadow:0 0 14px var(--amber)}
+.cue .pass{font:600 15px var(--o);color:var(--violet);margin-top:6px;min-height:20px}
+
+/* Lights (stems) */
+.bottom{padding:0 34px 18px;display:flex;flex-direction:column;gap:14px;background:linear-gradient(transparent,var(--bg) 30%)}
+.lights{display:flex;gap:12px;align-items:flex-end;justify-content:center}
+.stem{--hue:var(--amber);display:grid;grid-template-columns:auto auto;grid-template-areas:"icon icon" "name name" "mute solo";justify-items:center;gap:6px;padding:12px 10px 10px;border-radius:20px;background:var(--s1);border:1px solid var(--line);width:104px;position:relative}
+.stem:nth-child(1){--hue:var(--pink)}.stem:nth-child(2){--hue:var(--amber)}.stem:nth-child(3){--hue:#FF9D5C}.stem:nth-child(4){--hue:var(--violet)}.stem:nth-child(5){--hue:var(--cyan)}.stem:nth-child(6){--hue:var(--lime)}.stem:nth-child(7){--hue:#C9C2E6}
+.stem-icon{grid-area:icon;width:50px;height:50px;border-radius:50%;display:grid;place-items:center;color:var(--hue);background:radial-gradient(circle,color-mix(in srgb,var(--hue) calc(var(--lvl,0)*55%),transparent),transparent 72%),var(--s2);box-shadow:0 0 calc(var(--lvl,0)*34px) color-mix(in srgb,var(--hue) 70%,transparent),inset 0 0 0 1.5px color-mix(in srgb,var(--hue) 50%,transparent);transition:box-shadow .06s}
+.stem-icon .ic{width:22px;height:22px}
+.stem-name{grid-area:name;font-weight:600;font-size:12px;color:var(--dim);white-space:nowrap}
+.meter{display:none}
+.fader{position:absolute;left:12px;right:12px;top:66px;opacity:0;height:10px}
+.mute,.solo{width:36px;height:26px;border-radius:9px;display:grid;place-items:center;background:var(--s2);color:var(--dim)}
+.mute{grid-area:mute}.solo{grid-area:solo}
+.mute .ic,.solo .ic{width:15px}
+.stem.muted .stem-icon{color:var(--faint);box-shadow:inset 0 0 0 1.5px var(--line);background:var(--s2)}
+.stem.muted .mute{background:#3A1E2C;color:var(--pink)}
+.stem.muted .stem-name{text-decoration:line-through;color:var(--faint)}
+.stem.soloed{border-color:var(--hue)}
+.stem.soloed .solo{background:var(--hue);color:#120F1D}
+.mix-more{align-self:center;display:flex;flex-direction:column;align-items:center;gap:6px;padding:0 6px;color:var(--dim);font-size:12px}
+.mix-more .tool{border-radius:50%}
+
+.transport{display:grid;grid-template-columns:auto 1fr auto;gap:22px;align-items:center;background:var(--s1);border:1px solid var(--line);border-radius:24px;padding:12px 18px}
+.ctrls{display:flex;align-items:center;gap:8px}
+.c{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;color:var(--dim);background:var(--s2)}
+.c:hover{color:var(--text)}
+.c.on{color:#120F1D;background:var(--cyan);box-shadow:0 0 16px #62E3FF66}
+.c.play{width:62px;height:62px;color:#1A1206;background:linear-gradient(160deg,#FFE0A8,var(--amber));box-shadow:0 10px 30px -8px #FFC46Bcc}
+.c.play .ic{width:26px;height:26px}
+.c.slow{width:auto;padding:0 14px;border-radius:999px;display:flex;gap:6px;font-weight:600;font-size:13px}
+.lane{position:relative;height:70px;cursor:pointer}
+.blocks{position:absolute;left:0;right:0;top:0;height:24px}
+.blk{position:absolute;top:0;height:24px;padding:0 2px}
+.blk span{display:flex;align-items:center;justify-content:center;height:100%;border-radius:8px;background:var(--s2);color:var(--dim);font:600 9.5px var(--u);letter-spacing:.04em;text-transform:uppercase;overflow:hidden;white-space:nowrap}
+.blk.now span{background:var(--amber);color:#1A1206}
+.blk[data-name="chorus"].now span{background:var(--pink)}
+.wave{position:absolute;left:0;right:0;top:30px;bottom:0}
+.wave svg{position:absolute;inset:0;width:100%;height:100%}
+.wave-base{fill:#2B2642}
+.wave-played{fill:url(#g);fill:var(--violet);clip-path:inset(0 calc(100% - var(--p)) 0 0)}
+.head{position:absolute;top:26px;bottom:-4px;left:var(--p);width:2px;background:#fff;box-shadow:0 0 10px #fff;pointer-events:none}
+.right{display:flex;align-items:center;gap:14px}
+.time{font:500 14px var(--o);color:var(--dim);font-variant-numeric:tabular-nums}
+.time b{color:var(--text);font-weight:600}
+.src{display:flex;padding:3px;border-radius:12px;background:var(--s2)}
+.src button{padding:7px 12px;border-radius:9px;font-weight:600;font-size:12px;color:var(--dim)}
+.src button.active{background:var(--text);color:var(--bg)}
+.vol{display:flex;align-items:center;gap:8px;color:var(--dim)}
+.vol input{width:90px;accent-color:var(--amber)}
+
+/* popover */
+.pop{position:absolute;z-index:50;width:320px;background:#1D1930f2;backdrop-filter:blur(14px);border:1px solid var(--line);border-radius:22px;padding:16px;box-shadow:0 30px 60px -20px #000;color:var(--text);font-family:var(--o)}
+.pop-title{display:flex;gap:6px;align-items:center;font:600 11px var(--u);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.pop-title .ic{width:14px}
+.pop-input{margin:12px 0;padding:10px 14px;border-radius:14px;background:var(--bg);box-shadow:inset 0 0 0 2px var(--cyan);font:600 30px/1 var(--u);display:flex;align-items:center}
+.pop-input .q{font-size:.55em}
+.caret{width:2px;height:28px;background:var(--cyan);margin-left:4px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.pop-sugs{display:flex;gap:6px;flex-wrap:wrap}
+.pop-sugs button{padding:6px 12px;border-radius:999px;background:var(--s2);font-weight:600}
+.pop-sugs button:hover{background:var(--line)}
+.pop-scope{display:flex;gap:4px;margin:14px 0;padding:4px;border-radius:14px;background:var(--bg)}
+.pop-scope button{flex:1;padding:7px;border-radius:10px;font-weight:600;font-size:12px;color:var(--dim);display:flex;align-items:center;justify-content:center;gap:4px;white-space:nowrap}
+.pop-scope .ic{width:13px}
+.pop-scope button.on{background:var(--s2);color:var(--text)}
+.pop-foot{display:flex;justify-content:space-between}
+.pop-foot button{display:flex;gap:6px;align-items:center;padding:8px 14px;border-radius:12px;font-weight:600;font-size:13px}
+.pop-foot .ic{width:14px}
+.pop-done{background:var(--amber);color:#1A1206}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="rail">
+    <div class="logo" title="Chord Buddy"></div>
+    <button data-toggle="lib-open" title="Library & set lists"><span data-icon="list"></span></button>
+    <button class="on" title="Chord chart"><span data-icon="chart"></span></button>
+    <button title="Lead sheet"><span data-icon="score"></span></button>
+    <button title="MIDI"><span data-icon="midi"></span></button>
+    <span class="sp"></span>
+    <button title="Import MP3"><span data-icon="upload"></span></button>
+    <button title="Settings"><span data-icon="gear"></span><span class="dot" title="Engine ready"></span></button>
+  </nav>
+  <aside class="drawer">
+    <h3>Set lists</h3><div data-render="setlists"></div>
+    <h3 style="margin-top:14px">Songs</h3><div class="songs" data-render="songs"></div>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <div><h1 data-bind="title"></h1><div class="sub"><b>D major</b> · 120 BPM · 4/4 · stems ready</div></div>
+      <div class="where"><i></i><span data-bind="section"></span><span data-bind="bar"></span></div>
+      <div class="views"><button class="active"><span data-icon="stand"></span>Stage</button><button><span data-icon="pencil"></span>Edit</button></div>
+      <button class="tool" title="Undo"><span data-icon="undo"></span></button>
+      <button class="tool" title="Redo"><span data-icon="redo"></span></button>
+      <button class="tool" title="More"><span data-icon="more"></span></button>
+    </header>
+
+    <div class="stage-wrap">
+      <div class="stage" data-autoscroll="60"><div class="spot"></div><div data-render="chart"></div></div>
+      <aside class="cue">
+        <div><div class="cap">Now</div><div class="nowbig" data-bind="chord"></div><div class="pass" data-bind="pass"></div></div>
+        <div><div class="cap">Next</div><div class="nextbig" data-bind="next"></div></div>
+        <div><div class="cap">Beat</div><div class="beat-dots"><i></i><i></i><i></i><i></i></div></div>
+      </aside>
+    </div>
+
+    <div class="bottom">
+      <div class="lights">
+        <div data-render="stems" style="display:contents"></div>
+        <div class="mix-more"><button class="tool" title="Open full mixer"><span data-icon="layers"></span></button>Mixer</div>
+      </div>
+      <div class="transport">
+        <div class="ctrls">
+          <button class="c" data-action="loop" title="Loop section"><span data-icon="loop"></span></button>
+          <button class="c" data-action="rew" title="Previous section"><span data-icon="rewind"></span></button>
+          <button class="c play" data-action="play"></button>
+          <button class="c" data-action="ffwd" title="Next section"><span data-icon="ffwd"></span></button>
+          <button class="c slow" data-action="slow" title="Practice speed"><span data-icon="turtle"></span><span data-bind="rate">100%</span></button>
+        </div>
+        <div class="lane" data-seek>
+          <div class="blocks" data-render="blocks"></div>
+          <div class="wave" data-render="wave" data-bars="200" data-round="true"></div>
+          <div class="head"></div>
+        </div>
+        <div class="right">
+          <span class="time"><b data-bind="time"></b> / <span data-bind="total"></span></span>
+          <div class="src"><button data-source>Original</button><button data-source class="active">Stems</button></div>
+          <div class="vol"><span data-icon="volume"></span><input type="range" value="80" aria-label="Master volume"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<script src="mockup-core.js"></script>
+</body>
+</html>

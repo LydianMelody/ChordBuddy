@@ -1,0 +1,444 @@
+// The chart page. One page, three modes drawn in place:
+//   Navigate (default): click any chord, word, bar number or section name to seek there. The playing chord and word light up.
+//   Edit: everything is fixed in place. Click a chord to type a new one, type words under chords, rename sections, "+" adds a chord.
+//   Timing: the same chart drawn true to time, with draggable words (see chart-timing.js).
+// Playback decides which repeat pass is highlighted; the page itself never rearranges while it plays.
+import {buildChartModel,playbackTarget} from './chart-model.js';
+import {currentWordIndex} from './word-layout.js';
+import {planChartChordEdit,planSectionEdit} from './practice-edit.js';
+import {addressAtSeconds} from './musical-grid.js';
+import {addChartChord} from './editor.js';
+import {compactEditTargets,compactJumpTargets,hasCompactPreferences,resetCompactPreferences} from './compact-chart.js';
+import {planPageEdit} from './chart-edits.js';
+import {createTiming} from './chart-timing.js';
+import {DEFAULT_ZOOM,DEFAULT_SNAP,stepZoom,ZOOM_LEVELS} from './timing-geometry.js';
+
+const el=(tag,cls='',text)=>{const n=document.createElement(tag);n.className=cls;if(text!==undefined)n.textContent=text;return n;};
+const finite=Number.isFinite;
+const pad2=n=>String(n).padStart(2,'0');
+const clock=s=>finite(s)?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'):'';
+export const CHORD_SUGGESTIONS=['C','Cm','C7','Cmaj7','D','Dm','D7','Dsus4','E','Em','E7','F','Fm','F#','F#m','G','G7','Gsus4','A','Am','A7','Asus4','B','Bm','Bb','Eb','Ab','Db','C/E','D/F#','G/B','Am7','Dm7','Em7','Bm7','Cadd9','N'];
+const nameKey=name=>String(name||'').toLowerCase().replace(/[^a-z]/g,'');
+const joinWords=tokens=>tokens.map((t,i)=>t.text+(i<tokens.length-1&&!t.text.endsWith('-')?' ':'')).join('');
+
+export function mountChartPage(root,handlers={}){
+  let data=null,model=null,key=null,mode='nav',scope='occurrence',snap=DEFAULT_SNAP,zoom=DEFAULT_ZOOM,draft=null,saving=false,last=null;
+  const targetPass={},seekPass={};let pendingName=null;
+  let refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[]},occById=new Map();
+  const page=el('div','chart-flow'),notices=el('div','chart-notices'),message=el('p','chart-message');message.setAttribute('role','status');
+  root.replaceChildren(notices,message,page);root.dataset.mode=mode;
+  root.onwheel=e=>{if(mode==='timing'&&e.ctrlKey){e.preventDefault?.();api.zoomBy(e.deltaY<0?1:-1);}};
+  const suggestions=el('datalist');suggestions.id='chord-list';for(const c of CHORD_SUGGESTIONS){const o=el('option');o.value=c;suggestions.append(o);}
+
+  const timing=createTiming({
+    getData:()=>data,getModel:()=>model,getSnap:()=>snap,getZoom:()=>zoom,get refs(){return refs;},
+    commit:(candidate,label)=>commitPlain(candidate,label),fail:e=>fail(e),say:text=>{message.textContent=text;},blocked:()=>blocked(),rerender:()=>render(),
+  });
+  const notify=()=>handlers.onDraftChange?.({draft:!!draft?.dirty,saving,failed:!!draft?.failed});
+  const fail=e=>{message.textContent=e?.message||String(e);handlers.onError?.(e);};
+  const context=()=>({documentId:data.documentId,revision:data.revision});
+  const group=id=>model?.projection.groups.find(g=>g.id===id);
+  const groupModel=id=>refs.groups.find(r=>r.model.id===id)?.model;
+
+  // ----- which pass? Playback wins while it is inside the group; otherwise the last pass you chose; otherwise the first. -----
+  function playingPass(groupId){const t=last?.target;return t&&t.groupId===groupId?t.passNumber:null;}
+  const passForSeek=g=>playingPass(g.id)??seekPass[g.id]??1;
+  const passForEdit=g=>targetPass[g.id]??playingPass(g.id)??1;
+  function occurrenceFor(groupId,slotId,pass){return model.projection.occurrences.find(o=>o.groupId===groupId&&o.slotId===slotId&&o.passNumber===pass)||null;}
+
+  function seek(seconds){if(!finite(seconds))return;Promise.resolve(handlers.onSeek?.(seconds)).catch(fail);}
+  function blocked(){
+    if(saving){message.textContent='Saving… one moment.';return true;}
+    if(draft?.dirty){message.textContent='Press Enter to keep your change or Esc to drop it first.';draft.node?.focus?.();return true;}
+    return false;
+  }
+
+  // ======================= rendering =======================
+  function chordLabel(chunk){return chunk.continued?'('+chunk.label+')':chunk.label;}
+  function renderChord(g,bar,chunk){
+    const holder=el('span','chord-line'),b=el('button','chord',chordLabel(chunk));b.type='button';b.dataset.chunk=chunk.key;
+    b.title=mode==='edit'?'Type a new chord':'';
+    b.onclick=()=>onChordClick(g,chunk,b);
+    holder.append(b);
+    if(chunk.repeat>1){const r=el('span','repeat','(×'+chunk.repeat+')');r.title='Played '+chunk.repeat+' times';holder.append(r);}
+    refs.chords.push({node:b,chunk,group:g});return holder;
+  }
+  function renderLaneSlot(g,bar,chunk,lane,laneIndex,first){
+    const tokens=chunk.lanes[laneIndex]||[],holder=el('span','lane'),slot=el('span','lyr');slot.dataset.lane=String(laneIndex);slot.dataset.pass=String(lane.passNumber);
+    if(first&&g.passCount>1&&mode!=='timing'){
+      const tag=el('span','lane-tag',String(lane.passNumber));tag.title='Pass '+lane.passNumber;
+      tag.onclick=e=>{e?.stopPropagation?.();seekPass[g.id]=lane.passNumber;};
+      refs.lanes.push({tag,group:g,lane});holder.append(tag);
+    }
+    holder.append(slot);refs.slots.push({node:slot,group:g,lane});
+    tokens.forEach((t,i)=>{
+      const w=el('span','w',t.text+(i<tokens.length-1&&!t.text.endsWith('-')?' ':''));
+      w.dataset.line=String(t.line);w.dataset.offset=String(t.offset);
+      w.onclick=()=>{if(finite(t.seconds)){seekPass[g.id]=t.passNumber;seek(t.seconds);}};
+      refs.words.push({node:w,token:t,group:g,lane});slot.append(w);
+    });
+    return holder;
+  }
+  function renderChunk(g,bar,chunk,isLast){
+    const node=el('span','chunk'),cell={node,group:g,chunk};node.dataset.chunk=chunk.key;
+    node.append(renderChord(g,bar,chunk));
+    if(mode!=='edit')g.lanes.forEach((lane,i)=>node.append(renderLaneSlot(g,bar,chunk,lane,i,bar===g.bars[0]&&chunk===bar.chunks[0])));
+    if(mode==='edit'&&chunk.chordId){const add=el('button','add-chord','+');add.type='button';add.title='Add a chord after this one';add.onclick=e=>{e?.stopPropagation?.();addChordAfter(g,chunk);};node.append(add);}
+    refs.chunks.push(cell);return node;
+  }
+  function renderBar(g,bar,index){
+    const n=el('div','bar'+(index===g.bars.length-1?' last':''));n.dataset.bar=bar.id;
+    const no=el('span','bar-no',String(bar.number));no.title='Jump to bar '+bar.number;
+    no.onclick=()=>{if(mode!=='nav')return;const o=g.bars&&occurrenceFor(g.id,bar.chunks[0]?.slotId,passForSeek(g.model||g));seek(o?.start??bar.start);};
+    n.append(no);
+    if(bar.meterChange&&bar.meter)n.append(el('span','bar-meter',bar.meter.join('/')));
+    if(mode==='edit'&&index>0&&bar.mapped&&g.passCount===1)n.append(splitButton(bar.start,'bar'));
+    for(const chunk of bar.chunks)n.append(renderChunk(g,bar,chunk,index===g.bars.length-1));
+    if(!bar.chunks.length&&mode!=='edit')for(const [i,lane] of g.lanes.entries())n.append(renderLaneSlot(g,bar,{key:null,slotId:null,lanes:{}},lane,i,false));
+    return n;
+  }
+  function renderGroup(section,g){
+    if(mode==='timing')return timing.renderGroup(section,g);
+    const row=el('div','row'+(g.lanes.length?' has-lyrics':'')),bars=el('div','bars');row.dataset.group=g.id;
+    g.model=g;refs.groups.push({node:row,model:g});
+    if(mode==='edit'&&g.passCount>1){
+      const pick=el('span','pass-pick');pick.title='Which pass your chord changes apply to';
+      for(let p=1;p<=g.passCount;p++){const s=el('button','',String(p));s.type='button';s.dataset.pass=String(p);s.onclick=()=>{targetPass[g.id]=p;paintTargets();};pick.append(s);}
+      refs.lanes.push({pick,group:g});row.append(pick);
+    }
+    g.bars.forEach((bar,i)=>bars.append(renderBar(g,bar,i)));
+    // lyric lines that were never placed on the chart: plain text (in Edit they get a line of their own, below)
+    if(mode!=='edit')for(const lane of g.lanes.filter(l=>l.flow)){
+      const flow=el('div','flow-line'),text=el('span','flow-text',lane.tokens.map(t=>t.text).join(' ')||lane.text);
+      flow.append(text);bars.append(flow);
+    }
+    row.append(bars);
+    if(mode==='edit')row.append(renderLaneEditors(g,row));
+    if(g.endings.length&&mode!=='timing'){
+      const alts=el('div','alt-endings');
+      for(const e of g.endings.filter(e=>!e.passNumbers.includes(1))){
+        const item=el('div','alt-ending');item.append(el('span','ending-label',(e.passNumbers.length===1?'Ending ':'Endings ')+e.passNumbers.join(', ')),el('span','bar-no',String(e.measureNumber)));
+        for(const o of e.chords){const b=el('button','chord ending-chord',o.label??'?');b.type='button';b.dataset.occurrence=o.id;b.onclick=()=>{if(mode==='nav')seek(o.start);else onEndingEdit(g,o,b);};refs.endings.push({node:b,occurrence:o});item.append(b);}
+        alts.append(item);
+      }
+      if(alts.children.length)row.append(alts);
+    }
+    return row;
+  }
+  // Redrawing (a new mode, zoom, a saved edit) keeps the row nearest the top of the view exactly where it was.
+  function keepPlace(fn){
+    const desk=root.closest?.('.desk')||root.parentElement;
+    const top=desk?.getBoundingClientRect?.().top??0,rows=refs.groups||[];
+    const anchor=rows.find(r=>r.node.getBoundingClientRect?.().bottom>top+10);
+    const id=anchor?.model.id,offset=anchor?anchor.node.getBoundingClientRect().top-top:0;
+    fn();
+    const again=refs.groups.find(r=>r.model.id===id);
+    if(again&&desk&&desk.scrollTop!==undefined)desk.scrollTop+=again.node.getBoundingClientRect().top-top-offset;
+  }
+  function render(){
+    if(!data)return;
+    model=buildChartModel(data.content,data.music,{onsets:data.suggest?data.onsets:null});
+    refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[]};
+    occById=new Map(model.projection.occurrences.map(o=>[o.id,o]));
+    notices.replaceChildren();for(const w of model.warnings)notices.append(el('p','chart-notice',w));
+    if(hasCompactPreferences(data.content)&&mode==='edit'){const reset=el('button','secondary','Reset repeat grouping');reset.type='button';reset.onclick=()=>commitPlain(resetCompactPreferences(data.content),'Reset repeat grouping');notices.append(reset);}
+    page.replaceChildren();
+    for(const section of model.sections){
+      const sec=el('section','sec');sec.dataset.section=section.id;sec.dataset.name=nameKey(section.name);
+      const head=el('header','sec-head'),num=el('span','sec-num',pad2(section.number)),name=el('h3','sec-name',section.name),time=el('span','sec-time',clock(section.start));
+      head.append(num,name,time);
+      if(mode==='edit'){name.contentEditable='plaintext-only';wireSectionName(name,section);if(refs.sections.length>0)head.append(joinButton(section));}
+      else head.onclick=()=>{if(mode==='nav')seek(section.start);};
+      sec.append(head);refs.sections.push({node:sec,section});
+      section.groups.forEach((g,i)=>{if(mode==='edit'&&i>0){const gap=el('div','split-gap');gap.append(splitButton(g.start,'row'));sec.append(gap);}sec.append(renderGroup(section,g));});
+      page.append(sec);
+    }
+    page.append(suggestions);
+    if(pendingName){const node=page.querySelector?.('[data-section="'+pendingName+'"] .sec-name');pendingName=null;if(node){node.focus?.();getSelection?.()?.selectAllChildren?.(node);}}
+    root.dataset.mode=mode;last=null;paintTargets();updatePlayback(data.transport);positionEditors();
+  }
+
+  // ======================= playback highlighting =======================
+  function paintTargets(){
+    for(const r of refs.lanes){
+      if(r.tag){r.tag.classList.toggle('target',mode==='edit'&&passForEdit(r.group)===r.lane.passNumber);}
+      if(r.pick)for(const b of r.pick.children)b.classList.toggle('on',passForEdit(r.group)===Number(b.dataset.pass));
+    }
+  }
+  function updatePlayback(transport){
+    if(!data)return;data.transport=transport;if(!model)return;
+    const seconds=transport.seconds,target=playbackTarget(model,seconds);
+    const occ=target?occById.get(target.occurrenceId):null,first=occ?model.projection.occurrences.find(o=>o.groupId===occ.groupId&&o.slotId===occ.slotId&&o.passNumber===1):null;
+    const alt=!!occ&&!!occ.ending&&!!first&&first.endingVariant!==occ.endingVariant;      // the changed ending is playing, not the displayed one
+    const sig=JSON.stringify([target?.chunkKey,target?.passNumber,target?.sectionId,alt,occ?.id]);
+    const wordIndexes=new Map();
+    for(const r of refs.groups)for(const [i,lane] of r.model.lanes.entries()){
+      const live=!lane.flow&&lane.span&&seconds>=lane.span.start-1e-6&&seconds<lane.span.end&&(r.model.passCount===1||target?.groupId===r.model.id&&target.passNumber===lane.passNumber);
+      const placed=lane.tokens.filter(t=>!t.flow);
+      wordIndexes.set(lane,live?currentWordIndex(placed.map(t=>({seconds:t.seconds})),seconds):-1);
+    }
+    const wsig=sig+JSON.stringify([...wordIndexes.values()]);
+    const changedTarget=!last||last.sig!==sig;
+    if(last&&last.wsig===wsig&&last.mode===mode){last={...last,target};return;}
+    last={sig,wsig,mode,target};
+    for(const r of refs.sections)r.node.classList.toggle('now',r.section.id===target?.sectionId);
+    for(const r of refs.groups){
+      const here=target?.groupId===r.model.id;
+      if(here)r.node.dataset.cur=String(target.passNumber);else delete r.node.dataset.cur;
+      r.node.classList.toggle('now',here);
+      if(here&&r.model.passCount>1)seekPass[r.model.id]=target.passNumber;
+    }
+    for(const r of refs.chunks)r.node.classList.toggle('now',!!target&&!alt&&r.chunk.key===target.chunkKey);
+    for(const r of refs.endings)r.node.classList.toggle('now',!!occ&&r.occurrence.id===occ.id);
+    for(const r of refs.slots)r.node.classList.toggle('dim',!!target&&target.groupId===r.group.id&&r.group.passCount>1&&target.passNumber!==r.lane.passNumber);
+    for(const r of refs.words){
+      const placed=r.lane.tokens.filter(t=>!t.flow),idx=wordIndexes.get(r.lane);
+      r.node.classList.toggle('wnow',idx>=0&&placed[idx]===r.token);
+    }
+    for(const r of refs.lanes)if(r.tag)r.tag.classList.toggle('cur',target?.groupId===r.group.id&&target.passNumber===r.lane.passNumber);
+    if(changedTarget&&mode==='nav'&&transport.playing&&target)followPlayback(target);
+  }
+  // Keep the playing row on screen while playing in Navigate, without fighting the reader.
+  function followPlayback(target){
+    const row=refs.groups.find(r=>r.model.id===target.groupId)?.node;if(!row?.getBoundingClientRect)return;
+    const desk=root.closest?.('.desk')||root.parentElement;const box=desk?.getBoundingClientRect?.(),r=row.getBoundingClientRect();
+    if(!box||desk.scrollHeight<=desk.clientHeight)return;
+    if(r.top<box.top+box.height*.12||r.bottom>box.top+box.height*.8)row.scrollIntoView?.({block:'center',behavior:'smooth'});
+  }
+
+  // ======================= Navigate =======================
+  function onChordClick(g,chunk,button){
+    if(mode==='nav'){
+      const pass=passForSeek(g),target=compactJumpTargets(model.projection,{groupId:g.id,slotId:chunk.slotId}).find(t=>t.passNumber===pass)||compactJumpTargets(model.projection,{groupId:g.id,slotId:chunk.slotId})[0];
+      seekPass[g.id]=pass;seek(target?.seconds??chunk.start);return;
+    }
+    if(mode==='edit')startChordEdit(g,chunk,button);
+  }
+
+  // ======================= Edit: chords =======================
+  async function commitPlain(candidate,label){
+    if(saving)return false;saving=true;notify();
+    try{await handlers.onCommit?.(candidate,label,context());message.textContent='';return true;}
+    catch(e){fail(e);return false;}
+    finally{saving=false;notify();}
+  }
+  function startChordEdit(g,chunk,button){
+    if(blocked()||!chunk.chordId)return;
+    if(handlers.canEdit?.()===false){message.textContent='Wait for the save, or reload the chart before editing again.';return;}
+    const input=el('input','chord-input');input.value=chunk.label==='?'?'':chunk.label;input.setAttribute('list','chord-list');input.setAttribute('aria-label','Chord');input.size=Math.max(3,input.value.length+1);
+    draft={kind:'chord',node:input,dirty:false,failed:false};
+    button.replaceWith?.(input);if(!button.replaceWith){button.parent?.children.splice(button.parent.children.indexOf(button),1,input);}
+    let done=false;
+    const finish=async(save)=>{
+      if(done)return;done=true;const value=input.value.trim();draft=null;
+      const same=value===(chunk.label==='?'?'':chunk.label);
+      if(!save||same||!value){render();notify();return;}
+      try{
+        const pass=passForEdit(g),occ=occurrenceFor(g.id,chunk.slotId,pass)||chunk.occurrence;
+        const result=planChartChordEdit(data.content,data.music,{chordId:occ.chordId,label:value,scope,selection:{groupId:g.id,slotId:chunk.slotId,passNumber:occ.passNumber,chordId:occ.chordId},view:model.projection});
+        if(result.conflicts.length){fail(Error(result.conflicts[0].message));render();return;}
+        await commitPlain(result.candidate,scope==='all-matching'?'Edit chords in matching passes':'Edit chord');
+      }catch(e){fail(e);}
+      render();
+    };
+    input.oninput=()=>{draft.dirty=true;input.size=Math.max(3,input.value.length+1);};
+    input.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault?.();finish(true);}else if(e.key==='Escape'){e.preventDefault?.();finish(false);}};
+    input.onblur=()=>finish(true);
+    input.focus();input.select?.();notify();
+  }
+  function onEndingEdit(g,occurrence,button){
+    const chunk={chordId:occurrence.chordId,label:occurrence.label??'?',slotId:occurrence.slotId,occurrence};
+    targetPass[g.id]=occurrence.passNumber;startChordEdit(g,chunk,button);
+  }
+  async function addChordAfter(g,chunk){
+    if(blocked())return;
+    try{
+      const pass=passForEdit(g),occ=occurrenceFor(g.id,chunk.slotId,pass)||chunk.occurrence;
+      const targets=scope==='all-matching'?compactEditTargets(model.projection,{groupId:g.id,slotId:chunk.slotId,passNumber:occ.passNumber,chordId:occ.chordId,scope}).chordIds:[occ.chordId];
+      let next=structuredClone(data.content);
+      const base=data.content.chords.find(c=>c.id===occ.chordId);
+      const time=splitTime(base,data.music);
+      for(const id of targets){
+        const c=data.content.chords.find(x=>x.id===id);next=addChartChord(next,c.start+(time-base.start),crypto.randomUUID(),'C');
+      }
+      await commitPlain(next,'Add chord');
+    }catch(e){fail(e);}
+  }
+
+  // ======================= Edit: one line of words per pass =======================
+  // Each pass of a row has one editable line under it. It is separate from the chords, so typing never moves them; the words are
+  // spread between whatever pins exist when you leave the line. A new line starts at the chord you click and ends with the row.
+  function laneItems(g){
+    const items=g.lanes.map(lane=>({group:g,lane,passNumber:lane.passNumber,id:g.id+'|'+lane.line}));
+    const have=new Set(g.lanes.filter(l=>!l.flow).map(l=>l.passNumber));
+    const wanted=g.passCount>1?g.passes.map(p=>p.number).filter(n=>!have.has(n)):(g.lanes.length?[]:[1]);
+    for(const n of wanted)items.push({group:g,lane:null,passNumber:n,id:g.id+'|new'+n});
+    return items.sort((a,b)=>a.passNumber-b.passNumber);
+  }
+  function renderLaneEditors(g,row){
+    const box=el('div','lane-edits');
+    for(const item of laneItems(g)){
+      const tokens=item.lane?.tokens||[],text=joinWords(tokens),line=el('div','lane-edit'),editor=el('span','lyr');
+      if(g.passCount>1){
+        const tag=el('span','lane-tag',String(item.passNumber));tag.title='Pass '+item.passNumber+' · click to make chord changes apply to it';
+        tag.onclick=e=>{e?.stopPropagation?.();targetPass[g.id]=item.passNumber;paintTargets();};
+        refs.lanes.push({tag,group:g,lane:{passNumber:item.passNumber}});line.append(tag);line.classList.add('tagged');
+      }
+      editor.contentEditable='plaintext-only';
+      editor.dataset.placeholder=item.lane?'…':(g.passCount>1?'Click and type the words for pass '+item.passNumber:'Click and type the words');
+      editor.append(document.createTextNode?document.createTextNode(text):text);
+      const ref={...item,node:editor,line,row,original:text,anchorKey:tokens[0]?.chunkKey??null};
+      editor._lane=ref;refs.editors.push(ref);wireLane(ref);line.append(editor);
+      if(item.lane?.flow){const place=el('button','add-lyrics','Place on this row');place.type='button';place.onclick=()=>placeFlowLine(g,item.lane);line.append(place);}
+      box.append(line);
+    }
+    return box;
+  }
+  // Where a line starts: under the chord its first word is pinned or placed at (or the chord you clicked, for a new line).
+  function positionEditors(){
+    for(const ref of refs.editors){
+      const chunk=refs.chunks.find(c=>c.chunk.key===ref.anchorKey)?.node,rowBox=ref.row.getBoundingClientRect?.(),box=chunk?.getBoundingClientRect?.();
+      const x=rowBox&&box?Math.max(0,box.left-rowBox.left):0;
+      ref.line.style?.setProperty?.('--start',x+'px');
+    }
+  }
+  function wireLane(ref){
+    const editor=ref.node;let done=false;
+    editor.onfocus=()=>{draft={kind:'lyric',node:editor,dirty:false,failed:false};done=false;notify();};
+    editor.oninput=()=>{if(draft?.node===editor)draft.dirty=editor.textContent.trim()!==ref.original.trim();notify();};
+    editor.onmousedown=e=>{
+      // a new line begins at the chord nearest the click
+      if(ref.lane||ref.node.textContent||!finite(e?.clientX))return;
+      const mine=refs.chunks.filter(c=>c.group===ref.group&&c.node.getBoundingClientRect);
+      let best=null,gap=Infinity;for(const c of mine){const d=Math.abs(c.node.getBoundingClientRect().left-e.clientX);if(d<gap){gap=d;best=c;}}
+      if(best){ref.anchorKey=best.chunk.key;positionEditors();}
+    };
+    const finish=async save=>{
+      if(done)return false;done=true;
+      const raw=editor.textContent;draft=null;
+      if(!save||raw.replace(/\s+/g,' ').trim()===ref.original.trim()){editor.textContent=ref.original;notify();return false;}
+      try{await commitLanes(ref,raw);}catch(e){fail(e);}
+      render();return true;
+    };
+    editor.onkeydown=async e=>{
+      if(e.key==='Enter'||e.key==='Tab'&&!e.shiftKey){
+        e.preventDefault?.();
+        const at=refs.editors.indexOf(ref),next=refs.editors[at+1]?.id;
+        await finish(true);
+        if(next){const target=refs.editors.find(r=>r.id===next);target?.node.focus?.();}
+      }else if(e.key==='Escape'){e.preventDefault?.();finish(false);}
+    };
+    editor.onblur=()=>finish(true);
+  }
+  // Save what was typed. Several lines pasted at once flow into the next lines in order, so a whole song can be pasted into the first one.
+  async function commitLanes(ref,raw){
+    if(saving)return;
+    const lines=String(raw).split(/\n+/).map(t=>t.replace(/\s+/g,' ').trim()),filled=lines.filter(Boolean);
+    const multiple=filled.length>1,texts=multiple?filled:[filled[0]??''];
+    const targets=refs.editors.slice(refs.editors.indexOf(ref));
+    if(texts.length>targets.length)throw Error('That is '+texts.length+' lines of words but only '+targets.length+' lines to put them on from here. Trim the text or add rows first.');
+    let content=data.content,lost=0;const labels=new Set(),touched=new Set();
+    texts.forEach((text,k)=>{
+      const target=targets[k];
+      if(target.lane&&text===target.original.trim())return;
+      const key=target.group.sectionId+':'+target.lane?.line;
+      if(target.lane&&touched.has(key))throw Error('One lyric line runs across several rows here. Paste fewer lines, or fix it one row at a time.');
+      const planned=planPageEdit.laneText({content,music:data.music,model,group:target.group,lane:target.lane,passNumber:target.passNumber,anchorKey:target.anchorKey,text});
+      if(planned.conflicts?.length)throw Error(planned.conflicts[0].message);
+      if(planned.candidate){content=planned.candidate;lost+=planned.lost||0;labels.add(planned.label);if(target.lane)touched.add(key);}
+    });
+    if(content===data.content)return;
+    const saved=await commitPlain(content,multiple?'Add lyrics':[...labels][0]||'Edit lyrics');
+    if(saved&&lost)message.textContent=lost===1?'One pinned word no longer exists, so its pin was removed. Undo brings it back.':lost+' pinned words no longer exist, so their pins were removed. Undo brings them back.';
+  }
+  async function placeFlowLine(g,lane){
+    if(blocked())return;
+    try{
+      const pass=g.passes.find(p=>p.number===(lane.passNumber||1))||g.passes[0];
+      const next=planPageEdit.placeOnRow({content:data.content,music:data.music,group:g,pass,lane});
+      await commitPlain(next,'Place lyric line');
+    }catch(e){fail(e);}
+  }
+
+  // ======================= Edit: split and join sections =======================
+  // A section is never empty: a split must fall inside it, and joining removes the boundary instead of leaving a hole.
+  function splitButton(seconds,kind){
+    const b=el('button','split-here'+(kind==='bar'?' bar':''),kind==='bar'?'✂':'✂ Split section here');b.type='button';
+    b.title='Start a new section here';b.setAttribute('aria-label','Split the section here');
+    b.onclick=e=>{e?.stopPropagation?.();splitAt(seconds);};return b;
+  }
+  function joinButton(section){
+    const b=el('button','join-prev','Join with previous');b.type='button';b.title='Merge this section into the one above it';
+    b.onclick=e=>{e?.stopPropagation?.();joinWithPrevious(section);};return b;
+  }
+  async function splitAt(seconds){
+    if(blocked())return;
+    try{
+      const section=model.sections.find(s=>seconds>s.start+1e-9&&seconds<s.end-1e-9);
+      const address=addressAtSeconds(model.measures,seconds);
+      if(!section||!address)throw Error('Choose a bar inside a section to split it.');
+      const newId=crypto.randomUUID();
+      const result=planSectionEdit(data.content,data.music,{sectionId:section.id,operation:'split',fields:{address:{measure_id:address.measure_id,beat:address.beat},newId,name:'New section'}});
+      if(result.conflicts?.length)return fail(Error(result.conflicts[0].message));
+      pendingName=newId;
+      if(!await commitPlain(result.candidate,'Split section'))pendingName=null;
+    }catch(e){pendingName=null;fail(e);}
+  }
+  async function joinWithPrevious(section){
+    if(blocked())return;
+    try{
+      const result=planSectionEdit(data.content,data.music,{sectionId:section.id,operation:'merge',fields:{direction:'previous',acceptGap:false}});
+      if(result.conflicts?.length)return fail(Error(result.conflicts[0].message));
+      await commitPlain(result.candidate,'Join sections');
+    }catch(e){fail(e);}
+  }
+
+  // ======================= Edit: section names =======================
+  function wireSectionName(node,section){
+    let done=false;
+    const finish=async save=>{
+      if(done)return;done=true;const name=node.textContent.replace(/\s+/g,' ').trim();draft=null;
+      if(!save||!name||name===section.name){node.textContent=section.name;notify();return;}
+      try{const result=planSectionEdit(data.content,data.music,{sectionId:section.id,operation:'edit',fields:{name}});
+        if(result.conflicts?.length)fail(Error(result.conflicts[0].message));else await commitPlain(result.candidate,'Edit section');}
+      catch(e){fail(e);}
+      render();
+    };
+    node.onfocus=()=>{draft={kind:'section',node,dirty:false,failed:false};done=false;};
+    node.oninput=()=>{if(draft?.node===node)draft.dirty=true;notify();};
+    node.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault?.();finish(true);}else if(e.key==='Escape'){e.preventDefault?.();finish(false);}};
+    node.onblur=()=>finish(true);
+  }
+
+  // ======================= public API =======================
+  const api={
+    getMode:()=>mode,getScope:()=>scope,getSnap:()=>snap,
+    setMode(next){if(!['nav','edit','timing'].includes(next)||next===mode)return mode;if(blocked())return mode;mode=next;draft=null;keepPlace(render);handlers.onModeChange?.(mode);return mode;},
+    setScope(next){if(['occurrence','all-matching'].includes(next))scope=next;handlers.onScopeChange?.(scope);},
+    setSnap(next){snap=next;if(mode==='timing')keepPlace(render);handlers.onTimingChange?.({snap,zoom});},
+    getZoom:()=>zoom,
+    setZoom(next){const z=ZOOM_LEVELS.includes(next)?next:stepZoom(next,0);if(z===zoom)return zoom;zoom=z;if(mode==='timing')keepPlace(render);handlers.onTimingChange?.({snap,zoom});return zoom;},
+    zoomBy(direction){return api.setZoom(stepZoom(zoom,direction));},
+    getProjection:()=>model?.projection||null,getModel:()=>model,
+    getSelectedSeconds:()=>null,
+    hasDraft:()=>!!draft?.dirty,hasPendingSave:()=>saving||!!draft?.dirty,canNavigate:()=>!blocked(),
+    updatePlayback,
+    update(value){
+      const nextKey=JSON.stringify([value.documentId,value.revision,value.content,value.music,!!value.suggest,value.onsets?.length||0,value.onsets?.[0]]);
+      if(data?.documentId!==value.documentId){if(draft?.dirty)return;key=null;for(const k of Object.keys(targetPass))delete targetPass[k];for(const k of Object.keys(seekPass))delete seekPass[k];}
+      data=value;
+      if(nextKey!==key&&!draft&&!saving){key=nextKey;render();}else updatePlayback(value.transport);
+    },
+    dispose(){root.replaceChildren();},
+  };
+  return api;
+}
+
+// Where a new chord goes when you press "+": the beat nearest the middle of the chord's span, so the chord is split in two.
+export function splitTime(chord,music){
+  const measures=music?.measures||[],beats=measures.flatMap(m=>m.beats).filter(t=>t>chord.start+1e-6&&t<chord.end-1e-6);
+  const mid=(chord.start+chord.end)/2;
+  if(beats.length){let best=beats[0];for(const t of beats)if(Math.abs(t-mid)<Math.abs(best-mid))best=t;return best;}
+  if(chord.end-chord.start>.5)return +(mid).toFixed(3);
+  throw Error('This chord is too short to split. Make it longer first.');
+}

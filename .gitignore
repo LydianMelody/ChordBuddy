@@ -1,0 +1,46 @@
+# Chord Buddy: what is NOT uploaded to GitHub.
+# The repository holds source code only. The installer (InstallWindowsDependencies.cmd) downloads everything else.
+
+# --- Your music and library: never publish ---
+/Data/
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+
+# --- Downloaded or built by the installer ---
+/runtime/
+/.models/
+/tools/ffmpeg.exe
+/tools/ffplay.exe
+/tools/ffprobe.exe
+/tools/licenses/
+
+# --- Test libraries, scratch output and old evidence ---
+/qa/
+/OLD-*/
+/tools/OLD-*/
+/docs/OLD-*/
+/stem-separation-tests/
+/verification/
+/backups/
+/old/
+
+# --- Private working notes (remove these two lines if you want them public) ---
+/mockups/NOTES-for-Melody.md
+/mockups/CLEANUP-CANDIDATES.md
+
+# --- Generated files ---
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+*.partial
+*.log
+portable-error.log
+
+# --- Secrets and local settings: never publish ---
+.env
+*.token
+**/token
+hf_token*
+.claude/

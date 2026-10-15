@@ -1,0 +1,48 @@
+{
+  "_note": "Exact files the Windows installer downloads. Each one is refused unless its SHA-256 matches.",
+  "python": {
+    "version": "3.11.9",
+    "url": "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip",
+    "sha256": "009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b"
+  },
+  "pip": {
+    "url": "https://files.pythonhosted.org/packages/8a/6a/19e9fe04fca059ccf770861c7d5721ab4c2aebc539889e97c7977528a53b/pip-24.0-py3-none-any.whl",
+    "sha256": "ba0d021a166865d2265246961bec0152ff124de910c5cc39f1156ce3fa7c69dc"
+  },
+  "ffmpeg": {
+    "url": "https://github.com/GyanD/codexffmpeg/releases/download/6.0/ffmpeg-6.0-essentials_build.zip",
+    "sha256": "9ae315c4310bda9127ff1ef7ea8cbe968c2c2fb70287c71a3d9c2251d629289e",
+    "inside": "ffmpeg-6.0-essentials_build",
+    "license": "GPL v3 (gyan.dev essentials build). Downloaded to your own computer, not redistributed by Chord Buddy."
+  },
+  "torch_index": {
+    "cuda": "https://download.pytorch.org/whl/cu128",
+    "cpu": "https://download.pytorch.org/whl/cpu"
+  },
+  "pure_python_sources": [
+    {
+      "name": "proxy_tools",
+      "version": "0.1.0",
+      "package": "proxy_tools",
+      "license": "MIT",
+      "url": "https://files.pythonhosted.org/packages/f2/cf/77d3e19b7fabd03895caca7857ef51e4c409e0ca6b37ee6e9f7daa50b642/proxy_tools-0.1.0.tar.gz",
+      "sha256": "ccb3751f529c047e2d8a58440d86b205303cf0fe8146f784d1cbcd94f0a28010",
+      "why": "pywebview needs it; it only exists as source and cannot be built inside the embeddable Python, so the installer packs it itself (it is one small pure-Python module).",
+      "requires": []
+    },
+    {
+      "name": "pretty_midi",
+      "version": "0.2.10",
+      "package": "pretty_midi",
+      "license": "MIT",
+      "url": "https://files.pythonhosted.org/packages/c2/81/f3e47efdf65eab347d1b78e8279222f6e3122d722cc9d68d443503a3c0e7/pretty_midi-0.2.10.tar.gz",
+      "sha256": "ea6e192f94044674e833336ea1f415318ddf28e320302ac7b109edff0d4534bd",
+      "requires": [
+        "numpy >= 1.7.0",
+        "mido >= 1.1.16",
+        "six"
+      ],
+      "why": "Source-only on PyPI; pure Python plus one sound font file."
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "python": "3.11",
+  "device": "cuda",
+  "runtime": "runtime/python.exe",
+  "model_revision": "7cb7b16233d2f5ccb4d3295c2b501fdc31bc0384",
+  "app_packages": "runtime/app-packages",
+  "engine_packages": "runtime/engine-packages",
+  "ffmpeg": "tools",
+  "torch": "2.8.0+cu128"
+}

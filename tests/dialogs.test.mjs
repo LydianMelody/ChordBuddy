@@ -1,0 +1,64 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {Node,all,installDom} from './compact-dom.mjs';
+import {askChoice,openTrash} from '../chordbuddy/web/dialogs.js';
+
+const has=(n,c)=>n.className.split(' ').includes(c);
+const byClass=(root,c)=>all(root).filter(n=>has(n,c));
+const buttons=host=>all(host).filter(n=>n.tagName==='button');
+const tick=()=>new Promise(r=>setImmediate(r));
+function setup(){installDom();return new Node();}
+
+test('a choice dialog resolves with the id of the button that was pressed', async () => {
+  const host=setup();
+  const promise=askChoice({title:'Delete “Song”?',message:'It goes to the Trash.',choices:[{id:'trash',label:'Move to Trash',kind:'danger'}],host});
+  assert.equal(byClass(host,'choice-dialog').length,1);
+  assert.match(host.textContent,/Delete “Song”\?/);assert.match(host.textContent,/It goes to the Trash\./);
+  buttons(host).find(b=>b.dataset.choice==='trash').onclick();
+  assert.equal(await promise,'trash');assert.equal(byClass(host,'choice-dialog').length,0);
+});
+
+test('Cancel and Esc both answer null and close the dialog without choosing anything', async () => {
+  const host=setup();
+  const first=askChoice({title:'Q',choices:[{id:'go',label:'Go'}],host});
+  byClass(host,'choice-cancel')[0].onclick();assert.equal(await first,null);assert.equal(byClass(host,'choice-dialog').length,0);
+  const second=askChoice({title:'Q',choices:[{id:'go',label:'Go'}],host});
+  byClass(host,'choice-dialog')[0].oncancel({preventDefault(){}});assert.equal(await second,null);
+});
+
+test('only the first answer counts', async () => {
+  const host=setup();
+  const promise=askChoice({title:'Q',choices:[{id:'a',label:'A'},{id:'b',label:'B'}],host});
+  const [,a,b]=buttons(host);a.onclick();b.onclick();byClass(host,'choice-cancel')[0]?.onclick?.();
+  assert.equal(await promise,'a');
+});
+
+test('a keep-open choice (like Export PDF) acts but leaves the question up for the real decision', async () => {
+  const host=setup(),picked=[];
+  const promise=askChoice({title:'Analyze again?',choices:[{id:'export',label:'Export PDF',keepOpen:true},{id:'analyze',label:'Analyze again',kind:'danger'}],onPick:id=>picked.push(id),host});
+  buttons(host).find(b=>b.dataset.choice==='export').onclick();
+  assert.deepEqual(picked,['export']);assert.equal(byClass(host,'choice-dialog').length,1);
+  buttons(host).find(b=>b.dataset.choice==='analyze').onclick();
+  assert.equal(await promise,'analyze');
+});
+
+test('dangerous choices are drawn as dangerous so they are never the quiet default', () => {
+  const host=setup();askChoice({title:'Q',choices:[{id:'x',label:'Delete',kind:'danger'},{id:'y',label:'Keep',kind:'secondary'}],host});
+  assert.ok(has(buttons(host).find(b=>b.dataset.choice==='x'),'choice-danger'));
+  assert.ok(!has(buttons(host).find(b=>b.dataset.choice==='y'),'choice-danger'));
+});
+
+test('the Trash lists trashed songs with Restore and Delete forever, and refreshes after each action', async () => {
+  const host=setup();let items=[{id:'a',title:'One',artist:'Me',filename:'one.mp3'},{id:'b',title:'Two',artist:'',filename:'two.mp3'}];const log=[];
+  openTrash({getItems:()=>items,onRestore:async s=>{log.push(['restore',s.id]);items=items.filter(i=>i.id!==s.id);},onPurge:async s=>{log.push(['purge',s.id]);items=items.filter(i=>i.id!==s.id);},host});
+  assert.deepEqual(byClass(host,'trash-row').map(r=>r.children[0].children[0].textContent),['One','Two']);
+  byClass(host,'trash-row')[0].children[1].onclick();await tick();
+  assert.deepEqual(byClass(host,'trash-row').map(r=>r.children[0].children[0].textContent),['Two']);
+  byClass(host,'trash-row')[0].children[2].onclick();await tick();
+  assert.deepEqual(log,[['restore','a'],['purge','b']]);assert.match(host.textContent,/The Trash is empty\./);
+});
+
+test('the Trash says so when it is empty, and Close removes it', () => {
+  const host=setup();const t=openTrash({getItems:()=>[],onRestore(){},onPurge(){},host});
+  assert.match(host.textContent,/The Trash is empty\./);byClass(host,'choice-cancel')[0].onclick();assert.equal(byClass(host,'choice-dialog').length,0);
+});

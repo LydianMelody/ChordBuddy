@@ -1,0 +1,21 @@
+# Libraries for the stem separation engine (its own small Python, see install_windows_dependencies.py).
+# Installed with --no-deps into .models/separation/packages; torch, numpy and yaml come from the app's engine packages.
+soundfile==0.12.1
+cffi==1.17.1
+pycparser==2.22
+einops==0.8.2
+beartype==0.18.5
+rotary-embedding-torch==0.9.1
+librosa==0.10.2.post1
+audioread==3.0.1
+numba==0.60.0
+llvmlite==0.43.0
+scikit-learn==1.5.2
+joblib==1.4.2
+threadpoolctl==3.5.0
+decorator==5.1.1
+lazy-loader==0.4
+msgpack==1.1.0
+pooch==1.8.2
+platformdirs==4.3.6
+soxr==0.5.0.post1

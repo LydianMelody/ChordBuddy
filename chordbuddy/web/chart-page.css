@@ -1,0 +1,130 @@
+/* The chart page (Press Room): sections, bars, chords with words under them, and the three modes. Ported from the mockup. */
+.chart-flow{display:block}
+.chart-notices:empty{display:none}
+.chart-notice{margin:6px 0;padding:6px 10px;border:2px dashed var(--ink);border-radius:8px;background:var(--hl);font:700 12px var(--m)}
+.chart-message{min-height:0;margin:4px 0;font:700 12px var(--m);color:var(--a1)}
+.chart-message:empty{display:none}
+
+/* ---------- sections ---------- */
+.sec{position:relative;padding:18px 0 10px}
+.sec-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.sec-num{position:absolute;left:-58px;top:22px;width:36px;text-align:right;font:700 13px var(--m);color:var(--faint)}
+.sec.now .sec-num{color:var(--a1)}
+.sec.now .sec-num::before{content:'▶ ';font-size:10px}
+.sec-name{margin:0;font:800 15px/1 var(--g);font-stretch:85%;text-transform:uppercase;letter-spacing:.04em;padding:5px 11px 4px;border:2px solid var(--ink);border-radius:6px;background:var(--tint);box-shadow:2px 2px 0 var(--ink);transform:rotate(-1.2deg);outline:0}
+.sec[data-name="verse"] .sec-name{background:var(--a3)}
+.sec[data-name="chorus"] .sec-name{background:var(--a1);color:var(--onA1)}
+.sec[data-name="interlude"] .sec-name,.sec[data-name="bridge"] .sec-name{background:var(--a2);color:var(--onA2)}
+.sec-time{font:400 11px var(--m);color:var(--faint)}
+
+/* ---------- rows and bars ---------- */
+.row{position:relative;margin:2px 0 14px}
+.bars{display:flex;flex-wrap:wrap;align-items:flex-start;row-gap:24px;padding-top:12px}
+.bar{position:relative;display:flex;gap:16px;padding:0 18px 4px 12px;border-left:3px solid var(--ink);min-height:38px}
+.bar.last{border-right:3px solid var(--ink)}
+.row:not(.has-lyrics) .bar{min-width:128px}
+.bar-no{position:absolute;top:-13px;left:6px;font:700 10px var(--m);color:var(--faint);line-height:1}
+.bar-meter{position:absolute;top:-15px;left:30px;font:800 11px var(--m);padding:0 5px;border:1.5px solid var(--ink);border-radius:5px;background:var(--hl)}
+.chunk{display:flex;flex-direction:column;min-width:2.3em;position:relative}
+.chord-line{display:flex;align-items:flex-start}
+.chord{font:800 25px/1 var(--g);font-stretch:86%;text-align:left;padding:3px 6px 4px;margin:0 0 5px -6px;align-self:flex-start;border-radius:6px;position:relative;color:var(--ink);background:none;border:0}
+.repeat{font:800 15px/1 var(--g);background:var(--a2);color:var(--onA2);border:2px solid var(--ink);padding:5px 9px;border-radius:999px;margin:1px 0 0 8px;transform:rotate(-4deg);white-space:nowrap}
+.lane{display:flex;align-items:baseline}
+.lyr{font:400 15.5px/23px var(--type);white-space:nowrap;outline:0;border-radius:3px;min-height:23px;display:block}
+.lyr .w{border-radius:3px;transition:background .12s}
+.lane-tag{display:inline-block;margin-right:6px;font:700 10px/16px var(--m);color:var(--faint);border:1.5px solid var(--faint);border-radius:5px;padding:0 4px;vertical-align:middle;cursor:default;user-select:none}
+.lane-tag.cur{color:var(--ink);border-color:var(--ink);background:var(--hl)}
+.lyr.dim{opacity:.38}
+.flow-line{width:100%;display:flex;align-items:center;gap:12px;margin-top:6px;font:400 15.5px/23px var(--type);color:var(--soft)}
+.flow-text{font-style:italic}
+
+/* ---------- playback: the playing chord and word light up in every mode ---------- */
+.chunk.now .chord{background:linear-gradient(100deg,transparent 2%,var(--hl) 6%,var(--hl) 94%,transparent 98%)}
+.chunk.now .chord::after{content:'';position:absolute;left:0;right:0;bottom:-3px;height:3px;background:var(--ink);border-radius:2px}
+.w.wnow{background:var(--hl);box-shadow:0 0 0 2px var(--hl)}
+
+/* ---------- Navigate: everything is a jump target ---------- */
+[data-mode="nav"] .chord,[data-mode="nav"] .w,[data-mode="nav"] .sec-head,[data-mode="nav"] .bar-no{cursor:pointer}
+[data-mode="nav"] .chord:hover{box-shadow:inset 0 0 0 2px var(--ink)}
+[data-mode="nav"] .w:hover{background:color-mix(in srgb,var(--a2) 16%,transparent);text-decoration:underline 2px var(--a2);text-underline-offset:4px}
+[data-mode="nav"] .bar-no:hover{color:var(--ink)}
+
+/* ---------- Edit: fixed in place, everything is typed directly ---------- */
+[data-mode="edit"] .chord{cursor:text;outline:2px dashed color-mix(in srgb,var(--a1) 55%,transparent);outline-offset:-1px}
+[data-mode="edit"] .chord:hover{background:color-mix(in srgb,var(--a1) 14%,transparent)}
+[data-mode="edit"] .lyr{cursor:text;box-shadow:inset 0 -2px 0 color-mix(in srgb,var(--a1) 40%,transparent);min-width:2.3em}
+[data-mode="edit"] .lyr:focus{background:color-mix(in srgb,var(--hl) 50%,transparent);box-shadow:inset 0 -2px 0 var(--a1)}
+[data-mode="edit"] .lyr:empty::before{content:attr(data-placeholder);color:var(--faint);font-style:italic}
+[data-mode="edit"] .sec-name{cursor:text}
+[data-mode="edit"] .lane-tag{cursor:pointer}
+[data-mode="edit"] .lane-tag.target{background:var(--a1);color:var(--onA1);border-color:var(--ink)}
+.chord-input{font:800 25px/1 var(--g);font-stretch:86%;width:3.4em;min-width:2.2em;padding:2px 6px;margin:0 0 5px -6px;border:2.5px solid var(--ink);border-radius:6px;background:var(--hl);color:var(--ink);box-shadow:2px 2px 0 var(--ink);outline:0}
+.add-chord{position:absolute;right:-21px;top:5px;z-index:2;width:22px;height:22px;margin:0;padding:0;background:var(--page);border:2px dashed var(--a1);border-radius:50%;color:var(--a1);font:800 16px/1 var(--g);display:grid;place-items:center;opacity:.35;min-width:0;min-height:0}
+.add-chord:hover{opacity:1;background:var(--a1);color:var(--onA1);border-style:solid}
+.add-lyrics{align-self:center;margin:12px 0 0 12px;padding:4px 10px;border:2px dashed var(--a1);border-radius:999px;font:700 11px var(--m);color:var(--a1);background:none}
+.add-lyrics:hover{background:var(--a1);color:var(--onA1)}
+.pass-pick{display:flex;gap:4px;margin:0 0 -4px;align-items:center}
+.pass-pick::before{content:'edit pass';font:700 10px var(--m);color:var(--faint);margin-right:2px}
+.pass-pick button{min-width:0;min-height:0;width:22px;height:20px;padding:0;border:1.5px solid var(--faint);border-radius:5px;font:700 11px var(--m);color:var(--faint);background:none}
+.pass-pick button.on{background:var(--a1);color:var(--onA1);border-color:var(--ink)}
+
+/* ---------- changed endings ---------- */
+.alt-endings{display:flex;flex-direction:column;gap:6px;margin:10px 0 0 14px}
+.alt-ending{display:flex;align-items:center;gap:10px}
+.ending-label{font:700 11px var(--m);text-transform:uppercase;color:var(--soft)}
+.ending-chord{font-size:20px}
+.ending-chord.now{background:linear-gradient(100deg,transparent 2%,var(--hl) 6%,var(--hl) 94%,transparent 98%)}
+
+/* ---------- Timing: the same chart, drawn true to time, with draggable words ---------- */
+[data-mode="timing"] .trow{overflow-x:auto;padding-top:16px;padding-bottom:4px}
+.trow .bars{row-gap:26px;padding-top:6px}
+.tbar{display:block;position:relative;padding:0;min-height:0;gap:0;flex:none;
+  background-image:repeating-linear-gradient(90deg,color-mix(in srgb,var(--a2) 50%,transparent) 0 1.5px,transparent 1.5px var(--bp,64px)),repeating-linear-gradient(90deg,color-mix(in srgb,var(--a2) 20%,transparent) 0 1px,transparent 1px var(--sp,32px));
+  background-position:0 18px;background-size:100% calc(100% - 18px);background-repeat:no-repeat;background-color:color-mix(in srgb,var(--a2) 4%,transparent)}
+.tno{position:absolute;top:1px;left:5px;font:700 10px var(--m);color:var(--a2);white-space:nowrap}
+.tchords{position:relative;height:40px;margin-top:18px}
+.tchord{position:absolute;top:0;min-width:0;display:flex;flex-direction:row;align-items:flex-start}
+.tchord .chord{margin:0;transform:translateX(-2px);cursor:default}
+.tchord .repeat{margin-top:4px}
+.tlane{position:relative;height:32px;border-top:1px dashed var(--line)}
+.tbar:first-child .tlane::before{content:attr(data-label);position:absolute;left:-22px;top:7px;font:700 11px var(--m);color:var(--faint)}
+.wchip{position:absolute;top:4px;display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border:2px solid var(--ink);border-radius:7px;background:var(--page);font:400 14.5px/1.25 var(--type);white-space:nowrap;cursor:grab;user-select:none;touch-action:none;z-index:1}
+.wchip::before{content:'';position:absolute;left:-2px;top:-6px;width:2px;height:6px;background:var(--ink);opacity:.5}
+.wchip:hover{box-shadow:2px 2px 0 var(--ink);z-index:2}
+.wchip .pinb{display:none;width:15px;height:15px;border-radius:50%;place-items:center;color:var(--onA2);background:var(--a2);margin-left:-3px;cursor:pointer}
+.wchip .pinb .ic{width:10px;height:10px}
+.wchip.pinned{border-color:var(--a2);box-shadow:2px 2px 0 var(--a2)}
+.wchip.pinned .pinb{display:grid}
+.wchip.anchor{background:color-mix(in srgb,var(--hl) 40%,var(--page))}
+.wchip.lifted{opacity:.25}
+.wchip.ghost{position:fixed;z-index:90;pointer-events:none;background:var(--hl);box-shadow:5px 5px 0 var(--ink);transform:rotate(-2deg)}
+.wchip.ghost::before{display:none}
+.wchip.wnow{background:var(--hl);opacity:1}
+.drop-mark{position:absolute;top:-44px;bottom:-3px;width:3px;margin-left:-1.5px;background:var(--a1);z-index:5;pointer-events:none;border-radius:2px}
+.drop-mark::after{content:attr(data-t);position:absolute;top:-19px;left:5px;white-space:nowrap;background:var(--a1);color:var(--onA1);border:2px solid var(--ink);font:700 10px var(--m);padding:1px 6px;border-radius:5px}
+.zoomseg b{display:grid;place-items:center;padding:0 8px;font:700 12px var(--m);border-right:2px solid var(--ink);min-width:42px}
+.opt-timing .secondary{height:30px;padding:0 10px}
+
+/* ---------- Edit: one line of words per pass, separate from the chords ---------- */
+.lane-edits{display:flex;flex-direction:column;gap:2px;margin:6px 0 0}
+.lane-edit{position:relative;display:flex;align-items:baseline;gap:10px;padding-left:var(--start,0px)}
+.lane-edit.tagged{padding-left:max(var(--start,0px),30px)}
+.lane-edit .lane-tag{position:absolute;left:0;top:3px}
+.lane-edit .lyr{display:block;flex:1 1 auto;min-width:12em;white-space:pre-wrap;padding:1px 4px}
+.lane-edit .add-lyrics{margin:0}
+
+/* ---------- Edit: split and join sections ---------- */
+.split-gap{display:flex;align-items:center;height:14px;margin:-8px 0 2px;position:relative}
+.split-gap::before{content:'';position:absolute;left:0;right:0;top:50%;border-top:2px dashed transparent}
+.split-gap:hover::before,.split-gap:focus-within::before{border-top-color:var(--a1)}
+.split-here{min-width:0;min-height:0;padding:2px 10px;border:2px dashed var(--a1);border-radius:999px;background:var(--page);color:var(--a1);font:700 11px var(--m);opacity:0;position:relative;z-index:1}
+.split-gap:hover .split-here,.split-here:focus-visible{opacity:1}
+.split-here:hover{background:var(--a1);color:var(--onA1);border-style:solid}
+.split-here.bar{position:absolute;left:-12px;top:-12px;padding:0;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:12px;z-index:3}
+.bar:hover .split-here.bar{opacity:1}
+.join-prev{min-width:0;min-height:0;margin-left:auto;padding:2px 10px;border:2px solid var(--faint);border-radius:999px;background:none;color:var(--soft);font:700 11px var(--m);opacity:.0}
+.sec-head:hover .join-prev,.join-prev:focus-visible{opacity:1}
+.join-prev:hover{border-color:var(--ink);background:var(--hl);color:var(--ink)}
+
+/* ---------- Timing: words placed by the melody guess (not pinned yet) ---------- */
+.wchip.guess{border-style:dashed;background:color-mix(in srgb,var(--a3) 22%,var(--page))}
