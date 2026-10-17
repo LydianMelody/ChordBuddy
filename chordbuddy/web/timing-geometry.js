@@ -60,7 +60,7 @@ export function releasedTimes(times,fixed,index,lineStart,lineEnd){
 // ---- bar widths ----
 // bars: [{id, beats}]; lanes: [[{barId, beat, width}]] (words of one line, chords, ...) in time order.
 // Every bar is at least `beats * beatPx` wide and wider where the words in a lane would otherwise touch.
-export function barWidths(bars,lanes,perBeat,{gap=8}={}){
+export function barWidths(bars,lanes,perBeat,{gap=8,capPerBeat=Infinity}={}){
   const width=new Map(bars.map(b=>[b.id,Math.max(1,b.beats||4)*perBeat]));
   const beatsOf=new Map(bars.map(b=>[b.id,Math.max(1,b.beats||4)]));
   const index=new Map(bars.map((b,i)=>[b.id,i]));
@@ -82,7 +82,27 @@ export function barWidths(bars,lanes,perBeat,{gap=8}={}){
       }
     }
   }
+  // A run of quick syllables must not stretch a bar without limit: the page stacks crowded words on a second row instead (see staggerRows).
+  for(const bar of bars){const beats=beatsOf.get(bar.id);width.set(bar.id,Math.min(width.get(bar.id),Math.max(beats*perBeat,beats*capPerBeat)));}
   return width;
+}
+
+// Rows for words that would touch: items [{x,width}] sorted by x get the first row whose last word ends before they start.
+// Returns the row of each item and how many rows were needed.
+export function staggerRows(items,gap=8){
+  const ends=[],rows=[];
+  for(const item of items){let r=0;while(r<ends.length&&ends[r]+gap>item.x)r++;ends[r]=item.x+item.width;rows.push(r);}
+  return {rows,count:Math.max(1,ends.length)};
+}
+
+// Bar widths for a zoom level. Zooming in never makes a bar narrower: the width needed to keep words apart depends on how wide the
+// neighbouring bars are, so on its own it can shrink as the zoom grows (a bar went 1135, 879, 538, 538, 768 px over the zoom levels).
+// Taking the widest a bar has been at any smaller zoom makes zoom predictable.
+export function barWidthsAtZoom(bars,lanes,zoom,options){
+  const levels=[...new Set([...ZOOM_LEVELS.filter(z=>z<zoom-1e-9),zoom])].sort((a,b)=>a-b);
+  const widest=new Map();
+  for(const level of levels)for(const [id,width] of barWidths(bars,lanes,beatPx(level),options))widest.set(id,Math.max(widest.get(id)||0,width));
+  return widest;
 }
 
 // ---- snapping ----

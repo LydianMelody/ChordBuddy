@@ -316,3 +316,14 @@ test('Edit: a section splits at a row or bar boundary into two non-empty section
   assert.equal(next[0].end,next[1].start);assert.ok(next[0].end>next[0].start&&next[1].end>next[1].start);
   assert.equal(byClass(mount(f).root,'split-here').length,0);                         // Edit only
 });
+
+// ---- repeat signs ----
+test('a repeated progression starts and ends with repeat signs; a plain row has none', () => {
+  const {root}=mount(fixture());
+  const bars=byClass(root,'bar');
+  assert.ok(has(bars[0],'rep-start')&&has(bars.at(-1),'rep-end'));
+  assert.equal(bars.slice(1,-1).filter(b=>has(b,'rep-start')||has(b,'rep-end')).length,0);
+  assert.equal(byClass(root,'repeat').length,1);                    // the (x4) count is still there
+  const f=fixture();f.content.chords=f.content.chords.slice(0,4);f.content.sections[0].end=8;f.content.duration=8;
+  assert.equal(byClass(mount(f).root,'rep-start').length,0);
+});

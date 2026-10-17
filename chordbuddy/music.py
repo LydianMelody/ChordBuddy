@@ -94,11 +94,14 @@ def read_music(run_dir,duration,timing=None,beat_remove_threshold=0):
     bpm = timing.get('bpm')
     if bpm is not None and (type(bpm) not in (int,float) or not math.isfinite(bpm) or not 20 <= bpm <= 300):
         bpm = None
-    return copy.deepcopy(_read_music(str(root),duration,tuple(signatures),constant,bpm,int(beat_remove_threshold or 0)))
+    edits=timing.get('bar_edits') if isinstance(timing.get('bar_edits'),dict) else {}
+    adds=tuple(sorted(float(t) for t in edits.get('add',[]) if type(t) in (int,float) and math.isfinite(t)))
+    removes=tuple(sorted(float(t) for t in edits.get('remove',[]) if type(t) in (int,float) and math.isfinite(t)))
+    return copy.deepcopy(_read_music(str(root),duration,tuple(signatures),constant,bpm,int(beat_remove_threshold or 0),adds,removes))
 
 
 @lru_cache(maxsize=32)
-def _read_music(run_dir,duration,signatures,constant_tempo=False,requested_bpm=None,beat_remove_threshold=0):
+def _read_music(run_dir,duration,signatures,constant_tempo=False,requested_bpm=None,beat_remove_threshold=0,bar_adds=(),bar_removes=()):
     root=Path(run_dir)
     warnings=[]
     def lines(name):
@@ -216,6 +219,12 @@ def _read_music(run_dir,duration,signatures,constant_tempo=False,requested_bpm=N
             starts=grid_starts
             intervals=rebuilt
             visible_times={b[0] for b in intervals}
+    # Barlines the user moved, added or removed. Beats are not touched: only where bars begin changes.
+    edited_times=sorted(set(bar_adds)|set(bar_removes))
+    if starts and edited_times:
+        kept=[s for k,s in enumerate(starts) if k==0 or not any(abs(s-r)<0.06 for r in bar_removes)]
+        extra=[a for a in bar_adds if 0<=a<duration and not any(abs(a-s)<0.03 for s in kept)]
+        starts=sorted(set(kept)|set(extra))
     measures=[]
     for i,start in enumerate(starts):
         end=starts[i+1] if i+1<len(starts) else duration
@@ -236,6 +245,8 @@ def _read_music(run_dir,duration,signatures,constant_tempo=False,requested_bpm=N
                          'beat_visible':[constant_tempo or beat in visible_times for beat in measure_beats],
                          'beat_inferred':[beat in inferred or constant_tempo for beat in measure_beats],
                          'warning':None if constant_tempo else warning})
+        if any(start-0.06<=t<=end+0.06 for t in edited_times):
+            measures[-1]['user_edited']=True;measures[-1]['warning']=None     # the bar was shaped by hand, so its length is not a detection problem
     if not measures: warnings.append('Beat timing unavailable; measures cannot be displayed')
     sections=[{k:s[k] for k in ('name','start','end')} for s in seed_sections(root,duration)]
     if event_sections and not (root/'structure.lab').is_file():

@@ -4,13 +4,14 @@
 import {addressAtSeconds,secondsAtAddress,musicalPosition} from './musical-grid.js';
 import {mapToDisplay,sourceMeasureFor} from './chart-model.js';
 import {placeWord} from './chart-layout.js';
-import {isFixed,dragLimits,allowedTime,nearestAllowed,previewTimes,barWidths,barTargets,nearestTarget,beatToX,beatPx,SNAPS} from './timing-geometry.js';
+import {isFixed,dragLimits,allowedTime,nearestAllowed,previewTimes,barWidthsAtZoom,staggerRows,barTargets,nearestTarget,beatToX,beatPx,SNAPS} from './timing-geometry.js';
 import {planPageEdit} from './chart-edits.js';
 import {icon} from './icons.js';
 
 const el=(tag,cls='',text)=>{const n=document.createElement(tag);n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 const finite=Number.isFinite;
 const DRAG_PIXELS=4,GAP=8;
+const CAP_PER_BEAT=110,ROW_HEIGHT=28;   // the widest a bar may grow just to keep words apart (px per beat), and the height of one row of words
 let canvas;
 function textWidth(text,font,padding){
   if(canvas===undefined)canvas=typeof document!=='undefined'&&document.createElement?.('canvas')?.getContext?.('2d')||null;
@@ -53,15 +54,16 @@ export function createTiming(env){
         if(a)wordLanes[i].push({barId:a.measureId,beat:a.beat,width:textWidth(t.text,'15px "Courier Prime"',30)});
       }
     });
-    const specs=barSpec(g),widths=barWidths(specs.map(s=>({id:s.id,beats:s.beats||4})),[chordItems,...wordLanes],perBeat,{gap:GAP});
+    const specs=barSpec(g),widths=barWidthsAtZoom(specs.map(s=>({id:s.id,beats:s.beats||4})),[chordItems,...wordLanes],env.getZoom(),{gap:GAP,capPerBeat:CAP_PER_BEAT});
     const laneEls=new Map();   // lane index -> Map(barId -> lane element)
     const barEls=[];
     g.bars.forEach((bar,index)=>{
       const n=bar.measure?.beats?.length||0,width=widths.get(bar.id)||perBeat*4,node=el('div','bar tbar'+(index===g.bars.length-1?' last':''));
       node.dataset.bar=bar.id;node.style.width=width+'px';
       const bp=n?width/n:width/4;node.style.setProperty?.('--bp',bp+'px');node.style.setProperty?.('--sp',bp*stepBeats(env.getSnap())+'px');
-      const numbers=g.passes.map(p=>measures.find(m=>m.id===p.measureIds[g.bars.indexOf(bar)])?.number).filter(v=>v!==undefined);
+      const offset=env.getModel().barOffset||0,numbers=g.passes.map(p=>measures.find(m=>m.id===p.measureIds[g.bars.indexOf(bar)])?.number).filter(v=>v!==undefined).map(v=>v-offset);
       node.append(el('span','tno',numbers.length>1?numbers.join(' · '):String(bar.number)));
+      if(env.editBars&&bar.measure&&bar.mapped&&n)addBarControls(node,bar,width,n,measures);
       const chords=el('div','tchords');
       for(const chunk of bar.chunks){
         const a=beatOfSeconds(measures,chunk.start),cell=el('span','chunk tchord');cell.dataset.chunk=chunk.key;
@@ -89,6 +91,17 @@ export function createTiming(env){
         laneEl.append(chip);chips.push({node:chip,token,tokenIndex,laneIndex,lane});refs.words.push({node:chip,token,group:g,lane});
       });
     });
+    // crowded words (a run of quick syllables) go on a second row instead of stretching the bar
+    const barStart=new Map();let across=0;for(const b of barEls){barStart.set(b.id,across);across+=b.width;}
+    placedLanes.forEach((lane,laneIndex)=>{
+      const mine=chips.filter(c=>c.laneIndex===laneIndex).map(c=>{
+        const a=beatOfSeconds(measures,c.token.displaySeconds),entry=barEls.find(b=>b.id===a.measureId);
+        return {chip:c,x:barStart.get(entry.id)+beatToX(a.beat,entry.width,entry.n),width:textWidth(c.token.text,'15px "Courier Prime"',30)};
+      }).sort((p,q)=>p.x-q.x);
+      const {rows,count}=staggerRows(mine,GAP);
+      mine.forEach((item,k)=>{item.chip.row=rows[k];item.chip.node.style.top=(4+rows[k]*ROW_HEIGHT)+'px';});
+      for(const laneEl of laneEls.get(laneIndex)?.values()||[])laneEl.style.height=(count*ROW_HEIGHT+6)+'px';
+    });
     const ctx={g,barEls,laneEls,placedLanes,chips,row};
     row._timing=ctx;
     row.append(bars);
@@ -99,6 +112,49 @@ export function createTiming(env){
       row.append(flow);
     }
     return row;
+  }
+  // ---------------- barlines: split a bar, join two bars, drag a barline to another beat ----------------
+  // Corrections are saved with the song's timing (see editBars in app.js); the chart, lyrics and repeats then follow the new grid.
+  function addBarControls(node,bar,width,n,measures){
+    const measure=bar.measure,at=measures.findIndex(m=>m.id===measure.id);
+    for(let j=1;j<n;j++){
+      const split=el('button','beat-split','+');split.type='button';split.style.left=(beatToX(j,width,n)-8)+'px';
+      split.title='Start a new bar on this beat';split.setAttribute('aria-label','Start a new bar on beat '+(j+1));
+      split.onclick=e=>{e?.stopPropagation?.();if(!env.blocked())env.editBars({addBars:[measure.beats[j]]});};
+      node.append(split);
+    }
+    if(at<=0)return;                                         // the first barline of the song stays where the recording starts
+    const handle=el('button','bar-handle');handle.type='button';
+    handle.title='Drag to move this barline to another beat. Double-click to join this bar with the one before it.';
+    handle.setAttribute('aria-label','Barline before bar '+bar.number);
+    handle.ondblclick=e=>{e?.stopPropagation?.();if(!env.blocked())env.editBars({removeBars:[measure.start]});};
+    let drag=null;
+    const candidates=()=>{
+      // every beat of this bar (and of the bar before it when it sits on the same line), as {time,x} on screen
+      const list=[],here=node.getBoundingClientRect(),before=node.previousElementSibling?.classList?.contains('tbar')?node.previousElementSibling:null;
+      for(let j=0;j<n;j++)list.push({time:measure.beats[j],x:here.left+beatToX(j,here.width,n)});
+      const prev=measures[at-1];
+      if(before&&prev){const r=before.getBoundingClientRect(),pn=prev.beats.length;for(let j=1;j<pn;j++)list.push({time:prev.beats[j],x:r.left+beatToX(j,r.width,pn)});}
+      return list;
+    };
+    handle.onpointerdown=e=>{if(e.button!==0)return;drag={x:e.clientX,moved:false,list:candidates(),target:null,mark:null};handle.setPointerCapture?.(e.pointerId);};
+    handle.onpointermove=e=>{
+      if(!drag)return;
+      if(!drag.moved&&Math.abs(e.clientX-drag.x)<5)return;
+      drag.moved=true;
+      let best=null;for(const c of drag.list)if(!best||Math.abs(c.x-e.clientX)<Math.abs(best.x-e.clientX))best=c;
+      drag.target=best;
+      if(!drag.mark){drag.mark=el('div','bar-drop');document.body.append(drag.mark);}
+      const box=node.getBoundingClientRect();drag.mark.style.left=best.x+'px';drag.mark.style.top=box.top+'px';drag.mark.style.height=box.height+'px';
+    };
+    const finish=async()=>{
+      const d=drag;drag=null;d?.mark?.remove();
+      if(!d||!d.moved||!d.target||Math.abs(d.target.time-measure.start)<1e-6||env.blocked())return;
+      env.editBars({removeBars:[measure.start],addBars:[d.target.time]});
+    };
+    handle.onpointerup=finish;
+    handle.onpointercancel=()=>{drag?.mark?.remove();drag=null;};
+    node.append(handle);
   }
   const stepBeats=snap=>({quarter:1,eighth:.5,sixteenth:.25,'thirty-second':.125}[snap]||.5);
 
@@ -198,7 +254,7 @@ export function createTiming(env){
     const shown=displayAddress(g,drag.lane,actual.seconds);
     mark.style.left=beatToX(shown?.beat??drag.drop.displayBeat,b.width,b.n)+'px';
     const pos=shown?musicalPosition(measures,shown.seconds):null;
-    mark.dataset.t=pos&&finite(pos.beat)?'Bar '+pos.bar+' · beat '+Number(pos.beat.toFixed(2)):'Bar '+b.bar.number;
+    mark.dataset.t=pos&&finite(pos.beat)?'Bar '+(pos.bar-(env.getModel().barOffset||0))+' · beat '+Number(pos.beat.toFixed(2)):'Bar '+b.bar.number;
     drag.ctx.laneEls.get(drag.laneIndex)?.get(shown?.measureId||b.id)?.append(mark);drag.mark=mark;
   }
   function finishVisuals(){drag?.mark?.remove?.();drag?.ghost?.remove?.();drag?.chip?.classList.remove('lifted');}

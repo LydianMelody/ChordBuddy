@@ -44,3 +44,8 @@ portable-error.log
 **/token
 hf_token*
 .claude/
+
+# --- Agent working notes kept on this computer only (CLAUDE.md and AGENTS.md stay public) ---
+/HANDOFF.md
+/AGENTS.chatgpt-old.md
+/mockups/HANDOFF-for-Sonnet.md

@@ -98,3 +98,32 @@ test('the original document is never changed by planning an edit', () => {
   planPageEdit.slotText({content,music,model,group,lane,laneIndex:0,chunk:chunkAt(group,0),text:'changed'});
   assert.equal(JSON.stringify(content),before);
 });
+
+// ---- editing a stretch of words from anywhere (the lead sheet) ----
+test('fragmentText starts a new line at an address with its own bar range', () => {
+  const {content,music}=setup('');
+  const r=planPageEdit.fragmentText({content,music,sectionId:'s',line:null,fragment:[],text:'hello big world',anchorAddress:{measure_id:'m2',beat:0},span:{first:'m2',last:'m3'}});
+  assert.equal(r.conflicts.length,0);assert.equal(r.candidate.sections[0].lyrics,'hello big world');
+  const line=r.candidate.layout.lines[0];assert.deepEqual([line.start_measure,line.end_measure],['m2','m3']);
+  assert.deepEqual(placed(r.candidate,music)[0],['hello',4,true]);
+});
+
+test('fragmentText retypes only the words it was given and keeps the pins of the words that stay', () => {
+  const {content,music}=setup('one two three four',[{section_id:'s',line:0,start_measure:'m0',end_measure:'m3',words:[{offset:0,measure_id:'m0',beat:0},{offset:8,measure_id:'m2',beat:0}]}]);
+  const tokens=layoutLine(content,effectiveMeasures(music,content.layout),'s',0).tokens;
+  const fragment=tokens.slice(1,3);                                       // "two three": three is pinned at bar 3
+  const r=planPageEdit.fragmentText({content,music,sectionId:'s',line:0,fragment,text:'twin and three',anchorAddress:null});
+  assert.equal(r.conflicts.length,0);assert.equal(r.candidate.sections[0].lyrics,'one twin and three four');
+  const after=placed(r.candidate,music);
+  assert.deepEqual(after.filter(t=>t[2]).map(t=>[t[0],t[1]]),[['one',0],['three',4]]);          // both pins survived, "three" still at bar 3
+  assert.equal(after.length,5);
+});
+
+test('fragmentText that removes every word of a fragment removes the words, not the whole line', () => {
+  const {content,music}=setup('one two three four');
+  const tokens=layoutLine(content.layout.lines.length?content:{...content,layout:{...content.layout,lines:[{section_id:'s',line:0,start_measure:'m0',end_measure:'m3',words:[]}]}},effectiveMeasures(music,content.layout),'s',0)?.tokens||[];
+  const withLine={...content,layout:{...content.layout,lines:[{section_id:'s',line:0,start_measure:'m0',end_measure:'m3',words:[]}]}};
+  const frag=layoutLine(withLine,effectiveMeasures(music,withLine.layout),'s',0).tokens.slice(1,3);
+  const r=planPageEdit.fragmentText({content:withLine,music,sectionId:'s',line:0,fragment:frag,text:'',anchorAddress:null});
+  assert.equal(r.candidate.sections[0].lyrics,'one four');
+});

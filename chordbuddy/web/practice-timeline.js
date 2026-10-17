@@ -36,6 +36,8 @@ const nameKey=name=>String(name||'').toLowerCase().replace(/[^a-z]/g,'');
 export function mountPracticeTimeline(container,{transport,onViewportChange,onError=()=>{}}){
  let value={music:{measures:[]},viewport:null,projection:null},draggingSeek=false,waveform=null,waveMessage='Waveform available after analysis.',markerRefs=[],markerKey='',waveKey='',draft=null,seekAxis=null,pendingTimeline=null;
  const measures=()=>value.music.measures||[];
+ // Silence before the song starts is not a bar: what is shown is renumbered from the first bar with music in it.
+ const numbered=()=>{const offset=value.barOffset||0;return offset?measures().map(m=>({...m,number:m.number-offset})):measures();};
  const bounds=()=>({start:0,end:transport.getSnapshot().duration||measures().at(-1)?.end||0});
  const visible=()=>seekAxis||value.viewport||bounds();
  const duration=()=>bounds().end;
@@ -64,7 +66,7 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
  minus.onclick=()=>onViewportChange({type:'zoom',factor:2});plus.onclick=()=>onViewportChange({type:'zoom',factor:.5});
  follow.onclick=()=>onViewportChange({type:'set-follow',value:!visible().follow});
 
- function positionAt(t){const p=musicalPosition(measures(),t);return p?'Bar '+p.bar+(Number.isFinite(p.beat)?' · Beat '+p.beat.toFixed(2):' · timing unavailable'):'Musical position unavailable';}
+ function positionAt(t){const p=musicalPosition(numbered(),t);return p?(p.bar<1?'Before bar 1':'Bar '+p.bar)+(Number.isFinite(p.beat)?' · Beat '+p.beat.toFixed(2):' · timing unavailable'):'Musical position unavailable';}
  const percentOf=(t,axis)=>100*(t-axis.start)/Math.max(.001,axis.end-axis.start);
  const timeAt=(clientX,axis,element=seek)=>{const rect=element.getBoundingClientRect();return axis.start+Math.max(0,Math.min(1,(clientX-rect.left)/Math.max(1,rect.width)))*(axis.end-axis.start);};
  const grain=()=>snapGrain(duration(),visible());
@@ -85,7 +87,8 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
    if(m.end<v.start||m.start>v.end)continue;
    const x=Math.round((m.start-v.start)*dx)+.5;ctx.strokeStyle=ink;ctx.globalAlpha=.16;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();
    if(zoomedIn)for(const b of m.beats.slice(1)){const bx=Math.round((b-v.start)*dx)+.5;ctx.globalAlpha=.08;ctx.beginPath();ctx.moveTo(bx,0);ctx.lineTo(bx,height);ctx.stroke();}
-   if(m.number%(zoomedIn?1:4)===1||zoomedIn&&dx*(m.end-m.start)>26){ctx.globalAlpha=.55;ctx.fillStyle=faint;ctx.fillText(String(m.number),x+3,10);}
+   const shownNumber=m.number-(value.barOffset||0);
+   if(shownNumber>=1&&(shownNumber%(zoomedIn?1:4)===1||zoomedIn&&dx*(m.end-m.start)>26)){ctx.globalAlpha=.55;ctx.fillStyle=faint;ctx.fillText(String(shownNumber),x+3,10);}
   }
   ctx.globalAlpha=1;
   if(!waveform?.peaks?.length)return;
@@ -106,7 +109,7 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
   const b=bounds(),left=Math.max(0,percentOf(l.start,v)),right=Math.min(100,percentOf(l.end,v));
   loop.style.left=left+'%';loop.style.width=Math.max(0,right-left)+'%';
   loopStart.style.display=percentOf(l.start,v)>=0?'block':'none';loopEnd.style.display=percentOf(l.end,v)<=100?'block':'none';
-  tagText.textContent=(draft?'':s.loop?.enabled?'Loop · ':'Loop off · ')+describeRange(measures(),l);
+  tagText.textContent=(draft?'':s.loop?.enabled?'Loop · ':'Loop off · ')+describeRange(numbered(),l);
   overviewLoop.style.left=percentOf(l.start,b)+'%';overviewLoop.style.width=Math.max(.5,percentOf(l.end,b)-percentOf(l.start,b))+'%';
  }
 

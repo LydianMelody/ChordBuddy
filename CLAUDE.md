@@ -1,6 +1,6 @@
 # Chord Buddy (working copy)
 
-**Start here:** read `mockups/HANDOFF-for-Sonnet.md`. It's the current plan for rebuilding the frontend, based on the approved design in `mockups/05-press-room.html`.
+**Start here (kept on the maintainer's computer, not in the public repository):** read `mockups/HANDOFF-for-Sonnet.md`, the current plan for rebuilding the frontend from the approved design in `mockups/05-press-room.html`.
 
 ## Ground rules
 - Work only in this folder (the `ChordBuddy` folder, renamed from `ChordBuddy-Portable copy` to keep paths short). Never touch the original `ChordBuddy-Portable` folder, if it still exists.

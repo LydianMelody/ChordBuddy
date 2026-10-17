@@ -8,8 +8,10 @@ import {currentWordIndex} from './word-layout.js';
 import {planChartChordEdit,planSectionEdit} from './practice-edit.js';
 import {addressAtSeconds} from './musical-grid.js';
 import {addChartChord} from './editor.js';
-import {compactEditTargets,compactJumpTargets,hasCompactPreferences,resetCompactPreferences} from './compact-chart.js';
+import {applyCompactFold,applyCompactRange,compactRangeChoices,compactEditTargets,compactFoldChoices,compactJumpTargets,hasCompactPreferences,resetCompactPreferences} from './compact-chart.js';
 import {planPageEdit} from './chart-edits.js';
+import {applyRows} from './row-layout.js';
+import {beatsLabel} from './bar-lengths.js';
 import {createTiming} from './chart-timing.js';
 import {DEFAULT_ZOOM,DEFAULT_SNAP,stepZoom,ZOOM_LEVELS} from './timing-geometry.js';
 
@@ -22,6 +24,8 @@ const nameKey=name=>String(name||'').toLowerCase().replace(/[^a-z]/g,'');
 const joinWords=tokens=>tokens.map((t,i)=>t.text+(i<tokens.length-1&&!t.text.endsWith('-')?' ':'')).join('');
 
 export function mountChartPage(root,handlers={}){
+  const fixing={on:false,a:null,b:null};
+  let fixSel={ids:new Set()};
   let data=null,model=null,key=null,mode='nav',scope='occurrence',snap=DEFAULT_SNAP,zoom=DEFAULT_ZOOM,draft=null,saving=false,last=null;
   const targetPass={},seekPass={};let pendingName=null;
   let refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[]},occById=new Map();
@@ -32,7 +36,7 @@ export function mountChartPage(root,handlers={}){
 
   const timing=createTiming({
     getData:()=>data,getModel:()=>model,getSnap:()=>snap,getZoom:()=>zoom,get refs(){return refs;},
-    commit:(candidate,label)=>commitPlain(candidate,label),fail:e=>fail(e),say:text=>{message.textContent=text;},blocked:()=>blocked(),rerender:()=>render(),
+    editBars:handlers.onBarEdit?change=>Promise.resolve(handlers.onBarEdit(change)).catch(e=>fail(e)):null,commit:(candidate,label)=>commitPlain(candidate,label),fail:e=>fail(e),say:text=>{message.textContent=text;},blocked:()=>blocked(),rerender:()=>render(),
   });
   const notify=()=>handlers.onDraftChange?.({draft:!!draft?.dirty,saving,failed:!!draft?.failed});
   const fail=e=>{message.textContent=e?.message||String(e);handlers.onError?.(e);};
@@ -89,9 +93,12 @@ export function mountChartPage(root,handlers={}){
   function renderBar(g,bar,index){
     const n=el('div','bar'+(index===g.bars.length-1?' last':''));n.dataset.bar=bar.id;
     const no=el('span','bar-no',String(bar.number));no.title='Jump to bar '+bar.number;
-    no.onclick=()=>{if(mode!=='nav')return;const o=g.bars&&occurrenceFor(g.id,bar.chunks[0]?.slotId,passForSeek(g.model||g));seek(o?.start??bar.start);};
+    no.onclick=e=>{if(mode==='edit'&&fixing.on){e?.stopPropagation?.();pickBar(g,bar);return;}if(mode!=='nav')return;const o=g.bars&&occurrenceFor(g.id,bar.chunks[0]?.slotId,passForSeek(g.model||g));seek(o?.start??bar.start);};
+    if(mode==='edit'&&fixing.on){no.classList.add('pickable');no.title='Pick bar '+bar.number+' for the repeat';if(fixSel.ids.has(bar.id))n.classList.add('rt-sel');}
     n.append(no);
-    if(bar.meterChange&&bar.meter)n.append(el('span','bar-meter',bar.meter.join('/')));
+    // A bar that is shorter or longer than the usual one says so, informally; a real change of meter keeps its signature.
+    if(bar.odd)n.append(el('span','bar-meter odd',beatsLabel(bar.beatCount)));
+    else if(bar.meterChange&&bar.meter)n.append(el('span','bar-meter',bar.meter.join('/')));
     if(mode==='edit'&&index>0&&bar.mapped&&g.passCount===1)n.append(splitButton(bar.start,'bar'));
     for(const chunk of bar.chunks)n.append(renderChunk(g,bar,chunk,index===g.bars.length-1));
     if(!bar.chunks.length&&mode!=='edit')for(const [i,lane] of g.lanes.entries())n.append(renderLaneSlot(g,bar,{key:null,slotId:null,lanes:{}},lane,i,false));
@@ -106,13 +113,32 @@ export function mountChartPage(root,handlers={}){
       for(let p=1;p<=g.passCount;p++){const s=el('button','',String(p));s.type='button';s.dataset.pass=String(p);s.onclick=()=>{targetPass[g.id]=p;paintTargets();};pick.append(s);}
       refs.lanes.push({pick,group:g});row.append(pick);
     }
-    g.bars.forEach((bar,i)=>bars.append(renderBar(g,bar,i)));
+    g.bars.forEach((bar,i)=>{
+      const node=renderBar(g,bar,i);
+      // a repeated progression starts and ends with repeat signs (the count stays after the last chord)
+      if(g.repeat>1){if(i===0)node.classList.add('rep-start');if(i===g.bars.length-1)node.classList.add('rep-end');}
+      bars.append(node);
+    });
     // lyric lines that were never placed on the chart: plain text (in Edit they get a line of their own, below)
     if(mode!=='edit')for(const lane of g.lanes.filter(l=>l.flow)){
       const flow=el('div','flow-line'),text=el('span','flow-text',lane.tokens.map(t=>t.text).join(' ')||lane.text);
       flow.append(text);bars.append(flow);
     }
     row.append(bars);
+    // Edit: choose how this repeating stretch is folded (2 bars x4, 4 bars x2, or written out).
+    if(mode==='edit'&&g.repeat>1){
+      const source=model.projection.groups.find(x=>x.id===g.id),choices=compactFoldChoices(model.projection,source);
+      if(choices.length>1){
+        const wrap=el('div','repeat-fold'),open=el('button','repeat-fold-open','Fold ▾');open.type='button';open.title='Choose how this repeating stretch is grouped';
+        const list=el('div','repeat-fold-options hidden');
+        for(const choice of choices){
+          const b=el('button','repeat-fold-option'+(choice.current?' current':''),choice.label);b.type='button';b.disabled=choice.current;
+          b.onclick=()=>{try{commitPlain(applyCompactFold(data.content,data.music,model.projection,source,choice),'Change repeat grouping');}catch(e){fail(e);}};
+          list.append(b);
+        }
+        open.onclick=()=>list.classList.toggle('hidden');wrap.append(open,list);row.append(wrap);
+      }
+    }
     if(mode==='edit')row.append(renderLaneEditors(g,row));
     if(g.endings.length&&mode!=='timing'){
       const alts=el('div','alt-endings');
@@ -124,6 +150,51 @@ export function mountChartPage(root,handlers={}){
       if(alts.children.length)row.append(alts);
     }
     return row;
+  }
+
+  // ---------------- Fix repeats by hand ----------------
+  const barNumber=id=>{const m=model.measures.find(m=>m.id===id);return m?m.number-model.barOffset:'?';};
+  const measureIndex=id=>model.measures.findIndex(m=>m.id===id);
+  function pickBar(g,bar){
+    const src=model.projection.groups.find(x=>x.id===g.id),folded=src?.folded&&src.passes?.length>1;
+    const pick=folded?{start:src.passes[0].measureIds[0],end:src.passes.at(-1).measureIds.at(-1)}:{start:bar.id,end:bar.id};
+    if(!pick.start||!pick.end)return;
+    if(fixing.a&&fixing.b){fixing.a=pick;fixing.b=null;}else if(!fixing.a)fixing.a=pick;else fixing.b=pick;
+    keepPlace(()=>render());
+  }
+  function fixRange(){
+    if(!fixing.a)return null;
+    const b=fixing.b||fixing.a,backwards=measureIndex(b.start)<measureIndex(fixing.a.start);
+    return backwards?{from:b.start,to:fixing.a.end}:{from:fixing.a.start,to:b.end};
+  }
+  function fixSelection(){
+    const range=fixRange(),none={ids:new Set(),info:null};
+    if(!range||!fixing.b&&!fixing.a)return none;
+    try{const info=compactRangeChoices(data.content,data.music,range.from,range.to);return {ids:new Set(info.measureIds||[range.from]),info,range};}catch{return none;}
+  }
+  function fixPanel(){
+    const panel=el('div','fix-panel'),sel=fixSel;
+    const line=text=>panel.append(el('p','fix-line',text));
+    if(!fixing.a)line('Click the number of the first bar of the part that repeats.');
+    else if(!fixing.b)line('Bar '+barNumber(fixing.a.start)+' picked. To include more bars, click the number of the last bar. Or choose below to use just this.');
+    if(fixing.b||fixing.a&&sel.info){
+      const info=sel.info;
+      if(info?.measureIds){
+        line('Bars '+barNumber(info.measureIds[0])+'–'+barNumber(info.measureIds.at(-1))+' ('+info.length+' bars)');
+        if(info.problem)line(info.problem);
+        if(info.choices?.length){
+          const row=el('div','fix-choices');
+          for(const choice of info.choices){
+            const b=el('button','fix-choice'+(choice.expanded?' plain':''),choice.label);b.type='button';
+            b.onclick=()=>{try{const next=applyCompactRange(data.content,data.music,model.projection,sel.range.from,sel.range.to,choice);fixing.a=fixing.b=null;commitPlain(next,choice.expanded?'Unfold repeat':'Fold repeat');}catch(e){fail(e);}};
+            row.append(b);
+          }
+          panel.append(row);
+        }
+      }else if(info?.problem)line(info.problem);
+    }
+    if(fixing.a){const again=el('button','secondary','Start over');again.type='button';again.onclick=()=>{fixing.a=fixing.b=null;keepPlace(()=>render());};panel.append(again);}
+    return panel;
   }
   // Redrawing (a new mode, zoom, a saved edit) keeps the row nearest the top of the view exactly where it was.
   function keepPlace(fn){
@@ -142,7 +213,10 @@ export function mountChartPage(root,handlers={}){
     occById=new Map(model.projection.occurrences.map(o=>[o.id,o]));
     notices.replaceChildren();for(const w of model.warnings)notices.append(el('p','chart-notice',w));
     if(hasCompactPreferences(data.content)&&mode==='edit'){const reset=el('button','secondary','Reset repeat grouping');reset.type='button';reset.onclick=()=>commitPlain(resetCompactPreferences(data.content),'Reset repeat grouping');notices.append(reset);}
+    if(mode==='edit'){const tool=el('button','secondary fix-toggle',fixing.on?'Done fixing repeats':'Fix repeats');tool.type='button';tool.title='Pick the first and last bar of a repeating part and choose how it is folded';tool.onclick=()=>{fixing.on=!fixing.on;fixing.a=fixing.b=null;keepPlace(()=>render());};notices.append(tool);}
+    fixSel=mode==='edit'&&fixing.on?fixSelection():{ids:new Set()};
     page.replaceChildren();
+    if(mode==='edit'&&fixing.on)page.append(fixPanel());
     for(const section of model.sections){
       const sec=el('section','sec');sec.dataset.section=section.id;sec.dataset.name=nameKey(section.name);
       const head=el('header','sec-head'),num=el('span','sec-num',pad2(section.number)),name=el('h3','sec-name',section.name),time=el('span','sec-time',clock(section.start));
@@ -154,8 +228,20 @@ export function mountChartPage(root,handlers={}){
       page.append(sec);
     }
     page.append(suggestions);
+    layoutRows();
     if(pendingName){const node=page.querySelector?.('[data-section="'+pendingName+'"] .sec-name');pendingName=null;if(node){node.focus?.();getSelection?.()?.selectAllChildren?.(node);}}
     root.dataset.mode=mode;last=null;paintTargets();updatePlayback(data.transport);positionEditors();
+  }
+
+  // Share the bars of each row out evenly over its lines (2 + 2, not 3 + 1) and close every line with a barline.
+  function layoutRows(){
+    if(mode==='timing')return;
+    for(const entry of refs.groups){const bars=entry.node.querySelector?.('.bars');if(bars)applyRows(bars);}
+  }
+  if(typeof ResizeObserver==='function'){
+    let waiting=false,lastWidth=0;
+    new ResizeObserver(()=>{if(waiting||Math.abs(root.clientWidth-lastWidth)<1)return;waiting=true;requestAnimationFrame(()=>{waiting=false;lastWidth=root.clientWidth;layoutRows();});}).observe(root);
+    document.fonts?.ready?.then(()=>layoutRows());
   }
 
   // ======================= playback highlighting =======================
@@ -363,7 +449,7 @@ export function mountChartPage(root,handlers={}){
   // ======================= Edit: split and join sections =======================
   // A section is never empty: a split must fall inside it, and joining removes the boundary instead of leaving a hole.
   function splitButton(seconds,kind){
-    const b=el('button','split-here'+(kind==='bar'?' bar':''),kind==='bar'?'✂':'✂ Split section here');b.type='button';
+    const b=el('button','split-here'+(kind==='bar'?' in-bar':''),kind==='bar'?'✂':'✂ Split section here');b.type='button';
     b.title='Start a new section here';b.setAttribute('aria-label','Split the section here');
     b.onclick=e=>{e?.stopPropagation?.();splitAt(seconds);};return b;
   }

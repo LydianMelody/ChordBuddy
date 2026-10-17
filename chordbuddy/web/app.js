@@ -60,7 +60,7 @@ const mixer=mountMixer($('rack'),{transport,onError:showError,exportTarget:()=>{
 let practiceViewport=null,practiceData=null;
 const player=mountPlayer($('player'),transport,showError,{onViewportChange:updatePracticeViewport,loadWaveform:run=>api('/api/waveform/'+encodeURIComponent(run))});
 const practiceView=mountChartPage($('chart-sections'),{
- onSeek:seconds=>transport.seek(seconds),onCommit:commitPracticeEdit,onError:showError,onReload:reloadPracticeChart,canEdit:()=>!currentRecord()?.practiceConflict&&!currentRecord()?.saving,
+ onSeek:seconds=>transport.seek(seconds),onCommit:commitPracticeEdit,onBarEdit:editBars,onError:showError,onReload:reloadPracticeChart,canEdit:()=>!currentRecord()?.practiceConflict&&!currentRecord()?.saving,
  onViewportChange:updatePracticeViewport,onRhythm:()=>rhythmButton.click(),onTimingSettings:()=>$('song-timing').click(),
  onDraftChange:info=>{const r=currentRecord();if(r&&!info.failed&&!info.saving)r.practiceSaveError=null;renderDocument();},
  onModeChange:()=>syncModeUi(),onScopeChange:()=>syncModeUi(),onTimingChange:()=>syncModeUi(),
@@ -107,7 +107,7 @@ function updatePracticeViewport(action){
  practiceViewport=next;renderChart();updatePracticePlayer();
 }
 function updatePracticePlayer(){
- if(practiceData)player.setPractice({music:{...practiceData.music,measures:effectiveMeasures(practiceData.music,practiceData.content.layout)},viewport:practiceViewport,projection:practiceView.getProjection()});
+ if(practiceData)player.setPractice({music:{...practiceData.music,measures:effectiveMeasures(practiceData.music,practiceData.content.layout)},viewport:practiceViewport,projection:practiceView.getProjection(),barOffset:practiceView.getModel()?.barOffset||0});
 }
 async function commitPracticeEdit(next,label,expected){
  const r=currentRecord();if(!r)throw Error('Choose a chart.');
@@ -115,6 +115,21 @@ async function commitPracticeEdit(next,label,expected){
  const pending=commitPracticeDocument(r,next,label,expected,api);renderSaveStatus();
  try{await pending;if(r.doc.export_warning)showError(r.doc.export_warning);}
  finally{if(currentRecord()===r)renderDocument();}
+}
+// Moving, adding or removing a barline is a correction to the song's beat grid: it is saved with the chart's timing, so the bars,
+// the lyrics' times and the repeats are all rebuilt from it, and Undo puts the old grid back.
+async function editBars(change){
+  await commitUiDrafts();
+  const record=currentRecord();if(record?.doc.kind!=='chart')throw Error('Choose a Song chart to change its barlines.');
+  const id=record.doc.id,near=(list,t)=>list.findIndex(x=>Math.abs(x-t)<.04);
+  const timing=structuredClone(record.doc.timing_binding?.overrides||{});
+  const add=[...(timing.bar_edits?.add||[])],remove=[...(timing.bar_edits?.remove||[])];
+  for(const t of change.removeBars||[]){const k=near(add,t);if(k>=0)add.splice(k,1);else remove.push(t);}
+  for(const t of change.addBars||[]){const k=near(remove,t);if(k>=0)remove.splice(k,1);else add.push(t);}
+  if(add.length||remove.length)timing.bar_edits={...(add.length?{add}:{}),...(remove.length?{remove}:{})};else delete timing.bar_edits;
+  await window.chordBuddyFlush();
+  await api('/api/documents/'+id+'/timing',{timing,revision:currentRecord().doc.revision});
+  await keepDeskPlace(async()=>{await refreshSongDetail(model.song,true);renderDocument();});
 }
 async function reloadPracticeChart(){
  const r=currentRecord();if(!r||r.saving)return;
@@ -299,11 +314,16 @@ async function loadMelody(detail,songId){
     model.melody={song:songId,doc:doc.id,onsets:onsetsFromNotes(full.content?.notes)};renderChart();
   }catch{model.melody={song:songId,doc:doc.id,onsets:[]};}
 }
+// Reloading a document empties the page for a moment, which would send the desk back to the top; put it back where it was.
+async function keepDeskPlace(fn){
+  const desk=$('desk'),top=desk?.scrollTop||0,left=desk?.scrollLeft||0;
+  try{await fn();}finally{if(desk&&(top||left))desk.scrollTo({top,left,behavior:'instant'});}
+}
 async function refreshSongDetail(id,force=false){
   const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(model.song!==id)return;model.detail=detail;renderTabs();loadMelody(detail,id);
   if(!model.document && detail.documents.length)await selectDocument(detail.documents[0].id);
   else if(model.document && detail.documents.length && !detail.documents.some(doc=>doc.id===model.document) && !currentRecord()?.dirty && !currentRecord()?.saving)await selectDocument(detail.documents[0].id);
-  else if(force && model.document&&!practiceView.hasDraft()){const record=currentRecord();if(!record?.dirty&&!record?.saving){model.documents.delete(model.document);await selectDocument(model.document);}}
+  else if(force && model.document&&!practiceView.hasDraft()){const record=currentRecord();if(!record?.dirty&&!record?.saving){await keepDeskPlace(async()=>{model.documents.delete(model.document);await selectDocument(model.document);});}}
 }
 // Chart, Lead sheet and MIDI are the working tabs; every other analysis output lives in "More outputs".
 const TAB_KINDS=[['chart','Chart'],['abc','Lead sheet'],['midi','MIDI']];
@@ -351,15 +371,32 @@ function renderDocument(){
   else if(record.doc.kind==='midi'){$('midi-editor').classList.remove('hidden');if(!model.pendingNote)renderMidi();}
   else {$('text-editor').classList.remove('hidden');$('text-source').value=currentContent().text || '';}
 }
+function chartRecord(){const id=model.detail?.documents?.find(doc=>doc.kind==='chart')?.id;return id?model.documents.get(id):null;}
+async function loadChartRecord(){
+  const id=model.detail?.documents?.find(doc=>doc.kind==='chart')?.id;if(!id||model.documents.has(id))return;
+  try{const doc=await api(`/api/document/${encodeURIComponent(id)}`);if(!model.documents.has(id))model.documents.set(id,{doc,draft:clone(doc.content),dirty:false,saving:false,error:null,version:0,timer:null});}catch(error){showError(error);}
+}
 function renderAbc(){
   const content=currentContent();const strip=$('chord-strip');strip.replaceChildren();
   for(const chord of content.chords || []){if(isNoChordLabel(chord.label))continue;const button=element('button',`chord-chip${chord.id===model.editingChord?' editing':''}`,chord.label);button.dataset.chordId=chord.id;button.append(element('small','',timeLabel(chord.start)));button.disabled=!Number.isInteger(chord.abc_index);button.title=button.disabled?'No reliable ABC association; edit the notation directly.':'Edit this chord label';button.onclick=()=>openChord(chord.id);indicateChord(button,chord,currentRecord().doc.music,model.state.settings);strip.append(button);}
   $('chord-form').classList.toggle('hidden',!model.editingChord);
   if(!$('confirm-chord')){const confirm=element('button','secondary small-button','Confirm chord');confirm.type='button';confirm.id='confirm-chord';confirm.onclick=async()=>{try{const chord=currentContent()?.chords?.find(item=>item.id===model.editingChord);if(!chord)throw new Error('Select a chord first.');const label=$('chord-label').value.trim();if(!label)throw new Error('Enter a chord label first.');model.pendingChord=true;commitChordDraft();const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving the chord edit before confirming it.');await confirmChordOverride(chord,label,chord.start,chord.end);model.editingChord=null;renderDocument();}catch(error){showError(error);}};$('chord-form').append(confirm);}
   if($('abc-source').value!==(content.abc||''))$('abc-source').value=content.abc || '';
+  // The lead sheet shows (and edits) the same lyrics as the chart, so it needs the chart document too.
+  const chart=chartRecord();
+  if(!chart)loadChartRecord().then(()=>{if(currentRecord()?.doc.kind==='abc')renderAbc();});
   renderLeadSheet($('score'),{key:model.document,content,music:currentRecord().doc.music,title:currentSong()?.title,settings:model.state.settings,
-    onChange:(next,label)=>markEdit(next,label),onChord:openChord,onError:showError});
+    chart:chart?{content:chart.draft||chart.doc.content,music:chart.doc.music,documentId:chart.doc.id,revision:chart.doc.revision}:null,
+    onChange:(next,label)=>markEdit(next,label),onChord:openChord,onError:showError,onChartEdit:commitChartFromLeadSheet});
   updatePlayback();
+}
+// Lyrics typed on the lead sheet are edits to the chart's lyrics, so they are saved to the chart document and both views show them.
+async function commitChartFromLeadSheet(next,label,expected){
+  const r=chartRecord();if(!r)throw Error('The chart is not loaded yet. Try again in a moment.');
+  next=reconcileCompactPreferences(next,r.doc.music).content;const invalid=validateChart(next);if(invalid)throw Error(invalid);
+  const pending=commitPracticeDocument(r,next,label,expected,api);renderSaveStatus();
+  try{await pending;if(r.doc.export_warning)showError(r.doc.export_warning);}
+  finally{if(currentRecord()?.doc.kind==='abc')renderAbc();}
 }
 function openChord(id){try{commitChordDraft();}catch(error){showError(error);return;}const chord=currentContent()?.chords?.find(item=>item.id===id);if(!chord||!Number.isInteger(chord.abc_index))return;model.editingChord=id;model.pendingChord=false;$('chord-label').value=chord.label;renderAbc();$('chord-label').focus();$('chord-label').select();}
 function markEdit(content,label,delay=450){const record=currentRecord();if(!record)return;record.draft=content;record.dirty=true;record.error=null;record.version++;record.label=label;clearTimeout(record.timer);record.timer=setTimeout(()=>saveDocument(record.doc.id),delay);renderSaveStatus();$('undo').disabled=true;$('redo').disabled=true;$('restore').disabled=true;$('download').classList.add('disabled');}
@@ -393,7 +430,7 @@ function renderChart(){
  const r=currentRecord();if(r?.doc.kind!=='chart')return;
  const content=currentContent(),music=r.doc.music;
  practiceData={content,music};
- if(!practiceViewport)practiceViewport={start:0,end:Math.min(content.duration,music?.measures?.[7]?.end||content.duration),follow:true};
+ if(!practiceViewport)practiceViewport={start:0,end:content.duration,follow:true};      // the whole song, fully zoomed out
  const onsets=model.melody?.song===model.song?model.melody.onsets:null,hasMelody=!!onsets?.length;
  $('suggest').disabled=!hasMelody;$('suggest').checked=hasMelody&&prefs.get('cb-suggest','1')!=='0';
  $('suggest-wrap').classList.toggle('off',!hasMelody);$('suggest-wrap').title=hasMelody?'Unpinned words are placed on the vocal melody\'s notes as a rough guess. Drag a word to pin it.':'No vocal melody was found for this song, so words spread evenly.';
@@ -403,7 +440,7 @@ function renderChart(){
 async function confirmChordOverride(chord,label,start,end){
   const metadata=model.detail?.metadata||{revision:0,timing:{constant_tempo:false,bpm:null},chord_overrides:[]};
   await api('/api/confirm-chord',{song_id:model.song,id:chord.id,start:Number(start),end:Number(end),label,revision:metadata.revision});
-  await refreshSongDetail(model.song,true);
+  await keepDeskPlace(()=>refreshSongDetail(model.song,true));
 }
 function refreshChartMusic(){try{renderChart();}catch(e){showError(e);}}
 function nowAndNext(chords,chord,time){

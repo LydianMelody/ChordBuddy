@@ -1,3 +1,17 @@
 .lead-sheet{width:100%;color:var(--ink,#183b32)}
 .lead-notation{position:relative}.lead-inline-editor{position:absolute;z-index:3;left:1rem;top:.5rem;width:min(240px,calc(100% - 2rem));padding:.45rem .6rem;border:2px solid #527c42;border-radius:6px;background:#fffef8;box-shadow:0 4px 14px #24352730}.abcjs-note.current-beat{filter:drop-shadow(0 0 4px #b08318)}.abcjs-note.current-measure{opacity:.92}.lead-notation .abcjs-chord{transition:opacity .15s ease}
 .lead-controls{display:flex;align-items:center;flex-wrap:wrap;gap:.6rem;margin:.5rem 0 1rem}.lead-controls label{display:flex;align-items:center;gap:.35rem;font-size:.85rem}.lead-controls select{max-width:19rem}.lead-help{font-size:.85rem;color:var(--muted,#61736a);line-height:1.5}.lead-notation{overflow-x:auto;background:#fffdf5;border-radius:10px;padding:.5rem}.lead-notation>div{min-width:640px}.lead-lyrics{margin-top:1rem;background:#f3f5e9;border:1px solid #d5dfc9;border-radius:10px;padding:1rem}.lead-lyrics summary{cursor:pointer;font-weight:650;margin-bottom:.75rem}.lead-lyrics textarea{display:block;width:100%;box-sizing:border-box;resize:vertical;margin-top:.75rem}.lead-tray,.lead-anchors{display:flex;gap:.45rem;flex-wrap:wrap;margin:.65rem 0 1rem}.lead-tray button,.lead-anchor button{padding:.4rem .7rem;background:#fffdf5;border:1px solid #bbccb5;border-radius:6px;color:#244b3d}.lead-tray button.selected,.lead-anchor button.selected{background:#28553f;color:white}.lead-anchor{display:inline-flex;gap:2px}.lead-lyrics button:focus-visible,.lead-controls select:focus-visible{outline:3px solid #527c42;outline-offset:2px}
+
+/* Typing lyrics under the staves (the words are the chart's; see lead-lyric-editor.js) */
+.lead-run{position:absolute;z-index:4;display:block;box-sizing:border-box;padding:1px 4px;font:13px/18px var(--type,Georgia,serif);white-space:nowrap;color:transparent;caret-color:var(--ink,#183b32);cursor:text;border-radius:4px;outline:0}
+.lead-run:hover{background:color-mix(in srgb,var(--hl,#ffd84a) 40%,transparent)}
+.lead-run.empty:hover::before{content:attr(data-placeholder);color:var(--faint,#8a8a8a);font-style:italic}
+.lead-run.editing{color:var(--ink,#183b32);background:var(--page,#fff);border:2px solid var(--ink,#183b32);box-shadow:3px 3px 0 var(--ink,#183b32);z-index:6;min-width:240px;padding:2px 8px}
+.lead-run.editing::before{content:none!important}
+
+/* Dragging a word to a note to pin it */
+.lead-chip{position:absolute;z-index:5;display:block;box-sizing:border-box;cursor:grab;border-radius:4px;touch-action:none}
+.lead-chip:hover{background:color-mix(in srgb,var(--a2,#2b8a6e) 22%,transparent);box-shadow:inset 0 0 0 1.5px var(--a2,#2b8a6e)}
+.lead-chip.pinned::before{content:'';position:absolute;left:1px;top:1px;width:6px;height:6px;border-radius:50%;background:var(--a2,#2b8a6e);border:1px solid var(--ink,#183b32)}
+.lead-ghost{position:absolute;z-index:9;pointer-events:none;padding:1px 8px;border:2px solid var(--ink,#183b32);border-radius:7px;background:var(--hl,#ffd84a);font:13px/18px var(--type,Georgia,serif);box-shadow:3px 3px 0 var(--ink,#183b32);transform:translate(-50%,-50%) rotate(-2deg)}
+.lead-drop{position:absolute;z-index:8;width:3px;pointer-events:none;background:var(--a1,#e0553d);border-radius:2px}

@@ -145,3 +145,50 @@ test('Timing: zoom changes the width of every bar and never touches the document
   s.view.zoomBy(-1);s.view.zoomBy(-1);assert.ok(parseFloat(byClass(s.root,'tbar')[0].style.width)<w2);
   assert.equal(s.commits.length,0);
 });
+
+// ---- barlines: split, join, move ----
+function withBarEdits(){
+  const f=fixture();f.content.sections[0].lyrics='';f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[]};
+  installDom();const root=new Node(),edits=[];
+  const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{},onError:()=>{},onBarEdit:async c=>{edits.push(c);}});
+  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});view.setMode('timing');
+  const bars=byClass(root,'tbar');let x=0;
+  for(const b of bars){const w=parseFloat(b.style.width),left=x;b.getBoundingClientRect=()=>({left,right:left+w,top:0,bottom:100,width:w,height:100});x+=w;}
+  return {f,root,view,edits,bars};
+}
+test('Timing: a "+" on every beat inside a bar starts a new bar there', () => {
+  const s=withBarEdits();
+  const splits=byClass(s.bars[1],'beat-split');
+  assert.equal(splits.length,3);                                                // beats 2, 3 and 4 of a four-beat bar
+  splits[1].onclick();
+  assert.deepEqual(s.edits,[{addBars:[s.f.music.measures[1].beats[2]]}]);
+});
+
+test('Timing: double-clicking a barline joins the bar with the one before it, and the first barline of the song has no handle', () => {
+  const s=withBarEdits();
+  assert.equal(byClass(s.bars[0],'bar-handle').length,0);
+  const handle=byClass(s.bars[1],'bar-handle')[0];
+  handle.ondblclick();
+  assert.deepEqual(s.edits,[{removeBars:[s.f.music.measures[1].start]}]);
+});
+
+test('Timing: dragging a barline to another beat moves it (one remove and one add)', () => {
+  const s=withBarEdits();
+  const handle=byClass(s.bars[1],'bar-handle')[0],bar=s.f.music.measures[1],left=barLeft(s,1),w=barWidth(s,1);
+  document.body={append(){}};handle.setPointerCapture=()=>{};
+  handle.onpointerdown({button:0,pointerId:1,clientX:left});
+  handle.onpointermove({pointerId:1,clientX:left+w*.5});                         // halfway along the bar: beat 3
+  handle.onpointerup({pointerId:1,clientX:left+w*.5});
+  assert.deepEqual(s.edits,[{removeBars:[bar.start],addBars:[bar.beats[2]]}]);
+  const none=withBarEdits();                                                      // a click, or a drop where it started, does nothing
+  const h2=byClass(none.bars[1],'bar-handle')[0];h2.setPointerCapture=()=>{};
+  h2.onpointerdown({button:0,pointerId:1,clientX:5});h2.onpointerup({pointerId:1,clientX:5});
+  assert.deepEqual(none.edits,[]);
+});
+
+test('Timing: without a barline handler there are no barline controls', () => {
+  const f=fixture();installDom();const root=new Node();
+  const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{},onError:()=>{}});
+  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});view.setMode('timing');
+  assert.equal(byClass(root,'beat-split').length+byClass(root,'bar-handle').length,0);
+});

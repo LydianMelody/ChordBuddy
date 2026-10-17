@@ -120,11 +120,64 @@
 .split-here{min-width:0;min-height:0;padding:2px 10px;border:2px dashed var(--a1);border-radius:999px;background:var(--page);color:var(--a1);font:700 11px var(--m);opacity:0;position:relative;z-index:1}
 .split-gap:hover .split-here,.split-here:focus-visible{opacity:1}
 .split-here:hover{background:var(--a1);color:var(--onA1);border-style:solid}
-.split-here.bar{position:absolute;left:-12px;top:-12px;padding:0;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:12px;z-index:3}
-.bar:hover .split-here.bar{opacity:1}
+.split-here.in-bar{position:absolute;right:2px;top:-13px;left:auto;padding:0;width:18px;height:18px;min-width:18px;border-radius:50%;display:grid;place-items:center;font-size:11px;z-index:3}
+.bar:hover .split-here.in-bar{opacity:.55}
+.bar .split-here.in-bar:hover,.bar .split-here.in-bar:focus-visible{opacity:1}
 .join-prev{min-width:0;min-height:0;margin-left:auto;padding:2px 10px;border:2px solid var(--faint);border-radius:999px;background:none;color:var(--soft);font:700 11px var(--m);opacity:.0}
 .sec-head:hover .join-prev,.join-prev:focus-visible{opacity:1}
 .join-prev:hover{border-color:var(--ink);background:var(--hl);color:var(--ink)}
 
 /* ---------- Timing: words placed by the melody guess (not pinned yet) ---------- */
 .wchip.guess{border-style:dashed;background:color-mix(in srgb,var(--a3) 22%,var(--page))}
+
+/* ---------- Timing: one horizontal scroll for the whole page, not one per row ---------- */
+/* Zooming widens the page and the desk scrolls sideways, so nothing is hidden inside a row and the rows stay lined up. */
+#chart-editor:has([data-mode="timing"]) .page{max-width:none;width:max-content;min-width:100%}
+[data-mode="timing"] .chart-flow{width:max-content;min-width:100%}
+[data-mode="timing"] .trow{overflow:visible}
+[data-mode="timing"] .sec-head{position:sticky;left:0;z-index:3;width:max-content}
+
+/* ---------- Every line of bars ends with a barline; repeated progressions get repeat signs ---------- */
+.row-break{flex:0 0 100%;height:0}
+.bar.row-end{border-right:3px solid var(--ink)}
+.bar.rep-start,.bar.rep-end{position:relative}
+.bar.rep-start{border-left-width:6px;padding-left:36px}
+.bar.rep-end{border-right:6px solid var(--ink);padding-right:36px}
+.bar.rep-start::before,.bar.rep-end::after{content:'';position:absolute;top:0;bottom:0;width:22px;pointer-events:none;
+  background:
+    linear-gradient(var(--ink),var(--ink)) 0 0/2px 100% no-repeat,
+    radial-gradient(circle 3.2px at 15px 38%,var(--ink) 96%,transparent) 0 0/100% 100% no-repeat,
+    radial-gradient(circle 3.2px at 15px 62%,var(--ink) 96%,transparent) 0 0/100% 100% no-repeat}
+.bar.rep-start::before{left:5px}
+.bar.rep-end::after{right:5px;transform:scaleX(-1)}
+
+/* a bar shorter or longer than the usual one: an informal note */
+.bar-meter.odd{background:var(--page);border-style:dashed;font-weight:700;color:var(--ink)}
+
+/* ---------- Timing: splitting, joining and moving barlines ---------- */
+.beat-split{position:absolute;top:0;z-index:3;width:16px;height:16px;min-width:0;min-height:0;padding:0;border:1.5px solid var(--ink);border-radius:50%;background:var(--page);font:800 12px/1 var(--m);color:var(--ink);cursor:copy;opacity:0;display:grid;place-items:center}
+.tbar:hover .beat-split{opacity:.5}
+.beat-split:hover,.beat-split:focus-visible{opacity:1;background:var(--hl)}
+.bar-handle{position:absolute;left:-9px;top:0;bottom:0;z-index:4;width:18px;min-width:0;min-height:0;padding:0;border:0;background:transparent;cursor:ew-resize;touch-action:none}
+.bar-handle:hover,.bar-handle:focus-visible{background:linear-gradient(90deg,transparent 7px,var(--a1) 7px 11px,transparent 11px)}
+.bar-drop{position:fixed;z-index:95;width:4px;margin-left:-2px;background:var(--a1);border-radius:2px;pointer-events:none}
+
+/* ---------- Edit: choosing how a repeat is folded ---------- */
+.repeat-fold{position:relative;margin:2px 0 0 4px;font:700 11px/1 var(--m)}
+.repeat-fold-open{min-height:0;padding:3px 8px;border:1.5px solid var(--ink);border-radius:8px;background:var(--page);font:inherit;cursor:pointer}
+.repeat-fold-options{display:flex;flex-direction:column;gap:2px;margin-top:3px;padding:4px;border:1.5px solid var(--ink);border-radius:8px;background:var(--page);width:max-content;position:relative;z-index:6}
+.repeat-fold-options.hidden{display:none}
+.repeat-fold-option{min-height:0;padding:4px 8px;border:0;border-radius:6px;background:transparent;text-align:left;font:inherit;cursor:pointer}
+.repeat-fold-option:hover:not(:disabled){background:var(--hl)}
+.repeat-fold-option.current{opacity:.55;cursor:default}
+
+/* ---------- Edit: fixing repeats by hand ---------- */
+.fix-toggle{margin:4px 6px 4px 0}
+.fix-panel{position:sticky;top:0;z-index:8;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 8px;padding:8px 12px;border:2px solid var(--ink);border-radius:10px;background:var(--hl);box-shadow:3px 3px 0 var(--ink)}
+.fix-line{margin:0;font:700 13px/1.3 var(--m)}
+.fix-choices{display:flex;flex-wrap:wrap;gap:6px}
+.fix-choice{min-height:0;padding:5px 10px;border:2px solid var(--ink);border-radius:8px;background:var(--page);font:800 13px/1 var(--m);cursor:pointer}
+.fix-choice.plain{font-weight:600}
+.fix-choice:hover{background:var(--a1);color:#fff}
+.bar-no.pickable{cursor:pointer;text-decoration:underline;outline:1.5px dashed var(--a1);outline-offset:1px;border-radius:3px}
+.bar.rt-sel{background:color-mix(in srgb,var(--hl) 70%,transparent);box-shadow:inset 0 0 0 2px var(--a1)}

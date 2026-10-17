@@ -2,6 +2,7 @@
 // falls within. Pure (no DOM). The grouping, bar clipping and pass mapping are the proven rules of the compact chart;
 // word times come from word-layout.js (pins, then even spacing between pins).
 import {chartPresentation} from './chart-presentation.js';
+import {usualBeats,isOddBar} from './bar-lengths.js';
 import {buildCompactChart} from './compact-chart.js';
 import {effectiveMeasures} from './chart-layout.js';
 import {layoutLine} from './word-layout.js';
@@ -14,12 +15,15 @@ export function buildChartModel(content,music,{onsets=null}={}){
   const projection=buildCompactChart(content,music);
   let measures=[];try{measures=effectiveMeasures(music,content.layout||{});}catch{measures=[];}
   const presentation=chartPresentation(content,measures);
-  const ctx={content,music,projection,measures,presentation,onsets};
+  // Silence before the song starts is not a bar: bar 1 is the first bar with music in it. (Numbers stored with the bars never change; this is only what is shown.)
+  const barOffset=measures.filter(m=>m.end<=presentation.start+1e-6).length;
+  const usual=usualBeats(measures);
+  const ctx={content,music,projection,measures,presentation,onsets,barOffset,usual};
   const sections=projection.sections.map((section,index)=>({
     id:section.id,name:section.name,number:index+1,start:section.start,end:section.end,
     groups:section.groups.map(group=>buildGroup(ctx,section,group)).filter(Boolean),
   }));
-  return {projection,measures,presentation,sections,warnings:projection.warnings};
+  return {projection,measures,presentation,sections,barOffset,usualBeats:usual,warnings:projection.warnings};
 }
 
 function barsOf(ctx,section,group,rep){
@@ -49,7 +53,7 @@ function buildGroup(ctx,section,group){
     }));
     const previous=rawBars[index-1],previousMeasure=measures[measures.findIndex(v=>v.id===m.id)-1];
     return {
-      id:m.id,measure:m,number:m.number,meter:m.meter||null,
+      id:m.id,measure:m,number:m.number-ctx.barOffset,meter:m.meter||null,beatCount:m.beats.length,odd:isOddBar(m,ctx.usual),
       meterChange:!!(m.meter&&previousMeasure&&JSON.stringify(m.meter)!==JSON.stringify(previousMeasure.meter)),
       start,end,mapped:!String(m.id).startsWith('unmapped:'),chunks,previous:previous?.id??null,
     };
@@ -131,7 +135,7 @@ function endingsOf(ctx,group){
     const other=group.passes.find(p=>p.number===variant.passNumbers[0]),measure=other&&measures.find(m=>m.id===other.measureIds.at(-1));
     if(!measure)continue;
     const chords=projection.occurrences.filter(o=>o.groupId===group.id&&o.passNumber===other.number&&o.ending&&presentation.visible(o));
-    result.push({variant:variant.id,passNumbers:variant.passNumbers,measureNumber:measure.number,chords});
+    result.push({variant:variant.id,passNumbers:variant.passNumbers,measureNumber:measure.number-ctx.barOffset,chords});
   }
   return result;
 }

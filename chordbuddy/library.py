@@ -36,12 +36,26 @@ def metadata_defaults():
     return {'timing': {'constant_tempo': False, 'bpm': None}, 'chord_overrides': []}
 
 
+def clean_bar_edits(value):
+    """Barlines the user added or removed, as times in seconds: {'add': [...], 'remove': [...]}. Empty when there are none."""
+    if value in (None,{},[]):return {}
+    if not isinstance(value,dict) or set(value)-{'add','remove'}:raise ValueError('Invalid barline edits')
+    result={}
+    for key in ('add','remove'):
+        times=value.get(key,[])
+        if not isinstance(times,list) or len(times)>400 or any(type(t) not in (int,float) or not math.isfinite(t) or not 0<=t<=100000 for t in times):
+            raise ValueError('Invalid barline edits')
+        times=sorted({round(float(t),4) for t in times})
+        if times:result[key]=times
+    return result
+
+
 def validate_song_metadata(value):
     """Validate durable timing and explicit chord corrections."""
     if not isinstance(value, dict) or set(value) - {'timing', 'chord_overrides'}:
         raise ValueError('Song metadata must contain timing and chord overrides')
     timing=value.get('timing', {})
-    if not isinstance(timing, dict) or set(timing) - {'constant_tempo', 'bpm'} or type(timing.get('constant_tempo', False)) is not bool:
+    if not isinstance(timing, dict) or set(timing) - {'constant_tempo', 'bpm', 'bar_edits'} or type(timing.get('constant_tempo', False)) is not bool:
         raise ValueError('Invalid constant tempo setting')
     bpm=timing.get('bpm')
     if bpm is not None and (type(bpm) not in (int,float) or not math.isfinite(bpm) or not 20 <= bpm <= 300):
@@ -62,7 +76,10 @@ def validate_song_metadata(value):
             raise ValueError('Chord override label is invalid')
         if type(item.get('confirmed',True)) is not bool: raise ValueError('Chord override confirmation is invalid')
         seen.add(ident); cleaned.append({'id':ident,'start':float(start),'end':float(end),'label':chord_label(label.strip()),'confirmed':item.get('confirmed',True)})
-    return {'timing': {'constant_tempo':timing.get('constant_tempo',False),'bpm':float(bpm) if bpm is not None else None}, 'chord_overrides':cleaned}
+    result={'constant_tempo':timing.get('constant_tempo',False),'bpm':float(bpm) if bpm is not None else None}
+    edits=clean_bar_edits(timing.get('bar_edits'))
+    if edits:result['bar_edits']=edits
+    return {'timing': result, 'chord_overrides':cleaned}
 
 
 class Library:

@@ -1,6 +1,9 @@
 // Display-only engraving. ABC source and chord character offsets are never rewritten.
 import {decorateScoreConfidence,chordOpacity} from './confidence-view.js';
-import {isNoChordLabel} from './chart-layout.js';
+import {isNoChordLabel,effectiveMeasures} from './chart-layout.js';
+import {scoreNoteTimes,placeLyricsOnNotes,lyricForNote} from './lead-lyrics.js';
+import {mountLyricEditors} from './lead-lyric-editor.js';
+import {usualBeats,meterOf} from './bar-lengths.js';
 
 // Link the score's source-order measures to recording time.  This is a
 // conservative mapping: when counts differ we still expose the best ordered
@@ -44,16 +47,25 @@ export function analyzeScore(abc,abcjs){
   let best=0;
   first.forEach((s,si)=>(s.title||[]).forEach((title,vi)=>{const name=typeof title==='string'?title:title?.name||'';const rank=/vocal|voice|sing/i.test(name)?2:/melody/i.test(name)?1:0;if(rank>best){best=rank;staffIndex=si;voiceIndex=vi;}}));
   const notes=[],events=[],bars=[];let measure=0,hasNotes=false;
+  // timeMeasure/offset locate a note in recording time: the bar it is really in (a multi-bar rest such as Z4 is several bars) and
+  // how far into that bar it starts, in whole notes. `measure` keeps its older meaning because saved line breaks count that way.
+  const barLength=(()=>{const m=tune.getMeterFraction?.();return m?.num&&m?.den?m.num/m.den:1;})();
+  let timeMeasure=0,extraBars=0,offset=0;
   for(const line of tune.lines)for(const item of line.staff?.[staffIndex]?.voices?.[voiceIndex]||[]){
-    if(item.el_type==='note'){hasNotes=true;events.push({startChar:item.startChar,measure});if(item.pitches?.some(p=>!p.endTie))notes.push({index:notes.length,startChar:item.startChar,endChar:item.endChar,measure,pitch:item.pitches.map(p=>p.name).join('/'),duration:item.duration});}
-    if(item.el_type==='bar'&&hasNotes){bars.push({startChar:item.startChar,measure});measure++;hasNotes=false;}
+    if(item.el_type==='note'){
+      hasNotes=true;events.push({startChar:item.startChar,measure,timeMeasure,offset});
+      if(item.pitches?.some(p=>!p.endTie))notes.push({index:notes.length,startChar:item.startChar,endChar:item.endChar,measure,timeMeasure,offset,pitch:item.pitches.map(p=>p.name).join('/'),duration:item.duration});
+      if(item.rest?.type==='multimeasure')extraBars+=Math.max(0,Math.round((item.duration||barLength)/barLength)-1);
+      offset+=item.duration||0;
+    }
+    if(item.el_type==='bar'&&hasNotes){bars.push({startChar:item.startChar,measure});measure++;timeMeasure+=1+extraBars;extraBars=0;offset=0;hasNotes=false;}
   }
   const sections=[];
   for(const match of abc.matchAll(/^\s*%\s*((?:intro|verse|chorus|pre[- ]?chorus|bridge|outro|refrain|interlude|solo|coda)\b[^\r\n]*)/gim)){
     const note=events.find(n=>n.startChar>match.index);if(note&&!sections.some(s=>s.measure===note.measure))sections.push({name:match[1].trim().replace(/^./,c=>c.toUpperCase()),measure:note.measure});
   }
   const groups=tune.deline({lineBreaks:false}).filter(l=>l.staff).map(l=>(l.staff[staffIndex]?.voices?.[voiceIndex]||[]).filter(n=>n.el_type==='bar').map(n=>n.startChar));
-  return {notes,events,bars,sections,groups,staffIndex,voiceIndex,measures:measure+(hasNotes?1:0)};
+  return {notes,events,bars,sections,groups,staffIndex,voiceIndex,measures:measure+(hasNotes?1:0),timeMeasures:timeMeasure+(hasNotes?1:0)};
 }
 export function systemBreaks(analysis,settings){
   // Stored manual breaks are one-based measure numbers: break after measure N.
@@ -66,16 +78,30 @@ export function parserBreaks(analysis,settings){
   const desired=new Set(systemBreaks(analysis,settings));const bySource=new Map(analysis.bars.map(b=>[b.startChar,b.measure]));
   return analysis.groups.map(group=>group.flatMap((source,index)=>desired.has(bySource.get(source))?[index]:[]));
 }
-export function applyEngraving(tune,analysis,settings){
+export function applyEngraving(tune,analysis,settings,syncedLyrics=null,barLengths=null){
   const bySource=new Map(analysis.notes.map(n=>[n.startChar,n]));const eventsBySource=new Map(analysis.events.map(n=>[n.startChar,n]));const anchors=new Map(settings.anchors.map(a=>[a.index,a.text]));
   const lines=[];const shown=new Set();
+  let currentBeats=barLengths?.usual,lastBar=null;       // bars shorter or longer than the usual one get a real time signature (2/4) for as long as they last
   for(const line of tune.lines){
     if(line.staff){
       const vocal=line.staff[analysis.staffIndex];
       const voice=vocal?.voices?.[analysis.voiceIndex]||[];
       const first=voice.map(n=>eventsBySource.get(n.startChar)).find(Boolean);
       if(first)for(const section of analysis.sections)if(section.measure<=first.measure&&!shown.has(section.measure)){lines.push({subtitle:{text:section.name}});shown.add(section.measure);}
-      for(const item of voice){const note=bySource.get(item.startChar);if(note&&anchors.has(note.index))item.lyric=[{syllable:anchors.get(note.index),divider:' '}];}
+      if(syncedLyrics){const sounded=voice.filter(item=>bySource.has(item.startChar));if(sounded.length&&!sounded.some(item=>syncedLyrics.has(bySource.get(item.startChar).index)))syncedLyrics=new Map([...syncedLyrics,[bySource.get(sounded[0].startChar).index,{syllable:' ',divider:' '}]]);}   // every system keeps a lyric row to click and type in
+      for(const item of voice){const note=bySource.get(item.startChar);if(!note)continue;if(syncedLyrics){if(syncedLyrics.has(note.index))item.lyric=[syncedLyrics.get(note.index)];}else if(anchors.has(note.index))item.lyric=[{syllable:anchors.get(note.index),divider:' '}];}
+      if(barLengths){
+        const out=[];
+        for(const item of voice){
+          const event=eventsBySource.get(item.startChar);
+          if(event&&event.timeMeasure!==lastBar){
+            lastBar=event.timeMeasure;const beats=barLengths.beats[lastBar],want=Number.isFinite(beats)?beats:barLengths.usual,meter=meterOf(want);
+            if(want!==currentBeats&&meter){out.push({el_type:'meter',type:'specified',value:[meter],startChar:-1,endChar:-1});currentBeats=want;}
+          }
+          out.push(item);
+        }
+        voice.splice(0,voice.length,...out);
+      }
       if(!settings.show_instrumental&&vocal){line.staff=[{...vocal,voices:[voice],title:vocal.title?[vocal.title[analysis.voiceIndex]||vocal.title[0]]:undefined}];delete line.staff[0].brace;delete line.staff[0].bracket;delete line.staff[0].connectBarLines;}
     }
     lines.push(line);
@@ -88,7 +114,7 @@ export function renderLeadSheet(container,options){
   let view=views.get(container);if(!view||!container.contains(view.root)){view=createView(container);views.set(container,view);}view.update(options);return view;
 }
 function createView(container){
-  let options={},content={},analysis=null,selected=null,moving=null,inlineEditor=null;
+  let options={},content={},analysis=null,selected=null,moving=null,inlineEditor=null,lyricState=null;
   const root=el('div','lead-sheet'),controls=el('div','lead-controls'),notation=el('div','lead-notation'),message=el('p','lead-help');
   const bars=el('select'),instruments=el('input'),breakAfter=el('select'),breakButton=el('button','','Toggle break'),breakList=el('span','lead-help');
   instruments.type='checkbox';for(const n of [2,3,4,8]){const option=el('option','',`${n} bars`);option.value=n;bars.append(option);}
@@ -125,20 +151,67 @@ function createView(container){
     status.textContent=selected===null?'Select a word or syllable, then click a melody note. Lyrics are never placed automatically.':`${moving===null?'Place':'Move'} “${selected}”: click a melody note.`;
     cancel.disabled=selected===null;
   }
-  function paintScore(){
+  // Editable lyric lines in the lyric space under each system (see lead-lyric-editor.js).
+  const sectionIdAt=seconds=>Number.isFinite(seconds)?(options.chart.content.sections||[]).find(s=>seconds>=s.start-1e-6&&seconds<s.end-1e-6)?.id??null:null;
+  function paintLyricEditors(){
+    for(const old of notation.querySelectorAll('.lead-run'))old.remove();
+    if(!lyricState||!options.onChartEdit||settings().show_instrumental)return;
+    const box=notation.getBoundingClientRect();if(!box.width||!box.height)return;
+    const rel=node=>{const r=node.getBoundingClientRect();return {left:r.left-box.left,right:r.right-box.left,top:r.top-box.top,bottom:r.bottom-box.top};};
+    const systems=new Map();
+    for(const node of notation.querySelectorAll('.abcjs-note[data-score-note-index]')){
+      const line=/abcjs-l(\d+)/.exec(node.getAttribute('class')||'')?.[1];if(line===undefined)continue;
+      if(!systems.has(line))systems.set(line,{key:line,notes:[],lyricTop:Infinity,lyricBottom:-Infinity,noteBottom:-Infinity});
+      const system=systems.get(line),r=rel(node),index=Number(node.dataset.scoreNoteIndex);system.notes.push({index,...r,sectionId:sectionIdAt(lyricState.times.notes[index]?.time)});system.noteBottom=Math.max(system.noteBottom,r.bottom);
+    }
+    for(const node of notation.querySelectorAll('.abcjs-lyric')){
+      const line=/abcjs-l(\d+)/.exec(node.getAttribute('class')||'')?.[1],system=systems.get(line);if(!system)continue;
+      const r=rel(node);system.lyricTop=Math.min(system.lyricTop,r.top);system.lyricBottom=Math.max(system.lyricBottom,r.bottom);
+    }
+    for(const system of systems.values())if(!Number.isFinite(system.lyricTop)){system.lyricTop=system.noteBottom+8;system.lyricBottom=system.noteBottom+24;}
+    const ctx={content:options.chart.content,music:options.chart.music,measures:lyricState.measures,times:lyricState.times};
+    mountLyricEditors(notation,{systems:[...systems.values()],byNote:lyricState.placed.byNote,ctx,onError:error=>{message.textContent=error?.message||String(error);options.onError?.(error);},
+      onCommit:async result=>{await options.onChartEdit(result.content,result.label,{documentId:options.chart.documentId,revision:options.chart.revision});
+        if(result.lost)message.textContent=result.lost===1?'One pinned word no longer exists, so its pin was removed. Undo brings it back.':result.lost+' pinned words no longer exist, so their pins were removed. Undo brings them back.';}});
+  }
+  // Redrawing empties the page for a moment; keep the reader where they were.
+  function paintScore(){const desk=root.closest?.('.desk'),top=desk?.scrollTop;paintScoreNow();if(desk&&top)desk.scrollTop=top;}
+  function paintScoreNow(){
     const s=settings();bars.value=s.bars_per_line;instruments.checked=s.show_instrumental;breakList.textContent=s.breaks.length?`Manual breaks: ${s.breaks.join(', ')}`:'';
     const previousBreak=breakAfter.value;notation.replaceChildren();analysis=null;breakAfter.replaceChildren();breakButton.disabled=true;if(!content.abc?.trim()){message.textContent='No ABC notation is available.';return;}
     const abcjs=window.ABCJS;if(!abcjs){message.textContent='The notation renderer is unavailable. You can still edit the ABC source.';return;}
     try{
-      analysis=analyzeScore(content.abc,abcjs);notation._scoreTiming=mapScoreTiming(analysis,options.music);message.textContent=`${analysis.measures} measures · ${analysis.notes.length} melody notes. Select placed lyrics to move or clear them.`;
+      analysis=analyzeScore(content.abc,abcjs);notation._scoreTiming=mapScoreTiming(analysis,options.music);
+      // The lyrics come from the chart (one home for the words); here we only decide which note each word sits on.
+      lyricState=null;let synced=null;
+      const beatMeasures=options.chart?.content?effectiveMeasures(options.chart.music,options.chart.content.layout):(options.music?.measures||[]);
+      const barLengths=beatMeasures.length?{usual:usualBeats(beatMeasures),beats:beatMeasures.map(m=>m.beats.length)}:null;
+      if(options.chart?.content){
+        const measures=effectiveMeasures(options.chart.music,options.chart.content.layout),times=scoreNoteTimes(analysis,measures),placed=placeLyricsOnNotes(options.chart.content,measures,times.notes);
+        lyricState={measures,times,placed};synced=new Map([...placed.byNote].map(([index,words])=>[index,lyricForNote(words)]));
+      }
+      details.classList.toggle('hidden',!!options.chart?.content);
+      const stray=lyricState?.placed.unplaced.reduce((n,u)=>n+u.words,0)||0;
+      message.textContent=lyricState?`${analysis.measures} measures · ${analysis.notes.length} melody notes. Lyrics are shared with the chart.${lyricState.times.exact?'':' The score and the chart do not have the same number of bars, so words may sit on the wrong notes.'}${stray?` ${stray} word${stray===1?' is':'s are'} in a stretch with no melody notes.`:''}`:`${analysis.measures} measures · ${analysis.notes.length} melody notes. Select placed lyrics to move or clear them.`;
       breakAfter.replaceChildren();for(let n=1;n<analysis.measures;n++){const o=el('option','',`Bar ${n}`);o.value=n;breakAfter.append(o);}if([...breakAfter.options].some(o=>o.value===previousBreak))breakAfter.value=previousBreak;breakButton.disabled=analysis.measures<2;
-      abcjs.renderAbc(notation,content.abc,{responsive:'resize',add_classes:true,staffwidth:760,paddingtop:8,paddingbottom:18,lineBreaks:parserBreaks(analysis,s),afterParsing:tune=>{for(const line of tune.lines||[])for(const staff of line.staff||[])for(const voice of staff.voices||[])for(const item of voice)for(const annotation of item.chord||[])if(annotation.name!==undefined&&isNoChordLabel(annotation.name))annotation.name='';decorateScoreConfidence(tune,content,options.music,options.settings);applyEngraving(tune,analysis,s);if(options.title)tune.metaText.title=options.title;},clickListener:abcElement=>{
+      const draw=staffwidth=>abcjs.renderAbc(notation,content.abc,{responsive:'resize',add_classes:true,staffwidth,paddingtop:8,paddingbottom:18,lineBreaks:parserBreaks(analysis,s),afterParsing:tune=>{for(const line of tune.lines||[])for(const staff of line.staff||[])for(const voice of staff.voices||[])for(const item of voice)for(const annotation of item.chord||[])if(annotation.name!==undefined&&isNoChordLabel(annotation.name))annotation.name='';decorateScoreConfidence(tune,content,options.music,options.settings);applyEngraving(tune,analysis,s,synced,barLengths);if(options.title)tune.metaText.title=options.title;},clickListener:abcElement=>{
         const position=abcElement?.startChar;if(!Number.isInteger(position))return;
         const note=analysis.notes.find(n=>n.startChar===position);
-        if(note){if(selected!==null){place(note.index);return;}beginInlineLyric(note);return;}
+        if(note){if(lyricState)return;if(selected!==null){place(note.index);return;}beginInlineLyric(note);return;}
         const chord=content.chords?.find(c=>Number.isInteger(c.abc_index)&&((position>=c.abc_index&&position<=c.abc_index+c.label.length+2)||(position<=c.abc_index&&abcElement.endChar>c.abc_index)));if(chord)options.onChord?.(chord.id);
       }});
+      // Long lyrics, and ties that run on into the next system, can hang over the edge of the drawing and would be cut off. Measure everything
+      // that was drawn and widen the drawing's frame to hold it (the display then scales it down a little to fit).
+      draw(760);
+      const drawn=notation.querySelector('svg');
+      if(drawn?.viewBox?.baseVal?.width){
+        try{
+          const all=drawn.getBBox(),frame=drawn.viewBox.baseVal,right=Math.ceil(all.x+all.width+28),left=Math.min(frame.x,Math.floor(all.x-12));
+          if(right>frame.x+frame.width||left<frame.x)drawn.setAttribute('viewBox',`${left} ${frame.y} ${Math.max(frame.x+frame.width,right)-left} ${frame.height}`);
+        }catch{/* not drawn yet */}
+      }
       const noteNodes=notation.querySelectorAll('.abcjs-note');analysis.notes.forEach((note,index)=>{const node=noteNodes[index];if(node)node.dataset.scoreNoteIndex=String(index);});
+      paintLyricEditors();
       for(const group of notation.querySelectorAll('.abcjs-chord')){const chord=content.chords?.find(c=>group.textContent.trim().startsWith(c.label));if(chord)group.style.opacity=String(chordOpacity(chord,options.music,options.settings));}
     }catch(error){message.textContent=`The notation could not be rendered: ${error.message}`;options.onError?.(error);}
   }

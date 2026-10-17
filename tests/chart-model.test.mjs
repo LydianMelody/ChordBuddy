@@ -109,3 +109,24 @@ test('leading and trailing placeholders hide, but lyric-anchored and interior on
   assert.ok(!ids.includes('lead')&&!ids.includes('tail'));assert.ok(ids.includes('rest')&&ids.includes('anchor')&&ids.includes('sound'));
   assert.equal(JSON.stringify(content),before);
 });
+
+// ---- bar numbers start at the first bar with music ----
+test('silence before the song starts is not counted as a bar', () => {
+  const f=JSON.parse(readFileSync(new URL('./fixtures/compact-chart.json',import.meta.url)));
+  f.content.chords[0].label='N';                                   // the first bar is silence
+  const model=buildChartModel(f.content,f.music);
+  assert.equal(model.barOffset,1);
+  const first=model.sections[0].groups.flatMap(g=>g.bars)[0];
+  assert.equal(first.number,1);                                    // the first bar with chords is bar 1, though its stored number is 2
+  assert.equal(first.measure.number,2);                            // stored numbers are untouched
+  assert.equal(buildChartModel(JSON.parse(readFileSync(new URL('./fixtures/compact-chart.json',import.meta.url))).content,f.music).barOffset,0);
+});
+
+test('phrases of four are counted from the first bar with music, so an intro of four bars stays one row', () => {
+  const f=fixture();
+  f.content.chords[0].label='N';                                   // a silent first bar
+  ['Am','F','C','E'].forEach((label,i)=>{f.content.chords[1+i].label=label;});
+  const m=buildChartModel(f.content,f.music);
+  const first=m.sections[0].groups.find(g=>g.bars.length);
+  assert.deepEqual(first.bars.map(b=>b.number),[1,2,3,4]);         // not 1,2,3 and then a lonely 4
+});

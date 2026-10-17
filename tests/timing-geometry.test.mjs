@@ -130,3 +130,45 @@ test('a pointer position snaps to the nearest target', () => {
   assert.equal(nearestTarget(targets,9999,256,4).beat,3.5);assert.equal(nearestTarget([],10,256,4),null);
   assert.equal(beatToX(1,256,4),64);
 });
+
+// ---- zoom never shrinks a bar ----
+import {barWidthsAtZoom,ZOOM_LEVELS as ZOOMS} from '../chordbuddy/web/timing-geometry.js';
+test('zooming in never makes a bar narrower, even when words cross barlines', () => {
+  const bars=[{id:'a',beats:4},{id:'b',beats:4},{id:'c',beats:4}];
+  // crowded words across the barline: the width one bar needs depends on how wide the next bar is
+  const lanes=[[{barId:'a',beat:3,width:120},{barId:'b',beat:.25,width:120},{barId:'b',beat:.5,width:90},{barId:'b',beat:3,width:100},{barId:'c',beat:.25,width:100}]];
+  let previous=null;
+  for(const zoom of ZOOMS){
+    const widths=barWidthsAtZoom(bars,lanes,zoom,{gap:8});
+    if(previous)for(const bar of bars)assert.ok(widths.get(bar.id)>=previous.get(bar.id)-1e-9,`bar ${bar.id} shrank at zoom ${zoom}: ${previous.get(bar.id)} -> ${widths.get(bar.id)}`);
+    previous=widths;
+  }
+});
+
+test('the plain widths really do shrink for this chart (so the guard above is needed)', () => {
+  const bars=[{id:'a',beats:4},{id:'b',beats:4}];
+  const lanes=[[{barId:'a',beat:3.5,width:200},{barId:'b',beat:.25,width:50}]];
+  const w=ZOOMS.map(z=>barWidths(bars,lanes,beatPx(z),{gap:8}).get('a'));
+  assert.ok(w.some((x,i)=>i&&x<w[i-1]-1e-9),'raw widths: '+w.join(','));
+  const m=ZOOMS.map(z=>barWidthsAtZoom(bars,lanes,z,{gap:8}).get('a'));
+  assert.ok(m.every((x,i)=>!i||x>=m[i-1]-1e-9));
+});
+
+// ---- crowded words are stacked, not stretched ----
+import {staggerRows} from '../chordbuddy/web/timing-geometry.js';
+test('a run of quick words stacks on extra rows instead of stretching the bar without limit', () => {
+  const bars=[{id:'a',beats:4}];
+  const lanes=[[0,.25,.5,.75,1].map(beat=>({barId:'a',beat,width:90}))];     // five words within a beat
+  const free=barWidths(bars,lanes,64,{gap:8}).get('a');
+  const capped=barWidths(bars,lanes,64,{gap:8,capPerBeat:110}).get('a');
+  assert.ok(free>1000);assert.equal(capped,440);
+  const items=lanes[0].map(item=>({x:item.beat/4*capped,width:item.width}));
+  const {rows,count}=staggerRows(items,8);
+  assert.ok(count>=2);
+  for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++)if(rows[i]===rows[j])assert.ok(items[j].x>=items[i].x+items[i].width+8-1e-9,'two words on one row never touch');
+});
+
+test('words that already fit share one row', () => {
+  const {rows,count}=staggerRows([{x:0,width:50},{x:80,width:50},{x:160,width:50}],8);
+  assert.deepEqual(rows,[0,0,0]);assert.equal(count,1);
+});

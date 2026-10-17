@@ -18,7 +18,7 @@ function chordOnset(model,group,chunk,passNumber){
 }
 
 // text = what is now typed under this chord on this lyric line.
-function slotText({content,music,model,group,lane,laneIndex,chunk,fragment,text}){
+function slotText({content,music,model,group,lane,laneIndex,chunk,fragment,anchorAddress=null,text}){
   const section=content.sections.find(s=>s.id===group.sectionId);
   if(!section)throw Error('Choose an existing section.');
   const slotTokens=fragment||chunk.lanes?.[laneIndex]||lane.tokens.filter(t=>t.chunkKey===chunk.key);
@@ -64,7 +64,7 @@ function slotText({content,music,model,group,lane,laneIndex,chunk,fragment,text}
 
   if(anchorFirst&&typed){
     const finalLine=String(candidate.sections.find(s=>s.id===section.id).lyrics).split('\n')[line],token=lyricTokens(finalLine)[tokensBefore];
-    const measures=effectiveMeasures(music,candidate.layout),address=chordOnset(model,group,chunk,lane.passNumber);
+    const measures=effectiveMeasures(music,candidate.layout),address=anchorAddress||(model?chordOnset(model,group,chunk,lane.passNumber):null);
     if(token&&address){
       try{candidate=placeWord(candidate,section.id,line,token.offset,address.measure_id,address.beat,measures);}
       catch(error){return {candidate:null,conflicts:[{message:'“'+token.text+'” would land out of order with a word you pinned by hand. Move that pin first, or type the words under the right chord.'}],label,lost};}
@@ -81,6 +81,15 @@ function laneText({content,music,model,group,lane,passNumber,anchorKey,text}){
   const chunk=chunks.find(c=>c.key===(anchorKey??tokens[0]?.chunkKey))||chunks[0];
   if(!chunk)throw Error('This row has no chords to start the words under.');
   return slotText({content,music,model,group,lane:lane||{line:null,passNumber,tokens:[],text:''},laneIndex:0,chunk,fragment:tokens,text});
+}
+
+// Replace a stretch of words (or start a line) wherever it is: the lead sheet edits the same lines as the chart. `fragment` is the
+// run of words being replaced (consecutive words of one line), `anchorAddress` is where the first word is pinned when the line is
+// new or the first word changed, and `span` ({first,last} bar ids) is where a new line is placed.
+function fragmentText({content,music,sectionId,line,fragment=[],text,anchorAddress,span}){
+  const group={sectionId,passes:[{number:1,measureIds:span?[span.first,span.last]:[]}]};
+  const lane=line===null||line===undefined?{line:null,passNumber:1,tokens:[],text:''}:{line,passNumber:1,tokens:fragment,text:''};
+  return slotText({content,music,model:null,group,lane,laneIndex:0,chunk:{key:'fragment',start:0,end:0},fragment,anchorAddress,text});
 }
 
 // A lyric line that was never placed on the chart: give it this row's bars so its words spread across the row.
@@ -104,4 +113,11 @@ function releaseWord({content,sectionId,line,offset}){
   return next;
 }
 
-export const planPageEdit={slotText,laneText,placeOnRow,releaseWord};
+// Pin a word to a beat (the lead sheet drops it on a note). The words around it keep their order; the line's bar range grows to include the bar.
+function pinWordAt({content,music,sectionId,line,offset,address}){
+  const measures=effectiveMeasures(music,content.layout);
+  try{return {candidate:placeWord(content,sectionId,line,offset,address.measure_id,address.beat,measures),conflicts:[],label:'Pin word'};}
+  catch(error){return {candidate:null,conflicts:[{message:error.message}],label:'Pin word'};}
+}
+
+export const planPageEdit={slotText,laneText,fragmentText,pinWordAt,placeOnRow,releaseWord};
