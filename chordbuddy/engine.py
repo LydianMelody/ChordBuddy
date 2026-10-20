@@ -102,7 +102,7 @@ class Engine:
             return {"ready": False, "message": "Install FFmpeg and add its bin folder to PATH, then restart Chord Buddy."}
         if (self.project_dir/'portable.json').is_file():
             return {"ready": True, "message": "Portable engine ready (CUDA-enabled runtime). Automatic uses an available NVIDIA GPU." if info.get("device")=="cuda" else "Portable CPU engine ready. GPU support is not installed; Automatic uses CPU."}
-        return {"ready": True, "message": "Engine installed. First transcription downloads the pinned model; Hugging Face access may be required."}
+        return {"ready": True, "message": "Engine installed."}
 
     def attribution(self):
         return model_attribution()

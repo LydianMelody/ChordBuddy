@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Node,all,installDom} from './compact-dom.mjs';
-import {mountModelsPanel,formatBytes} from '../chordbuddy/web/models-view.js';
+import {mountModelsPanel,mountChordModelPanel,formatBytes} from '../chordbuddy/web/models-view.js';
 
 const model=(id,extra={})=>({id,title:id==='base'?'Base model':'Guitar model',role:'role',license:'unconfirmed',ready:false,bytes_missing:1024**3,bytes_present:0,environment:true,error:null,downloading:false,progress:null,...extra});
 const status=(models,extra={})=>({ready:models.every(m=>m.ready),active:false,models,bytes_missing:models.reduce((n,m)=>n+m.bytes_missing,0),...extra});
@@ -51,4 +51,23 @@ test('a file the user picked is handed over and any complaint is shown', async (
   panel.update(status([model('base')]));
   const pick=byId(rootB,'models-file');pick.files=[{name:'mine.ckpt'}];await pick.onchange();
   assert.deepEqual(calls,['mine.ckpt']);assert.match(rootB.textContent,/not one of the models/);
+});
+
+const chord=(extra={})=>({id:'transcription',title:'SheetSage2 chord and melody model',role:'Works out the chords.',license:'CC BY-NC 4.0',ready:false,downloading:false,error:null,environment:true,
+  bytes_total:2.6*1024**3,bytes_present:0,progress:null,folders:[{repo:'m-a-p/SheetSage2',revision:'abc',url:'https://huggingface.co/m-a-p/SheetSage2/tree/abc',path:'.models\hf\hub\models--m-a-p--SheetSage2\snapshots\abc'}],...extra});
+
+test('the chord model panel shows until the model is there, says no account is needed, and shows where it goes', () => {
+  installDom();const root=new Node('section'),calls=[];
+  const panel=mountChordModelPanel(root,{onDownload:()=>calls.push('download'),onCancel:()=>calls.push('cancel')});
+  panel.update(chord());
+  assert.equal(root.className.includes('hidden'),false,'every analysis needs it, so it does not wait to be asked');
+  assert.match(root.textContent,/no account needed/);assert.match(root.textContent,/License: CC BY-NC 4\.0/);assert.match(root.textContent,/models--m-a-p--SheetSage2/);
+  const download=byId(root,'chord-model-download');assert.equal(download.disabled,false);download.onclick();assert.deepEqual(calls,['download']);
+  panel.update(chord({downloading:true,progress:{done:1024**3,size:2.6*1024**3,source:'huggingface.co'}}));
+  assert.match(root.textContent,/Downloading from huggingface\.co… 1\.0 GB of about 2\.6 GB/);assert.equal(download.disabled,true);
+  byId(root,'chord-model-stop').onclick();assert.deepEqual(calls,['download','cancel']);
+  panel.update(chord({error:'Could not reach huggingface.co.'}));
+  assert.match(root.textContent,/Could not finish: Could not reach/);assert.equal(download.textContent,'Try again');
+  panel.update(chord({environment:false}));assert.equal(download.disabled,true);assert.match(root.textContent,/InstallWindowsDependencies/);
+  panel.update(chord({ready:true}));assert.equal(root.className.includes('hidden'),true);
 });

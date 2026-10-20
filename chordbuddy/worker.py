@@ -29,8 +29,8 @@ def explain_error(exc):
     if "out of memory" in lower or "cuda error" in lower:
         return "The GPU could not run this transcription (memory or CUDA error). Select CPU Only and try again. " + text
     if any(word in lower for word in ("gated", "401", "403", "unauthorized", "access to model")):
-        return ("Hugging Face access is required. Request access to m-a-p/SheetSage2 and m-a-p/MERT-v2-FullSong, "
-                "then set HF_TOKEN to a read token before launching Chord Buddy, or run setup_engine.py --login. " + text)
+        return ("Hugging Face refused the model download. SheetSage2 and MERT-v2-FullSong are public, so check that no "
+                "expired HF_TOKEN is set, then download the chord model again from Chord Buddy. " + text)
     if "ffmpeg" in lower:
         return "FFmpeg could not decode this file. Install FFmpeg, put its bin folder on PATH, and restart Chord Buddy. " + text
     return text

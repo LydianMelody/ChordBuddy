@@ -65,3 +65,46 @@ export function mountModelsPanel(root,{onDownload,onCancel,onFile}){
 
   return {update(status){latest=status;if(status)paint();},want(){wanted=true;if(latest)paint();}};
 }
+
+// The chord and melody model (SheetSage2, with MERT-v2-FullSong). Unlike the stem models, every analysis needs it, so the panel
+// shows whenever it is missing. It is public on Hugging Face: no account or token. The folder it goes in is shown too, for anyone
+// who would rather download it some other way.
+export function mountChordModelPanel(root,{onDownload,onCancel}){
+  const title=el('h3','','Download the chord model');
+  const intro=el('p','models-intro');
+  const item=el('div','models-item'),head=el('strong'),role=el('span','models-role'),license=el('p','models-license');
+  const track=el('div','progress-track'),bar=el('div','progress-bar'),state=el('span','models-state');state.setAttribute('role','status');
+  track.append(bar);item.append(head,role,license,track,state);
+  const download=el('button','btn hot','Download');download.type='button';download.id='chord-model-download';
+  const stop=el('button','btn hidden','Stop');stop.type='button';stop.id='chord-model-stop';
+  const actions=el('div','models-actions');actions.append(download,stop);
+  const other=el('details','models-other'),summary=el('summary','','Download it another way'),how=el('p','models-intro'),where=el('ul','models-folders');
+  other.append(summary,how,where);
+  root.replaceChildren(title,intro,item,actions,other);
+  download.onclick=()=>onDownload();
+  stop.onclick=()=>onCancel();
+
+  function update(status){
+    if(!status)return;
+    root.classList.toggle('hidden',!!status.ready&&!status.downloading);
+    const size=formatBytes(status.bytes_total);
+    intro.textContent=`Chord Buddy needs this model to work out the chords and the melody. It is free and public on Hugging Face (no account needed) and is downloaded once (about ${size}) into this app's folder.`;
+    head.textContent=status.title;role.textContent=status.role;license.textContent='License: '+status.license;
+    const p=status.progress;let text,percent=0;
+    if(status.ready){text='Ready';percent=100;}
+    else if(p){percent=p.size?Math.min(99,Math.round(100*p.done/p.size)):0;text=`Downloading from ${p.source}… ${formatBytes(p.done)} of about ${formatBytes(p.size)}`;}
+    else if(status.error)text='Could not finish: '+status.error;
+    else if(!status.environment)text='The transcription engine is missing from this install. Run InstallWindowsDependencies.cmd first.';
+    else text=`Not downloaded yet · about ${size}`;
+    state.textContent=text;bar.style.width=percent+'%';item.classList.toggle('failed',!!status.error&&!p);
+    download.disabled=!!status.downloading||!status.environment;
+    download.textContent=status.error?'Try again':'Download '+size;
+    stop.classList.toggle('hidden',!status.downloading);
+    how.textContent='You can also download every file of these two models yourself, at exactly these versions, and put them in these folders inside Chord Buddy (keep the subfolders). Chord Buddy notices them within a few seconds.';
+    where.replaceChildren(...(status.folders||[]).map(folder=>{
+      const li=el('li'),link=el('a','',folder.repo);link.href=folder.url;link.target='_blank';link.rel='noopener';
+      li.append(link,document.createTextNode(' → '),el('code','models-path',folder.path));return li;
+    }));
+  }
+  return {update,show(){root.classList.remove('hidden');root.scrollIntoView?.({block:'nearest'});}};
+}

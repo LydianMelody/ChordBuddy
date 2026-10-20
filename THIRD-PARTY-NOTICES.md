@@ -20,7 +20,7 @@ Chord Buddy's own code is MIT licensed (see `LICENSE`). It uses the following. *
 | mido | MIDI files | MIT |
 | **mutagen** | reads MP3 tags | **GPL-2.0-or-later.** Chord Buddy imports it at run time and does not include it. Combining with MIT code is allowed, but consider this when choosing how to distribute a bundled build. *(check)* |
 | ffmpeg 6.0 "essentials" build from gyan.dev | converts audio, exports MP3 | **GPL v3.** Downloaded to the user's computer and run as a separate program; not redistributed by Chord Buddy. |
-| SheetSage2 and MERT-v2-FullSong (Music AI Project) | chord and melody transcription | SheetSage2 weights: CC BY-NC 4.0 (non-commercial; attribution required). Access is gated on Hugging Face. Details in `docs/MODEL-ATTRIBUTION.md`. |
+| SheetSage2 and MERT-v2-FullSong (Music AI Project) | chord and melody transcription | SheetSage2 weights: CC BY-NC 4.0 (non-commercial; attribution required). Public on Hugging Face; no account needed. Details in `docs/MODEL-ATTRIBUTION.md`. |
 | BS-RoFormer SW six-stem model | stem separation | **License unconfirmed.** Original uploader's account is gone; copies on Hugging Face disagree. See `docs/MODEL-ATTRIBUTION.md`. |
 | Mel-Band RoFormer lead/rhythm guitar model (by "listra92") | lead guitar separation | **License unconfirmed.** Tagged OpenRAIL++ with no model card; the uploader has been contacted. |
 | RoFormer model code (`ZFTurbo/Music-Source-Separation-Training`, pinned commit) | runs the two stem models | MIT |

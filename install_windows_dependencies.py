@@ -1,7 +1,7 @@
 """Install everything Chord Buddy needs to run on Windows, into this folder only.
 
 Run it by double-clicking InstallWindowsDependencies.cmd (which fetches a small Python first if there is none yet), or:
-    runtime\\python.exe install_windows_dependencies.py [--device auto|cuda|cpu] [--only STEP,STEP] [--hf-login]
+    runtime\\python.exe install_windows_dependencies.py [--device auto|cuda|cpu] [--only STEP,STEP] [--skip-models]
 
 Steps (each can be repeated safely; finished ones are skipped):
     python      the app's own Python 3.11 (the "embeddable" build from python.org)
@@ -11,15 +11,15 @@ Steps (each can be repeated safely; finished ones are skipped):
     separation  the stem engine's own small Python and libraries         -> .models\\separation
     ffmpeg      the audio converter                                      -> tools\\ffmpeg.exe
     models      the stem separation models (hash-checked)                -> .models\\separation
+    sheetsage   the chord and melody model, SheetSage2 and MERT-v2-FullSong, at pinned versions -> .models\\hf\\hub
+                (public on Hugging Face, no account needed; the app can also download it)
     check       confirms the engine starts, then marks the install ready
-    sheetsage   optional: the SheetSage2 model (needs a Hugging Face login, see --hf-login)
 
 Nothing is installed outside this folder. Every download is checked against a SHA-256 fingerprint
 (installer-pins.json, or pinned in requirements files), except pip's own package downloads, which pip verifies itself.
 """
 from __future__ import annotations
 import argparse
-import getpass
 import base64
 import hashlib
 import io
@@ -41,8 +41,8 @@ PY = RUNTIME / 'python.exe'
 MODELS_DIR = ROOT / '.models'
 SEPARATION = MODELS_DIR / 'separation'
 STATE = MODELS_DIR / 'installer-state.json'
-STEPS = ['python', 'pip', 'app', 'engine', 'separation', 'ffmpeg', 'models', 'check']
-OPTIONAL = ['sheetsage']
+STEPS = ['python', 'pip', 'app', 'engine', 'separation', 'ffmpeg', 'models', 'sheetsage', 'check']
+OPTIONAL = []
 BACKSLASH = chr(92)
 
 
@@ -306,21 +306,27 @@ def step_check(ctx):
 
 
 def step_sheetsage(ctx):
-    """SheetSage2 is gated on Hugging Face: it needs an account that has been granted access and a read token."""
+    """SheetSage2 and its base model are public on Hugging Face: they download without an account or token."""
     pins = json.loads((ROOT / 'portable.json').read_text(encoding='utf-8'))
+    hub = MODELS_DIR / 'hf' / 'hub'
+    if all((hub / f'models--m-a-p--{name}' / 'snapshots' / rev / 'model.safetensors').is_file()
+           for name, rev in (('SheetSage2', pins['model_revision']), ('MERT-v2-FullSong', 'd8ba1c745e733b3908ce6ad16ebeb17ac7600a42'))):
+        say('  already downloaded')
+        return
+    say('  downloading about 2.8 GB from huggingface.co …')
     code = ("import json,os; from pathlib import Path; "
             "from chordbuddy.model_cache import configure_hub_copy_fallback; configure_hub_copy_fallback(os.environ['HF_HUB_CACHE']); "
             "from huggingface_hub import snapshot_download; "
-            f"p=snapshot_download('m-a-p/SheetSage2',revision={pins['model_revision']!r},cache_dir=os.environ['HF_HUB_CACHE']); "
+            f"p=snapshot_download('m-a-p/SheetSage2',revision={pins['model_revision']!r},cache_dir=os.environ['HF_HUB_CACHE'],token=False); "
             "c=json.loads((Path(p)/'config.json').read_text()); "
-            "snapshot_download(c['base_model_name_or_path'],revision=c['base_model_revision'],cache_dir=os.environ['HF_HUB_CACHE'])")
+            "snapshot_download(c['base_model_name_or_path'],revision=c['base_model_revision'],cache_dir=os.environ['HF_HUB_CACHE'],token=False)")
     from_env = local_env()
     hf = MODELS_DIR / 'hf'
     hf.mkdir(parents=True, exist_ok=True)
     from_env.update(HF_HOME=str(hf), HF_HUB_CACHE=str(hf / 'hub'), HF_TOKEN_PATH=str(hf / 'token'), HF_HUB_DISABLE_TELEMETRY='1')
     if subprocess.run([str(PY), '-c', code], cwd=ROOT, env=from_env).returncode:
-        raise Failure('SheetSage2 could not be downloaded. It needs a Hugging Face account that has been granted access to m-a-p/SheetSage2 and m-a-p/MERT-v2-FullSong, '
-                      'and a read token (run this script again with --hf-login).')
+        raise Failure('The chord model (SheetSage2) could not be downloaded from huggingface.co. Check your internet connection and run this again; '
+                      'finished files are kept. You can also skip it with --skip-models and download it from inside Chord Buddy.')
 
 
 # ---------------------------------------------------------------- extras
@@ -342,24 +348,12 @@ def check_webview2():
     return False
 
 
-def hf_login():
-    say('Paste a Hugging Face READ token (from huggingface.co/settings/tokens). It is saved only in this folder (.models\\hf\\token).')
-    token = getpass.getpass('Token (hidden): ').strip()
-    if not token:
-        say('No token entered; skipped.')
-        return
-    folder = MODELS_DIR / 'hf'
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / 'token').write_text(token, encoding='utf-8')
-
-
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--device', choices=['auto', 'cuda', 'cpu'], default='auto', help='graphics card (cuda) or processor only (cpu); auto looks for an NVIDIA card')
     parser.add_argument('--only', help='comma-separated steps to run: ' + ', '.join(STEPS + OPTIONAL))
-    parser.add_argument('--hf-login', action='store_true', help='save a Hugging Face token and download SheetSage2')
     parser.add_argument('--no-pause', action='store_true', help=argparse.SUPPRESS)
-    parser.add_argument('--skip-models', action='store_true', help='do not download the stem separation models now (the app offers it on first run)')
+    parser.add_argument('--skip-models', action='store_true', help='do not download the chord model or the stem separation models now (the app offers both on first run)')
     args = parser.parse_args(argv)
     if sys.platform != 'win32':
         say('This installer is for Windows.')
@@ -370,11 +364,8 @@ def main(argv=None):
     say(f'Installing into {ROOT}')
     say(f'Processing: {"NVIDIA graphics card (CUDA)" if device == "cuda" else "CPU only"}')
     chosen = [s.strip() for s in args.only.split(',')] if args.only else list(STEPS)
-    if args.hf_login:
-        hf_login()
-        chosen = [*chosen, 'sheetsage'] if 'sheetsage' not in chosen else chosen
-    if args.skip_models and 'models' in chosen:
-        chosen.remove('models')
+    if args.skip_models:
+        chosen = [s for s in chosen if s not in ('models', 'sheetsage')]
     unknown = [s for s in chosen if s not in STEPS + OPTIONAL]
     if unknown:
         say('Unknown step: ' + ', '.join(unknown))
@@ -399,9 +390,6 @@ def main(argv=None):
         say('\nThe Microsoft WebView2 runtime was not found. Chord Buddy\'s window needs it (it is built into Windows 11 and most updated Windows 10).')
         say('Install the "Evergreen Standalone" runtime from https://developer.microsoft.com/microsoft-edge/webview2/ or use "Start in browser.cmd" instead.')
     say(f'\nDone in {time.time() - started:.0f} s. Start Chord Buddy with "Start Chord Buddy.cmd".')
-    if not (MODELS_DIR / 'hf' / 'hub').exists():
-        say('Note: the transcription model (SheetSage2) is downloaded the first time you analyze a song and needs a free Hugging Face account with access to')
-        say('m-a-p/SheetSage2 and m-a-p/MERT-v2-FullSong. To fetch it now, run this script again with --hf-login.')
     return 0
 
 

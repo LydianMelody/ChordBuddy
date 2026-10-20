@@ -22,7 +22,7 @@ import {icon} from './icons.js';
 import {prefs} from './prefs.js';
 import {estimateKey,KEY_CHOICES} from './key-estimate.js';
 import {onsetsFromNotes} from './word-layout.js';
-import {mountModelsPanel} from './models-view.js';
+import {mountModelsPanel,mountChordModelPanel} from './models-view.js';
 
 const $ = id => document.getElementById(id);
 document.querySelector('.chart-intro h2')?.remove();
@@ -43,6 +43,11 @@ async function api(path, body, options={}) {
   if(!response.ok){const error=new Error(result.error || `Request failed (${response.status}).`);error.status=response.status;throw error;}
   return result;
 }
+// The chord model is needed for every analysis; it shows until it is downloaded (see chordbuddy/transcription_models.py).
+const chordModelPanel=mountChordModelPanel($('chord-model-panel'),{
+  onDownload:async()=>{try{await api('/api/chord-model/download',{});await refreshState();}catch(error){showError(error);}},
+  onCancel:async()=>{try{await api('/api/chord-model/cancel',{});await refreshState();}catch(error){showError(error);}},
+});
 // The stem separation models are downloaded on first run (see models-view.js and chordbuddy/model_downloads.py).
 const modelsPanel=mountModelsPanel($('models-panel'),{
   onDownload:async()=>{try{await api('/api/models/download',{});await refreshState();}catch(error){showError(error);}},
@@ -57,6 +62,7 @@ const playbackGate=new PlaybackGate(transport,id=>api('/api/playback/'+encodeURI
 const wantsStems=()=>prefs.get('cb-stems','0')==='1';
 const stemsHint=()=>'Separates vocals, guitars, bass, drums and piano so you can mix them. It takes much longer'+(model.state?.models?.ready?'.':' and needs a one-time download of the stem models.');
 async function startAnalysis(songId,invalidate=[],stems=wantsStems(),editPolicy='keep'){
+ if(model.state?.chord_model&&!model.state.chord_model.ready){chordModelPanel.show();throw Error('Chord Buddy needs the chord model first. Download it in the panel above, then choose Analyze.');}
  if(stems&&model.state?.models&&!model.state.models.ready){modelsPanel.want();throw Error('Splitting stems needs the stem models first. Download them below, then analyze again, or turn stems off.');}
  await playbackGate.analyze(songId,()=>api('/api/songs/'+encodeURIComponent(songId)+'/analyze',{invalidate,stems,edit_policy:editPolicy}));
  await refreshState();
@@ -339,7 +345,7 @@ function renderJob(){
 }
 async function refreshState(){
   const previous=currentSong();const oldStatus=previous?.status,oldRun=previous?.active_run,oldSettings=JSON.stringify(model.state?.settings);
-  model.state=await api('/api/state');modelsPanel.update(model.state.models);renderLibrary();renderControls();renderJob();renderLock();await refreshSeparation();
+  model.state=await api('/api/state');chordModelPanel.update(model.state.chord_model);modelsPanel.update(model.state.models);renderLibrary();renderControls();renderJob();renderLock();await refreshSeparation();
   if(oldSettings!==JSON.stringify(model.state.settings)&&currentRecord()){
     if(currentRecord().doc.kind==='chart')refreshChartMusic();else if(currentRecord().doc.kind==='abc')renderAbc();
   }

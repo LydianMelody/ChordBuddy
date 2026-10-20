@@ -15,6 +15,7 @@ mimetypes.add_type('font/woff2','.woff2')  # Windows Python often lacks it; the 
 
 from .documents import DocumentStore, RevisionConflict
 from .engine import Engine, ACTIVE_STATUSES
+from .transcription_models import TranscriptionModels
 from .library import Library
 from .separation_store import SeparationStore
 from .separation import SeparationManager
@@ -45,6 +46,7 @@ class Application:
         self._last_job_kind='transcription'
         self.engine=Engine(project_dir,self._ingest_transcription)
         self.models=ModelManager(project_dir)
+        self.chord_model=TranscriptionModels(project_dir,self.engine.python_path)
         self.separation_store=SeparationStore(self.library,recipe_provider=lambda:self.separation.current_recipe_digest())
         self.separation_store.recover_interrupted()
         self.separation=SeparationManager(project_dir,self.separation_store,self.inference_gate)
@@ -79,7 +81,7 @@ class Application:
             job=dict(job or {},kind='transcription',status='failed',stage='failed',error=self._inference_recovery_error,message=self._inference_recovery_error)
         analysis=self.analysis.snapshot()
         if analysis and (analysis['status'] not in TERMINAL or self._last_job_kind=='analysis' or self.analysis.terminal_error):job=analysis
-        return dict(self.library.state(),engine=dict(self.engine.readiness(),model=self.engine.attribution()),job=job,models=self.models.status())
+        return dict(self.library.state(),engine=dict(self.engine.readiness(),model=self.engine.attribution()),job=job,models=self.models.status(),chord_model=self.chord_model.status())
 
     def playback_state(self,song_id):
         with self.job_lock:
@@ -247,6 +249,8 @@ class Application:
             job=self.separation.snapshot()
             if job:self.separation.cancel(job['id'])
             self.separation.wait()
+            self.chord_model.cancel()
+            self.chord_model.wait()
             self.library.close()
 
 
@@ -422,6 +426,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(self.app.library.read_prefs())
         if path=='/api/models':
             return self._json(self.app.models.status())
+        if path=='/api/chord-model':
+            return self._json(self.app.chord_model.status())
         if path=='/api/state':
             return self._json(self.app.state())
         if path.startswith('/api/song/'):
@@ -497,6 +503,10 @@ class Handler(BaseHTTPRequestHandler):
             result=self.app.models.start()
         elif path=='/api/models/cancel':
             result=self.app.models.cancel()
+        elif path=='/api/chord-model/download':
+            result=self.app.chord_model.start()
+        elif path=='/api/chord-model/cancel':
+            result=self.app.chord_model.cancel()
         elif path=='/api/settings':
             result=lib.settings(body)
         elif path=='/api/song-metadata':

@@ -58,8 +58,8 @@ def main(argv=None):
         print("Engine setup complete. Start Chord Buddy. First transcription loads real model weights.", flush=True)
         return 0
     except subprocess.CalledProcessError as exc:
-        print("Setup failed. Review the error above. FFmpeg must be on PATH. For gated model errors, request access to "
-              "m-a-p/SheetSage2 and m-a-p/MERT-v2-FullSong, then use --login or HF_TOKEN. "
+        print("Setup failed. Review the error above. FFmpeg must be on PATH. The models (m-a-p/SheetSage2 and "
+              "m-a-p/MERT-v2-FullSong) are public and need no account; check your internet connection. "
               f"Failed command exited {exc.returncode}.", file=sys.stderr)
         return 1
 

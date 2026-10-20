@@ -22,9 +22,9 @@ def transcription_recipe(project,device):
     for ident in (MODEL_ID,BASE_MODEL_ID):
         root=project/'.models/hf/hub'/('models--'+ident.replace('/','--'))
         snapshots=root/'snapshots'
-        if not snapshots.is_dir():raise ValueError('Installed transcription model is missing')
+        if not snapshots.is_dir():raise ValueError('The chord model (SheetSage2) has not been downloaded yet. Choose Download in the chord model panel, then analyze again.')
         files=sorted(p for p in snapshots.rglob('*') if p.is_file())
-        if not files:raise ValueError('Installed transcription model is incomplete')
+        if not files:raise ValueError('The chord model (SheetSage2) has not been downloaded yet. Choose Download in the chord model panel, then analyze again.')
         for path in files:
             if not path.resolve().is_relative_to(project):raise ValueError('Model path escapes project')
             inputs[ident+'/'+str(path.relative_to(root))]=file_hash(path)

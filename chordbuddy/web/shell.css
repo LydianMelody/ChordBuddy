@@ -346,3 +346,7 @@ button.chip.key.set{border-style:solid}
 .models-ack{display:flex;gap:8px;align-items:center;margin:6px 0 10px;font:700 12.5px var(--m);cursor:pointer}
 .models-actions{display:flex;gap:10px;flex-wrap:wrap}
 .models-actions button:disabled{opacity:.5;cursor:default}
+.models-other{margin-top:10px;font:400 12.5px/1.5 var(--m)}
+.models-other summary{cursor:pointer;font-weight:700;color:var(--ink)}
+.models-path{display:inline-block;padding:2px 6px;border:2px solid var(--ink);border-radius:6px;background:var(--tint);font:700 12px var(--m);word-break:break-all}
+.models-folders{margin:0;padding-left:18px;display:grid;gap:6px}

@@ -23,8 +23,9 @@ Everything runs on your own computer. Your music is never uploaded anywhere.
 You need Windows 10 or 11 (64-bit) and a few GB of free space. An NVIDIA graphics card makes the analysis much faster, but it is not required.
 
 1. Download or clone this repository into a folder with a short path, such as `C:\ChordBuddy`.
-2. Double-click **InstallWindowsDependencies.cmd**. It sets up everything Chord Buddy needs inside that folder only (its own Python, PyTorch, the audio tools and the stem models), checking every download. It picks the NVIDIA version of PyTorch automatically when it finds an NVIDIA card. It is safe to run again.
-3. The chord and melody model, **SheetSage2**, is hosted on Hugging Face and needs a free account that has been granted access to [m-a-p/SheetSage2](https://huggingface.co/m-a-p/SheetSage2) and [m-a-p/MERT-v2-FullSong](https://huggingface.co/m-a-p/MERT-v2-FullSong). Request access on both pages, then run `InstallWindowsDependencies.cmd --hf-login` to save your token and download it.
+2. Double-click **InstallWindowsDependencies.cmd**. It sets up everything Chord Buddy needs inside that folder only: its own Python, PyTorch, the audio tools, the stem models and the chord and melody model ([SheetSage2](https://huggingface.co/m-a-p/SheetSage2), with [MERT-v2-FullSong](https://huggingface.co/m-a-p/MERT-v2-FullSong), at fixed versions). It picks the NVIDIA version of PyTorch automatically when it finds an NVIDIA card. It is safe to run again.
+
+The models are public, so you don't need a Hugging Face account. To download them later instead (they are a few GB), run `InstallWindowsDependencies.cmd --skip-models`. Chord Buddy then shows a **Download** button for each model when it first needs it.
 
 ## Use it
 
