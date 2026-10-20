@@ -53,13 +53,14 @@ test('picking a range of bars lists the ways it can repeat, and applying one fol
   assert.ok(bad.problem||bad.choices.length===1);
 });
 
-test('one chord held for two bars is not folded as a repeat',()=>{
+test('a chord held over bars folds like one played again: F for two bars, then Am for two, is F ×2 and Am ×2',()=>{
   const bars=[],chords=[];
   for(let i=0;i<4;i++)bars.push({id:'m'+i,number:i+1,start:i*2,end:i*2+2,beats:[0,.5,1,1.5].map(t=>i*2+t),meter:[4,4],quarter_positions:[0,1,2,3,4]});
   chords.push({id:'a',label:'F',start:0,end:4,section_id:'s',line:null,offset:null},{id:'b',label:'Am',start:4,end:8,section_id:'s',line:null,offset:null});
   const content={version:1,duration:8,sections:[{id:'s',name:'Interlude',start:0,end:8,lyrics:''}],chords};
   const view=buildCompactChart(content,{measures:bars});
-  assert.ok(view.groups.every(g=>g.passes.length===1),'nothing folds');
-  const info=compactRangeChoices(content,{measures:bars},'m0','m1');
-  assert.ok(!info.choices.some(c=>!c.expanded),'no repeat offered for a held chord');
+  assert.deepEqual(view.groups.map(g=>[g.bars.length,g.passes.length]),[[1,2],[1,2]],'two groups, each one bar played twice');
+  const labels=view.groups.map(g=>view.occurrences.find(o=>o.groupId===g.id&&o.passNumber===1).label);
+  assert.deepEqual(labels,['F','Am']);
+  assert.equal(view.occurrences.find(o=>o.chordId==='a'&&o.passNumber===1).continued,false,'the first pass shows the chord itself, not (F)');
 });

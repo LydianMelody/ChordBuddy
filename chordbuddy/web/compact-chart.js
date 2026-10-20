@@ -108,10 +108,12 @@ export function buildCompactChart(content,music){
    for(let n=fixed||1;n<=(fixed||Math.floor((bars.length-i)/2));n++){
     if(--budget<0)return best;
     if(bars.slice(i,i+n).some((b,j)=>!b.signature||blocked[i+j]||(j&&breaks.has(b.measureId))))break;
-    // A chord held across the bar line is only ignored when the repeating part has at least two chord changes of its own; one long chord is not a repeat.
+    // A chord held across the bar line is only ignored when the repeating part has at least two chord changes of its own, with one exception:
+    // a single chord held for whole bars (four bars of B) folds as "B ×4" rather than "B | (B) ×3".
     const starts=bars.slice(i,i+n).reduce((s,b)=>s+b.events.filter(e=>!e.continued).length,0),held=bars[i].events[0]?.continued;
+    const lone=b=>b.events.length===1&&b.events[0].chordId,oneChord=n===1&&lone(bars[i]);
     let count=1;
-    while(i+(count+1)*n<=bars.length){let equal=starts>=2||bars[i+count*n].events[0]?.continued===held;for(let k=0;k<n;k++){if(--budget<0){equal=false;break;}const at=i+count*n+k;const a=bars[i+k].signature,b=bars[at].signature,ending=n>=3&&k===n-1&&a&&b&&same(a.slice(0,2),b.slice(0,2));if(blocked[at]||breaks.has(bars[at].measureId)||!same(a,b)&&!ending){equal=false;break;}}if(!equal)break;count++;}
+    while(i+(count+1)*n<=bars.length){let equal=starts>=2||bars[i+count*n].events[0]?.continued===held||oneChord&&lone(bars[i+count*n])===lone(bars[i])&&bars[i+count*n].events[0].continued;for(let k=0;k<n;k++){if(--budget<0){equal=false;break;}const at=i+count*n+k;const a=bars[i+k].signature,b=bars[at].signature,ending=n>=3&&k===n-1&&a&&b&&same(a.slice(0,2),b.slice(0,2));if(blocked[at]||breaks.has(bars[at].measureId)||!same(a,b)&&!ending){equal=false;break;}}if(!equal)break;count++;}
     if(count>1&&n*count>best.unit*best.count)best={unit:n,count,fixed:!!fixed};
    }
    return best;

@@ -31,7 +31,9 @@ export function applyRows(container){
   for(const bar of bars)bar.classList.remove('row-end');
   if(!bars.length)return;
   const available=container.clientWidth-6;                            // a little room for the barlines that are about to be added
+  container.classList.add('measuring');                               // natural widths, before bars stretch to fill their slots
   const counts=planRows(bars.map(bar=>bar.offsetWidth||0),available);
+  container.classList.remove('measuring');
   let index=0;
   counts.forEach((count,line)=>{
     index+=count;

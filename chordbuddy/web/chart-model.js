@@ -45,7 +45,7 @@ function buildGroup(ctx,section,group){
   const {projection,measures,presentation}=ctx,rep=group.passes[0];
   const rawBars=barsOf(ctx,section,group,rep);
   if(!rawBars.length&&!section.lyrics)return null;
-  const repeatTail=group.folded?projection.occurrences.filter(o=>o.groupId===group.id&&o.passNumber===rep.number&&!o.ending&&presentation.visible(o)).at(-1):null;
+  const repeatTail=group.folded?projection.occurrences.filter(o=>o.groupId===group.id&&o.passNumber===rep.number&&presentation.visible(o)).at(-1):null;   // at the closing repeat sign, after the first ending if there is one
   const bars=rawBars.map((m,index)=>{
     const start=m.viewStart??m.start,end=m.viewEnd??m.end;
     const events=projection.occurrences.filter(o=>o.groupId===group.id&&o.passNumber===rep.number&&(o.measureId===m.id||!o.measureId&&!m.beats.length)&&o.start<end&&o.end>start&&presentation.visible(o));

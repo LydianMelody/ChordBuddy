@@ -191,3 +191,13 @@
 
 /* Timing: a long row is split into lines of bars, each its own box */
 .trow .bars+.bars{margin-top:20px}
+
+/* short rows sharing a line (chart-page.js) */
+.row-pack{display:flex;flex-wrap:wrap;align-items:flex-start;column-gap:0}
+.row-pack{width:100%}
+.row-pack>.row{flex:none;max-width:100%;min-width:0}
+/* a slotted row: its bars share its width equally (one slot each), and only grow past a slot when their chords need the room */
+.row.slotted .bar{flex:1 1 0;min-width:max-content}
+.row.slotted .bars.measuring>.bar{flex:none}
+.row.slotted.natural{width:auto!important}
+.row.slotted.natural .bar{flex:none}

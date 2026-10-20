@@ -11,6 +11,7 @@ These are the rules the chord chart and the lead sheet follow. Any change to the
 ## Repeats
 
 - Repeats are written inline, right after the last repeated chord: `G C D C (×2)`. They never appear in section headers, section blocks or the timeline.
+- A chord held over several bars folds the same way as one played again: four bars of B are `B (×4)`, not `B | (B) (×3)`.
 - If one pass ends differently, the chart shows the different ending.
 - While the music plays, the highlight and the playhead follow the actual pass through every repeat, including passes with uneven timing and changed endings.
 - Editing a folded chord edits the chord you clicked; the place you are editing does not move with playback.

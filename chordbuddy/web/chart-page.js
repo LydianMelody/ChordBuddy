@@ -225,12 +225,14 @@ export function mountChartPage(root,handlers={}){
     const desk=root.closest?.('.desk')||root.parentElement;
     const top=desk?.getBoundingClientRect?.().top??0,rows=refs.groups||[];
     const anchor=rows.find(r=>r.node.getBoundingClientRect?.().bottom>top+10);
-    const id=anchor?.model.id,offset=anchor?anchor.node.getBoundingClientRect().top-top:0;
+    const id=anchor?.model.id,offset=anchor?anchor.node.getBoundingClientRect().top-top:0,left=desk?.scrollLeft;
     fn();
     const again=refs.groups.find(r=>r.model.id===id);
-    if(again&&desk&&desk.scrollTop!==undefined)desk.scrollTop+=again.node.getBoundingClientRect().top-top-offset;
+    if(again&&desk&&desk.scrollTop!==undefined)desk.scrollTo?.({top:desk.scrollTop+again.node.getBoundingClientRect().top-top-offset,left:left??0,behavior:'instant'});
   }
-  function render(){
+  // Every redraw keeps the chart where it is on screen: rebuilding empties the page for a moment, which would otherwise scroll it to the top.
+  function render(){keepPlace(draw);}
+  function draw(){
     if(!data)return;
     model=buildChartModel(data.content,data.music,{onsets:data.suggest?data.onsets:null});
     refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[]};
@@ -250,7 +252,19 @@ export function mountChartPage(root,handlers={}){
       }
       else head.onclick=()=>{if(mode==='nav')seek(section.start);};
       sec.append(head);refs.sections.push({node:sec,section});
-      section.groups.forEach(g=>sec.append(renderGroup(section,g)));
+      // Short rows share a line: a one-bar repeat and its neighbours sit side by side while together they fit in a line's worth of bars
+      // (bars-per-line). Rows with lyrics keep a line of their own, and the Time tool draws every row on its own.
+      const perLine=Math.max(1,data.content?.layout?.bars_per_line||4);let pack=null,packBars=0;
+      for(const g of section.groups){
+        const row=renderGroup(section,g),count=g.bars?.length||1;
+        if(mode==='timing'||row.querySelector?.('.pass-pick')){pack=null;packBars=0;sec.append(row);continue;}
+        // a row with lyrics keeps a line of its own (its words need the width) but still uses the same slots, so its barlines line up too
+        const lyrics=!!g.lanes?.length;
+        if(lyrics||!pack||packBars+count>perLine){pack=el('div','row-pack');sec.append(pack);packBars=0;}
+        // every bar gets an equal share of a line, so barlines (and the end of every full line) line up from row to row
+        row.dataset.slots=String(Math.min(perLine,count));row.classList.add('slotted');
+        pack.append(row);packBars+=lyrics?perLine:count;
+      }
       page.append(sec);
     }
     page.append(suggestions);
@@ -262,6 +276,19 @@ export function mountChartPage(root,handlers={}){
   // Share the bars of each row out evenly over its lines (2 + 2, not 3 + 1) and close every line with a barline.
   function layoutRows(){
     if(mode==='timing')return;
+    // Each row takes whole slots (a line holds bars-per-line slots): one per bar, or more when its contents (repeat signs, a long
+    // chord) need the room, so barlines stay on the same grid from row to row instead of spilling past it.
+    const perLine=Math.max(1,data?.content?.layout?.bars_per_line||4);
+    for(const pack of root.querySelectorAll?.('.row-pack')||[]){
+      const slot=(pack.clientWidth||0)/perLine;
+      for(const row of pack.children){
+        if(!slot){row.style.width=(Number(row.dataset.slots||perLine)/perLine*100)+'%';continue;}
+        row.classList.add('natural');row.style.width='';
+        const natural=row.offsetWidth||0;row.classList.remove('natural');
+        const slots=Math.min(perLine,Math.max(Number(row.dataset.slots||1),Math.ceil((natural+1)/slot)));
+        row.style.width=(slots/perLine*100)+'%';
+      }
+    }
     for(const entry of refs.groups){const bars=entry.node.querySelector?.('.bars');if(bars)applyRows(bars);}
   }
   if(typeof ResizeObserver==='function'){
