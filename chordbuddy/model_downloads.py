@@ -48,8 +48,8 @@ REGISTRY = {
     'base': {
         'title': 'BS-RoFormer SW (six stems)',
         'role': 'Splits a song into bass, drums, vocals, guitar, piano and the rest.',
-        'license': 'Trained by "jarredou". The original upload is gone and no license text came with the copies, so the terms are unconfirmed. '
-                   'Several mirrors tag it MIT or non-commercial; none is authoritative. The model code is MIT.',
+        'license': 'Trained by "jarredou". Tagged MIT or non-commercial by different copies, but unconfirmed: the original upload is no longer available. '
+                   'If you have more information, contact lydianmelody@outlook.com. The model code is MIT.',
         'files': [
             {'path': 'weights/BS-Rofo-SW-Fixed.ckpt', 'size': 699412152,
              'sha256': '24e7d35ee9c64415673d3fd33e06a67cac2c103c5df6267ba1576459c775916e',
@@ -69,8 +69,8 @@ REGISTRY = {
     'guitar': {
         'title': 'Lead guitar splitter (Mel-Band RoFormer)',
         'role': 'Separates the lead guitar from the rest of the guitar. Rhythm guitar is what is left over.',
-        'license': 'Uploaded by "listra92" with an OpenRAIL++ tag but no model card or training details, so the terms are unconfirmed. '
-                   'The model code is MIT.',
+        'license': 'Uploaded by "listra92". Tagged OpenRAIL++ but unconfirmed; I tried to contact the uploader without success. '
+                   'If you have more information, contact lydianmelody@outlook.com. The model code is MIT.',
         'files': [
             {'path': 'weights/model_mel_band_roformer_ep_72_sdr_3.2232.ckpt', 'size': 337073664,
              'sha256': 'b3c47bca33609ca1ba0bb2d2076410bfd1eb941b051b72afc1f3e24d12b17eef',

@@ -582,7 +582,7 @@ for(const id of TITLE_NODES){
   node.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();event.target.blur();}else if(event.key==='Escape'){event.target.textContent=currentSong()?.title||'';$('song-title').value=currentSong()?.title||'';event.target.blur();}};
 }
 
-$('model-attribution').onclick=()=>openModelAttribution(model.state?.engine?.model);
+$('model-attribution').onclick=()=>openModelAttribution(model.state?.engine?.model,model.state?.models?.models||[]);
 $('song-timing').onclick=async()=>{try{await commitUiDrafts();const record=currentRecord();if(record?.doc.kind!=='chart')throw new Error('Choose a Song chart for timing controls.');const id=record.doc.id;openSongTiming({metadata:{timing:record.doc.timing_binding.overrides},onSave:async metadata=>{if(model.document!==id)throw new Error('Selected chart changed.');await window.chordBuddyFlush();const fresh=currentRecord().doc;await api('/api/documents/'+id+'/timing',{timing:metadata.timing,revision:fresh.revision});await refreshSongDetail(model.song,true);renderDocument();}});}catch(error){showError(error);}};
 $('transcription-history').onclick=async()=>{
   const songId=model.song;

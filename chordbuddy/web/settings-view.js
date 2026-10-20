@@ -11,10 +11,23 @@ function credit(){
   p.append('Made by ',link('LydianMelody','https://github.com/LydianMelody'),' & Claude 5.5 · ',link('Chord Buddy on GitHub','https://github.com/LydianMelody/ChordBuddy'));
   return p;
 }
-export function openModelAttribution(model){
+// The stem models' terms are not confirmed, so the page says how to reach Melody about them, by email or a GitHub issue.
+function stemModels(stems){
+  if(!stems?.length)return [];
+  const details=node('ul');details.className='attribution-stems';
+  for(const stem of stems){
+    const item=node('li');item.append(node('strong',stem.title),node('span',stem.role),node('small','License: '+stem.license));details.append(item);
+  }
+  const ask=node('p');ask.className='attribution-ask';
+  ask.append('I want to use these models the way their makers intended. If you made one of them, or know its terms, please email me at ',
+    link('lydianmelody@outlook.com','mailto:lydianmelody@outlook.com'),' or ',link('open an issue on GitHub','https://github.com/LydianMelody/ChordBuddy/issues'),
+    '. I will follow whatever they require, including removing the model from Chord Buddy.');
+  return [node('h3','Stem separation models'),details,ask];
+}
+export function openModelAttribution(model,stems=[]){
   const d=dialog('Model & attribution');d.classList.add('attribution-dialog');
-  if(!model){d.append(node('p','Model information is unavailable until the local transcription engine starts.'),credit());d.showModal();return d;}
-  d.append(node('p',`This installation uses ${model.name} to turn a recording into an editable draft.`));
+  if(!model){d.append(node('p','Transcription model information is unavailable until the local transcription engine starts.'),...stemModels(stems),credit());d.showModal();return d;}
+  d.append(node('h3','Chord and melody model'),node('p',`This installation uses ${model.name} to turn a recording into an editable draft.`));
   const details=node('dl');details.className='attribution-details';
   const add=(term,value)=>{details.append(node('dt',term));const definition=node('dd');if(value instanceof Node)definition.append(value);else definition.textContent=value;details.append(definition);};
   add('Transcription model',link(`${model.name} · ${model.id}`,model.url));
@@ -22,7 +35,7 @@ export function openModelAttribution(model){
   add('Base model',link(`${model.base_model.name} · ${model.base_model.id}`,model.base_model.url));
   add('Weight license',link(model.license.name,model.license.url));
   const citations=node('span');citations.append(...model.citation.flatMap((item,index)=>index?[document.createTextNode(' · '),link(item.name,item.url)]:[link(item.name,item.url)]));add('Research citation',citations);
-  d.append(details,node('p',model.notice),node('p','The model card and included weight license request attribution to MERT2, the model name, and its source repository.'),credit());
+  d.append(details,node('p',model.notice),node('p','The model card and included weight license request attribution to MERT2, the model name, and its source repository.'),...stemModels(stems),credit());
   d.showModal();return d;
 }
 export function openSongTiming({metadata,onSave}){

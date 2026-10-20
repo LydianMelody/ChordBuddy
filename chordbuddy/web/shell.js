@@ -17,10 +17,10 @@ function setTheme(name, save = true) {
   if (save) remember.set('cb-theme', name);
 }
 
-// Light or dark. Until you choose, the computer's own setting decides; a choice is remembered with the library.
-const dark = matchMedia?.('(prefers-color-scheme: dark)');
+// Light or dark. The light look is the default (the neo-brutalist design is drawn for it), whatever the computer's own setting;
+// choosing dark is remembered with the library.
 function setScheme(choice, save = true) {
-  const scheme = choice === 'dark' || choice === 'light' ? choice : (dark?.matches ? 'dark' : 'light');
+  const scheme = choice === 'dark' ? 'dark' : 'light';
   root.dataset.scheme = scheme;
   const button = $('scheme-toggle');
   if (button) {
@@ -30,7 +30,6 @@ function setScheme(choice, save = true) {
   }
   if (save) remember.set('cb-scheme', scheme);
 }
-dark?.addEventListener?.('change', () => { if (!['dark', 'light'].includes(remember.get('cb-scheme', 'auto'))) setScheme('auto', false); });
 // Printing (Export PDF) is always the light, paper look.
 let printedScheme = null;
 window.addEventListener('beforeprint', () => { printedScheme = root.dataset.scheme; root.dataset.scheme = 'light'; });
@@ -53,7 +52,7 @@ hydrateIcons();
 const applyPrefs = () => {
   // Only a choice you make is saved; applying what was remembered (or the defaults) must never overwrite it.
   setTheme(remember.get('cb-theme', 'plum'), false);
-  setScheme(remember.get('cb-scheme', 'auto'), false);
+  setScheme(remember.get('cb-scheme', 'light'), false);
   setSide(remember.get('cb-side', 'open') !== 'closed', false);
   setRack(remember.get('cb-rack', 'open') !== 'closed', false);
 };

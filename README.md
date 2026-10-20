@@ -54,6 +54,6 @@ Made by [LydianMelody](https://github.com/LydianMelody) and Claude.
 
 Chord Buddy's own code is released under the MIT License (see `LICENSE`).
 
-Chord and melody transcription uses [SheetSage2](https://huggingface.co/m-a-p/SheetSage2) by the Music AI Project, built on MERT-v2-FullSong. Its weights are licensed **CC BY-NC 4.0** (non-commercial use, with attribution). The two stem separation models have licenses that are not yet confirmed. Because of this, please treat Chord Buddy as a free, non-commercial tool. Full details, including every library and the design references, are in `THIRD-PARTY-NOTICES.md` and `docs/MODEL-ATTRIBUTION.md`.
+Chord and melody transcription uses [SheetSage2](https://huggingface.co/m-a-p/SheetSage2) by the Music AI Project, built on MERT-v2-FullSong. Its weights are licensed **CC BY-NC 4.0** (non-commercial use, with attribution). I have not been able to confirm the terms of the two stem separation models; if you know them, please contact me at lydianmelody@outlook.com. Please treat Chord Buddy as a free, non-commercial tool. Full details, including every library and the design references, are in `THIRD-PARTY-NOTICES.md` and `docs/MODEL-ATTRIBUTION.md`.
 
 Score rendering uses [abcjs](https://github.com/paulrosen/abcjs) (MIT). The fonts are Bricolage Grotesque, Courier Prime and Space Mono (SIL Open Font License).

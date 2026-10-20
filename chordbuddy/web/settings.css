@@ -10,3 +10,8 @@
 .attribution-details dt{font:700 11px var(--m);color:var(--soft);text-transform:uppercase;letter-spacing:.06em;padding-top:2px}
 .attribution-details dd{margin:0}
 .settings-dialog a{color:var(--ink);text-decoration-thickness:2px;text-underline-offset:3px}
+.attribution-dialog h3{margin:18px 0 4px;font:800 15px var(--g)}
+.attribution-stems{list-style:none;margin:8px 0 12px;padding:0;display:grid;gap:12px}
+.attribution-stems li{display:grid;gap:3px;padding:10px 12px;border:2px solid var(--ink);border-radius:10px;background:var(--tint);font-size:13px;line-height:1.45}
+.attribution-stems small{color:var(--soft);font-size:12px;line-height:1.45}
+.attribution-ask{font-size:13px;line-height:1.5}

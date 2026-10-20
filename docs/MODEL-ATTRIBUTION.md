@@ -17,8 +17,10 @@ Chord Buddy does not ship these files. On first run it offers to download them (
 
 | Model | Used for | Source | License status |
 |---|---|---|---|
-| BS-RoFormer SW (`BS-Rofo-SW-Fixed.ckpt`) | Six stems: bass, drums, other, vocals, guitar, piano | Trained by "jarredou". The original upload is gone; identical copies exist on several Hugging Face repositories | **Unconfirmed.** No license text came with the copies; mirrors disagree (MIT, non-commercial, unknown). |
-| Mel-Band RoFormer lead/rhythm guitar (`model_mel_band_roformer_ep_72_sdr_3.2232.ckpt`) | Lead guitar (rhythm is the remainder) | Uploaded by "listra92" (`listra92/MyModels`) | **Unconfirmed.** Tagged OpenRAIL++ with no model card or training details; the uploader has been asked. |
+| BS-RoFormer SW (`BS-Rofo-SW-Fixed.ckpt`) | Six stems: bass, drums, other, vocals, guitar, piano | Trained by "jarredou". The original upload is gone; identical copies exist on several Hugging Face repositories | Tagged MIT or non-commercial by different copies, but unconfirmed. The original upload is no longer available, so I could not ask the trainer. If you have more information, contact me at lydianmelody@outlook.com. |
+| Mel-Band RoFormer lead/rhythm guitar (`model_mel_band_roformer_ep_72_sdr_3.2232.ckpt`) | Lead guitar (rhythm is the remainder) | Uploaded by "listra92" (`listra92/MyModels`) | Tagged OpenRAIL++ but unconfirmed. I unsuccessfully tried to contact the uploader. If you have more information, contact me at lydianmelody@outlook.com. |
 | Model code (`ZFTurbo/Music-Source-Separation-Training`, commit `84b1eac`) | Runs the two models | GitHub | MIT |
 
-Recorded licensing evidence from the earlier investigation is in `stem-separation-tests/models/*/evidence`. Do not publish a release that bundles the weights.
+Chord Buddy does not include or redistribute these weights; each person downloads them from the public copies listed in `chordbuddy/model_downloads.py`.
+
+I want to use these models the way their makers intended. If you made one of them, or know its terms, please email me at lydianmelody@outlook.com or [open an issue on GitHub](https://github.com/LydianMelody/ChordBuddy/issues). I will follow whatever they require, including removing the model from Chord Buddy.
