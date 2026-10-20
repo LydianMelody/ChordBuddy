@@ -1,6 +1,6 @@
 # Confidence settings and reprocessing
 
-Open Settings to choose beat warning, beat removal, and chord warning percentages. Zero disables a threshold. Removal must not exceed the beat warning threshold. Warning changes apply immediately to scored transcriptions; removal applies on the next transcription or reprocessing. Beat removal defaults to disabled.
+The confidence thresholds use their defaults: beat warning 50%, chord warning 50%, beat removal off. (The Settings panel that used to change them was removed in October 2026; the processing device is now chosen when a song is added. The values below are still stored in the library and validated by `/api/settings`.) Zero disables a threshold. Removal must not exceed the beat warning threshold. Warning changes apply immediately to scored transcriptions; removal applies on the next transcription or reprocessing. Beat removal defaults to disabled.
 
 Amber beat numbers indicate low model confidence in rhythm position. Purple chords with a diamond indicate low chord confidence. Existing bar-count flags remain separate. Scores are the model's grammar-constrained token probabilities, not calibrated chances that a transcription is musically correct. Older transcriptions have no scores until reprocessed. Manually relabeled or retimed chords do not inherit unrelated scores.
 

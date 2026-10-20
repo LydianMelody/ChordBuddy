@@ -4,7 +4,6 @@ export function chordConfidence(chord,music){
   const found=music?.confidence?.chords?.find(c=>Math.abs(c.time-chord.start)<1e-6&&c.label===chord.label);
   return typeof found?.score==='number'?found.score:null;
 }
-export function confidenceLabel(score){return typeof score==='number'?`Model confidence ${Math.round(score*100)}%`:'Model confidence unavailable';}
 export function chordOpacity(chord,music,settings={}){
   if(chord?.confirmed===true)return 1;
   const score=chordConfidence(chord,music);
@@ -14,12 +13,6 @@ export function chordOpacity(chord,music,settings={}){
   const threshold=Math.max(0,Math.min(100,Number(settings.chord_flag_threshold??50)))/100;
   const normalized=threshold>0?Math.min(1,score/threshold):1;
   return (minimum+(maximum-minimum)*Math.max(0,normalized))/100;
-}
-export function indicateChord(button,chord,music,settings){
-  const score=chordConfidence(chord,music),low=isLowConfidence(score,settings?.chord_flag_threshold??50);
-  button.classList.toggle('low-confidence-chord',low);
-  button.style.opacity=String(chordOpacity(chord,music,settings));
-  button.title+=(button.title?' · ':'')+(chord?.confirmed?'Confirmed by user':confidenceLabel(score))+(low?' · below chord warning threshold':'');
 }
 export function decorateScoreConfidence(tune,content,music,settings){
   const chords=content.chords?.filter(c=>Number.isInteger(c.abc_index))||[];

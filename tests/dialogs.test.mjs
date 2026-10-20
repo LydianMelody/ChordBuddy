@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Node,all,installDom} from './compact-dom.mjs';
-import {askChoice,openTrash} from '../chordbuddy/web/dialogs.js';
+import {askChoice,askSongSetup,openTrash} from '../chordbuddy/web/dialogs.js';
 
 const has=(n,c)=>n.className.split(' ').includes(c);
 const byClass=(root,c)=>all(root).filter(n=>has(n,c));
@@ -61,4 +61,56 @@ test('the Trash lists trashed songs with Restore and Delete forever, and refresh
 test('the Trash says so when it is empty, and Close removes it', () => {
   const host=setup();const t=openTrash({getItems:()=>[],onRestore(){},onPurge(){},host});
   assert.match(host.textContent,/The Trash is empty\./);byClass(host,'choice-cancel')[0].onclick();assert.equal(byClass(host,'choice-dialog').length,0);
+});
+
+const inputs=host=>all(host).filter(n=>n.tagName==='input');
+test('the song setup dialog starts from the tags and the last choice, and answers with the edited name, artist, stems and device choice', async () => {
+  const host=setup();
+  const promise=askSongSetup({title:'Tagged Title',artist:'Some Band',stems:true,stemsHint:'Slow.',host});
+  assert.equal(byClass(host,'setup-dialog').length,1);
+  const [title,artist,stems]=['setup-title','setup-artist','setup-stems'].map(id=>inputs(host).find(n=>n.id===id));
+  assert.equal(title.value,'Tagged Title');assert.equal(artist.value,'Some Band');assert.equal(stems.checked,true);
+  assert.match(host.textContent,/Slow\./);
+  title.value='  My song ';artist.value='';stems.checked=false;
+  all(host).find(n=>n.id==='setup-go').onclick();
+  assert.deepEqual(await promise,{title:'My song',artist:'',stems:false,device:'auto'});
+  assert.equal(byClass(host,'setup-dialog').length,0);
+});
+
+test('the song setup dialog cannot analyze without a name, and "Not now" keeps the song without analyzing', async () => {
+  const host=setup();
+  const first=askSongSetup({title:'x',host});
+  const title=inputs(host).find(n=>n.id==='setup-title'),go=all(host).find(n=>n.id==='setup-go');
+  title.value='';title.oninput();assert.equal(go.disabled,true);go.onclick();
+  title.value='ok';title.oninput();assert.equal(go.disabled,false);
+  byClass(host,'choice-cancel')[0].onclick();assert.equal(await first,null);
+  const second=askSongSetup({title:'x',host});
+  byClass(host,'setup-dialog')[0].oncancel({preventDefault(){}});assert.equal(await second,null);
+});
+
+test('a choice dialog can carry a tick box that reports its changes', async () => {
+  const host=setup();const seen=[];
+  const promise=askChoice({title:'Again?',choices:[{id:'go',label:'Go'}],checkbox:{label:'Also split the stems',hint:'Slow.',checked:false,onChange:v=>seen.push(v)},host});
+  const box=inputs(host)[0];assert.equal(box.checked,false);box.checked=true;box.onchange();
+  buttons(host).find(b=>b.dataset.choice==='go').onclick();
+  assert.equal(await promise,'go');assert.deepEqual(seen,[true]);
+});
+
+test('the song setup dialog offers the processing device and starts from the saved choice', async () => {
+  const host=setup();
+  const promise=askSongSetup({title:'Song',device:'cpu',host});
+  const device=all(host).find(n=>n.id==='setup-device');
+  assert.equal(device.value,'cpu');assert.match(host.textContent,/NVIDIA GPU only/);
+  device.value='cuda';all(host).find(n=>n.id==='setup-go').onclick();
+  assert.equal((await promise).device,'cuda');
+});
+
+test('a choice dialog can offer one option out of a few, and reports a change of mind', async () => {
+  const host=setup();let picked=null;
+  const promise=askChoice({title:'Again?',host,choices:[{id:'go',label:'Go'}],
+    radios:{label:'Your edits',value:'keep',onChange:v=>{picked=v;},options:[{id:'keep',label:'Keep my edits'},{id:'replace',label:'Start over',hint:'Kept under Previous transcriptions.'}]}});
+  const radios=inputs(host).filter(n=>n.type==='radio');
+  assert.equal(radios.length,2);assert.equal(radios[0].checked,true);assert.match(host.textContent,/Kept under Previous transcriptions/);
+  radios[1].checked=true;radios[1].onchange();assert.equal(picked,'replace');
+  all(host).find(n=>n.dataset?.choice==='go').onclick();assert.equal(await promise,'go');
 });

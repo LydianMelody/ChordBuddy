@@ -1,0 +1,37 @@
+/* The "Set up this song" dialog (name, artist, split the stems) and the mixer's Split stems card. Same Press Room look as the rest. */
+.setup-dialog{width:min(92vw,480px)}
+.setup-form{display:flex;flex-direction:column;gap:12px;margin:14px 0 4px}
+.setup-field{display:flex;flex-direction:column;gap:5px}
+.setup-field>span{font:700 10.5px var(--m);letter-spacing:.12em;text-transform:uppercase;color:var(--soft)}
+.setup-field input{padding:9px 12px;border:2px solid var(--ink);border-radius:10px;background:var(--page);color:var(--ink);font:800 17px/1.1 var(--g);font-stretch:90%}
+.setup-field input:focus{outline:none;border-color:var(--ink);box-shadow:3px 3px 0 var(--a2)}
+.setup-stems{display:flex;align-items:flex-start;gap:12px;margin:8px 0 2px;padding:10px 12px;border:2px dashed var(--ink);border-radius:12px;cursor:pointer;background:color-mix(in srgb,var(--hl) 22%,transparent)}
+.setup-stems:hover{background:color-mix(in srgb,var(--hl) 40%,transparent)}
+.setup-stems input{appearance:none;flex:none;width:24px;height:24px;margin:1px 0 0;border:2.5px solid var(--ink);border-radius:7px;background:var(--page);display:grid;place-items:center;cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
+.setup-stems input:checked{background:var(--a1)}
+.setup-stems input:checked::after{content:'';width:11px;height:6px;border:solid var(--onA1,#fff);border-width:0 0 3px 3px;transform:translateY(-1px) rotate(-45deg)}
+.setup-stems input:focus-visible{outline:2.5px dashed var(--a2);outline-offset:2px}
+.setup-stems-text{display:flex;flex-direction:column;gap:2px}
+.setup-stems-text strong{font:800 15px/1.2 var(--g)}
+.setup-stems-text small{font:400 11.5px/1.45 var(--m);color:var(--soft)}
+.setup-dialog .choice-actions .btn:disabled{opacity:.45;cursor:default}
+
+/* the mixer, switched off until the stems exist */
+.rack-split{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin:2px 0 4px;padding:10px 12px;border:2px solid var(--ink);border-radius:12px;background:var(--hl);color:#1A1C24;box-shadow:3px 3px 0 var(--ink)}
+.rack-split[hidden]{display:none}
+.rack-split p{margin:0;font:700 12px/1.4 var(--m)}
+.rack-split .btn{height:34px;color:var(--onA1,#fff)}
+.rack.stemless .strips,.rack.stemless .presets,.rack.stemless .master{opacity:.45}
+.rack.stemless .export-mix{display:none}
+/* where the analysis runs: a select that matches the text fields above it */
+.setup-field select{padding:8px 12px;border:2px solid var(--ink);border-radius:10px;background:var(--page);color:var(--ink);font:800 15px/1.1 var(--g);font-stretch:90%;cursor:pointer}
+.setup-field select:focus{outline:none;box-shadow:3px 3px 0 var(--a2)}
+.setup-device small{font:400 11.5px/1.45 var(--m);color:var(--soft)}
+
+/* a choice of one out of a few in a dialog (Analyze again: keep my edits / start over) */
+.choice-radios{display:flex;flex-direction:column;gap:8px;margin:4px 0 12px}
+.choice-radios-label{font:700 10.5px var(--m);letter-spacing:.12em;text-transform:uppercase;color:var(--soft)}
+.choice-radio{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:2px solid var(--ink);border-radius:12px;background:var(--page);cursor:pointer}
+.choice-radio:has(input:checked){background:var(--tint);box-shadow:3px 3px 0 var(--ink)}
+.choice-radio input{margin:3px 0 0;accent-color:var(--a1);width:16px;height:16px;flex:none}
+.choice-radio input:focus-visible{outline:2.5px dashed var(--a2);outline-offset:2px}

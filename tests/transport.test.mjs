@@ -67,3 +67,14 @@ test('late callbacks from a failed session cannot stop or move its retry',async(
  callbacks[1].onPosition({runId:'r',sourceFrame:18*44100,state:'playing',contextState:'running'});
  assert.equal(transport.getSnapshot().seconds,18);assert.equal(transport.getSnapshot().playing,true);
 });
+test('a song analyzed without stems plays its recording: the player is told to use the original track and the mixer waits',async()=>{
+ const {transport,calls}=fixture();
+ await transport.loadSong({songId:'s',originalUrl:'mp3'});
+ await transport.setReadiness({song_id:'s',ready:true,active:{...manifest,run_id:'orig-s',stems:false}});
+ assert.equal(transport.getSnapshot().stems,false);assert.equal(transport.getSnapshot().sourceRunId,'orig-s');assert.equal(transport.getSnapshot().ready,true);
+ await transport.play();assert.equal(calls.filter(c=>c[0]==='mode').at(-1)[1],'original');
+ // the stems arrive later: a different run, with the usual stems mode
+ await transport.setReadiness({song_id:'s',ready:true,active:manifest});
+ assert.equal(transport.getSnapshot().stems,true);assert.equal(transport.getSnapshot().sourceRunId,'r');
+ await transport.play();assert.equal(calls.filter(c=>c[0]==='mode').at(-1)[1],'stems');
+});

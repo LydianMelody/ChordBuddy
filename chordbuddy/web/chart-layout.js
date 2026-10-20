@@ -106,7 +106,6 @@ export function placeWord(content,sectionId,lineIndex,offset,measureId,beat,meas
   placement.end_measure=measures[Math.max(endIndex,...indices)].id;
   return next;
 }
-export function removeLinePlacement(content,sectionId,lineIndex){const next=structuredClone(content);if(next.layout)next.layout.lines=next.layout.lines.filter(p=>p.section_id!==sectionId||p.line!==lineIndex);return next;}
 export function validatePlacements(content,music){
   const measures=effectiveMeasures(music,content.layout);
   for(const p of content.layout?.lines||[]){
@@ -116,9 +115,4 @@ export function validatePlacements(content,music){
       throw new Error('This barline would move a placed lyric outside its section or beat range. Unplace the affected lyric line before correcting the barline.');
   }
   return measures;
-}
-export function prunePlacements(content){
-  if(!content.layout)return content;
-  content.layout.lines=content.layout.lines.filter(p=>{const section=content.sections.find(s=>s.id===p.section_id);return section&&section.lyrics.split('\n')[p.line]!==undefined;});
-  return content;
 }

@@ -52,6 +52,7 @@ export const ICONS={
     moon: '<path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/>',
     lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/><circle cx="12" cy="15.5" r="1.3" fill="currentColor"/>',
     pin: '<path d="M9 3.5h6l-1 5.5 3.5 3.5h-11L10 9z"/><path d="M12 12.5V21"/>',
+    restore: '<path d="M4.5 12a7.5 7.5 0 1 0 2.4-5.5"/><path d="M4 4v4.5h4.5"/><path d="M12 8v4.3l3 1.8"/>',
     pointer: '<path d="M6 3.5l12 7-5.2 1.6L10 17.5z"/><path d="M13 12.5l4.5 6"/>',
     minus: '<path d="M5 12h14"/>',
     chevronLeft: '<path d="M15 6l-6 6 6 6"/>',

@@ -10,7 +10,10 @@ import uuid
 from .path_policy import validate_paths, PathBudgetError
 import time
 
-from .midi import read_midi, validate_midi, write_midi
+import io
+import zipfile
+from .filenames import safe_stem, unique
+from .midi import read_midi, validate_midi, write_midi, split_tracks
 from .chords import chord_label
 from .chart import seed_chart,validate_chart
 from .music import read_music
@@ -622,6 +625,39 @@ class DocumentStore:
         if row['kind']=='chart':return json.dumps(content,ensure_ascii=False,allow_nan=False,indent=2).encode('utf-8')
         return content['abc' if row['kind']=='abc' else 'text'].encode('utf-8')
 
+    def midi_download(self,document_id,mode='single'):
+        """The MIDI for a download or another program: one multichannel file, or a zip with one file per track."""
+        if mode not in ('single','tracks'):raise ValueError('Choose one file or one file per track')
+        with self.library.lock:
+            row=self._row(document_id)
+            if row['kind']!='midi':raise ValueError('Choose a MIDI output')
+            data=self._export_payload(row,self._get(document_id)['content'])
+            stem=safe_stem(self.library.song(row['song_id'])['title'],'Song')
+        if mode=='single':return data,stem+'.mid'
+        files=split_tracks(data)
+        names=unique([safe_stem(name,'Track')+'.mid' for name,_ in files])
+        stream=io.BytesIO()
+        with zipfile.ZipFile(stream,'w',zipfile.ZIP_DEFLATED) as archive:
+            for name,(_,content) in zip(names,files):archive.writestr(stem+' - '+name,content)
+        return stream.getvalue(),stem+' - MIDI tracks.zip'
+
+    def outputs_zip(self,song_id):
+        """Everything the model wrote for the song's current analysis (beats, chords, melody, tokens...) in one zip."""
+        with self.library.lock:
+            song=self.library.song(song_id)
+            if not song['active_run']:raise ValueError('Analyze this song first.')
+            run_dir=self.library.contained(Path(song['folder'])/'runs'/song['active_run'])
+            entries=[]
+            for path in sorted(run_dir.rglob('*')):
+                relative=path.relative_to(run_dir)
+                if path.is_symlink() or not path.is_file() or any(part in ('edited','unfiltered') for part in relative.parts) or relative.as_posix() in ('confidence.json','run-options.json') or path.suffix.lower() not in ('.abc','.mid','.json','.lab','.txt','.tsv') or path.stat().st_size>20*1024*1024:continue
+                if path.resolve().is_relative_to(run_dir):entries.append((relative.as_posix(),path.read_bytes()))
+        if not entries:raise ValueError('There are no model outputs to export yet.')
+        stream=io.BytesIO()
+        with zipfile.ZipFile(stream,'w',zipfile.ZIP_DEFLATED) as archive:
+            for name,content in entries:archive.writestr(name,content)
+        return stream.getvalue(),safe_stem(song['title'],'Song')+' - model outputs.zip'
+
     def export(self,document_id):
         with self.library.lock:
             row=self._row(document_id)
@@ -655,8 +691,9 @@ def abc_structure(abc):
 def validate_engraving(value):
     import copy
     if not isinstance(value,dict): raise ValueError('Invalid engraving settings')
-    if type(value.get('bars_per_line')) is not int or value['bars_per_line'] not in (2,3,4,8): raise ValueError('Invalid bars per line')
+    if type(value.get('bars_per_line')) is not int or value['bars_per_line'] not in (0,2,3,4,8): raise ValueError('Invalid bars per line')
     if type(value.get('show_instrumental')) is not bool: raise ValueError('Invalid staff setting')
+    if value.get('music_size','medium') not in ('large','medium','small'): raise ValueError('Invalid music size')
     text=value.get('lyrics_text')
     if not isinstance(text,str) or len(text)>2*1024*1024 or '\x00' in text: raise ValueError('Invalid lyrics')
     breaks=value.get('breaks',[])

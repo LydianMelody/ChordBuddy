@@ -1,9 +1,12 @@
-// The chart page. One page, three modes drawn in place:
+// The chart page. There are no modes: the tool you hold decides what a click means, and which view the chart is drawn in.
 //   Navigate (default): click any chord, word, bar number or section name to seek there. The playing chord and word light up.
-//   Edit: everything is fixed in place. Click a chord to type a new one, type words under chords, rename sections, "+" adds a chord.
-//   Timing: the same chart drawn true to time, with draggable words (see chart-timing.js).
+//   Write, Split, Join, Repeat: the chart as written. Write retypes chords, words and section names; Split and Join split and glue
+//         sections; Repeat folds repeating bars.
+//   Time, Barlines: the same chart drawn true to time, with draggable words and fixable barlines (see chart-timing.js).
+// (Internally `mode` is still nav / edit / timing, derived from the tool, because that is the view being drawn.)
 // Playback decides which repeat pass is highlighted; the page itself never rearranges while it plays.
 import {buildChartModel,playbackTarget} from './chart-model.js';
+import {isNoChordLabel} from './chart-layout.js';
 import {currentWordIndex} from './word-layout.js';
 import {planChartChordEdit,planSectionEdit} from './practice-edit.js';
 import {addressAtSeconds} from './musical-grid.js';
@@ -14,6 +17,8 @@ import {applyRows} from './row-layout.js';
 import {beatsLabel} from './bar-lengths.js';
 import {createTiming} from './chart-timing.js';
 import {DEFAULT_ZOOM,DEFAULT_SNAP,stepZoom,ZOOM_LEVELS} from './timing-geometry.js';
+import {TOOLS,TOOL_GROUPS,TOOL_NAMES,DEFAULT_TOOL,MODE_OF,TOOL_FOR_KEY,toolCursor,toolIcon} from './tool-icons.js';
+import {renderRail,watchRail} from './tool-rail.js';
 
 const el=(tag,cls='',text)=>{const n=document.createElement(tag);n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 const finite=Number.isFinite;
@@ -24,25 +29,26 @@ const nameKey=name=>String(name||'').toLowerCase().replace(/[^a-z]/g,'');
 const joinWords=tokens=>tokens.map((t,i)=>t.text+(i<tokens.length-1&&!t.text.endsWith('-')?' ':'')).join('');
 
 export function mountChartPage(root,handlers={}){
-  const fixing={on:false,a:null,b:null};
-  let fixSel={ids:new Set()};
+  const fixing={a:null,b:null};                      // the bars picked with the Repeat tool
+  let fixSel={ids:new Set()},tool=DEFAULT_TOOL;
   let data=null,model=null,key=null,mode='nav',scope='occurrence',snap=DEFAULT_SNAP,zoom=DEFAULT_ZOOM,draft=null,saving=false,last=null;
   const targetPass={},seekPass={};let pendingName=null;
   let refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[]},occById=new Map();
-  const page=el('div','chart-flow'),notices=el('div','chart-notices'),message=el('p','chart-message');message.setAttribute('role','status');
-  root.replaceChildren(notices,message,page);root.dataset.mode=mode;
+  // The tool rail and the note beside it live outside the chart (the app hands in elements for them); on its own the page makes its own.
+  const page=el('div','chart-flow'),notices=el('div','chart-notices'),message=el('p','chart-message'),dock=handlers.dock||el('div','tool-dock'),noteHost=handlers.note||el('div','tool-note'),statusHost=handlers.status||el('div','tool-status');message.setAttribute('role','status');
+  root.replaceChildren(...(handlers.dock?[]:[dock]),...(handlers.note?[]:[noteHost]),...(handlers.status?[]:[statusHost]),notices,page);root.dataset.mode=mode;root.dataset.tool=tool;
+  for(const name of Object.keys(TOOLS))root.style?.setProperty?.('--cur-'+name,toolCursor(name));
   root.onwheel=e=>{if(mode==='timing'&&e.ctrlKey){e.preventDefault?.();api.zoomBy(e.deltaY<0?1:-1);}};
   const suggestions=el('datalist');suggestions.id='chord-list';for(const c of CHORD_SUGGESTIONS){const o=el('option');o.value=c;suggestions.append(o);}
 
   const timing=createTiming({
-    getData:()=>data,getModel:()=>model,getSnap:()=>snap,getZoom:()=>zoom,get refs(){return refs;},
+    getData:()=>data,getModel:()=>model,getSnap:()=>snap,getZoom:()=>zoom,tool:()=>tool,get refs(){return refs;},
     editBars:handlers.onBarEdit?change=>Promise.resolve(handlers.onBarEdit(change)).catch(e=>fail(e)):null,commit:(candidate,label)=>commitPlain(candidate,label),fail:e=>fail(e),say:text=>{message.textContent=text;},blocked:()=>blocked(),rerender:()=>render(),
   });
   const notify=()=>handlers.onDraftChange?.({draft:!!draft?.dirty,saving,failed:!!draft?.failed});
   const fail=e=>{message.textContent=e?.message||String(e);handlers.onError?.(e);};
   const context=()=>({documentId:data.documentId,revision:data.revision});
   const group=id=>model?.projection.groups.find(g=>g.id===id);
-  const groupModel=id=>refs.groups.find(r=>r.model.id===id)?.model;
 
   // ----- which pass? Playback wins while it is inside the group; otherwise the last pass you chose; otherwise the first. -----
   function playingPass(groupId){const t=last?.target;return t&&t.groupId===groupId?t.passNumber:null;}
@@ -58,9 +64,10 @@ export function mountChartPage(root,handlers={}){
   }
 
   // ======================= rendering =======================
-  function chordLabel(chunk){return chunk.continued?'('+chunk.label+')':chunk.label;}
+  // no chord (a break in the music) is simply a gap; in the Write tool the gap can still be clicked to type a chord there
+  function chordLabel(chunk){if(isNoChordLabel(chunk.label))return '';return chunk.continued?'('+chunk.label+')':chunk.label;}
   function renderChord(g,bar,chunk){
-    const holder=el('span','chord-line'),b=el('button','chord',chordLabel(chunk));b.type='button';b.dataset.chunk=chunk.key;
+    const holder=el('span','chord-line'),b=el('button','chord'+(isNoChordLabel(chunk.label)?' rest':''),chordLabel(chunk));b.type='button';b.dataset.chunk=chunk.key;
     b.title=mode==='edit'?'Type a new chord':'';
     b.onclick=()=>onChordClick(g,chunk,b);
     holder.append(b);
@@ -87,28 +94,30 @@ export function mountChartPage(root,handlers={}){
     const node=el('span','chunk'),cell={node,group:g,chunk};node.dataset.chunk=chunk.key;
     node.append(renderChord(g,bar,chunk));
     if(mode!=='edit')g.lanes.forEach((lane,i)=>node.append(renderLaneSlot(g,bar,chunk,lane,i,bar===g.bars[0]&&chunk===bar.chunks[0])));
-    if(mode==='edit'&&chunk.chordId){const add=el('button','add-chord','+');add.type='button';add.title='Add a chord after this one';add.onclick=e=>{e?.stopPropagation?.();addChordAfter(g,chunk);};node.append(add);}
+    if(mode==='edit'&&tool==='write'&&chunk.chordId){const add=el('button','add-chord','+');add.type='button';add.title='Add a chord after this one';add.onclick=e=>{e?.stopPropagation?.();addChordAfter(g,chunk);};node.append(add);}
     refs.chunks.push(cell);return node;
   }
   function renderBar(g,bar,index){
     const n=el('div','bar'+(index===g.bars.length-1?' last':''));n.dataset.bar=bar.id;
     const no=el('span','bar-no',String(bar.number));no.title='Jump to bar '+bar.number;
-    no.onclick=e=>{if(mode==='edit'&&fixing.on){e?.stopPropagation?.();pickBar(g,bar);return;}if(mode!=='nav')return;const o=g.bars&&occurrenceFor(g.id,bar.chunks[0]?.slotId,passForSeek(g.model||g));seek(o?.start??bar.start);};
-    if(mode==='edit'&&fixing.on){no.classList.add('pickable');no.title='Pick bar '+bar.number+' for the repeat';if(fixSel.ids.has(bar.id))n.classList.add('rt-sel');}
+    no.onclick=e=>{if(mode==='edit'&&tool==='repeat'){e?.stopPropagation?.();pickBar(g,bar);return;}if(mode!=='nav')return;const o=g.bars&&occurrenceFor(g.id,bar.chunks[0]?.slotId,passForSeek(g.model||g));seek(o?.start??bar.start);};
+    if(mode==='edit'&&tool==='repeat'){no.classList.add('pickable');no.title='Pick bar '+bar.number+' for the repeat';if(fixSel.ids.has(bar.id))n.classList.add('rt-sel');}
     n.append(no);
     // A bar that is shorter or longer than the usual one says so, informally; a real change of meter keeps its signature.
     if(bar.odd)n.append(el('span','bar-meter odd',beatsLabel(bar.beatCount)));
     else if(bar.meterChange&&bar.meter)n.append(el('span','bar-meter',bar.meter.join('/')));
-    if(mode==='edit'&&index>0&&bar.mapped&&g.passCount===1)n.append(splitButton(bar.start,'bar'));
+    if(mode==='edit'&&tool==='cut'&&bar.mapped)n.append(cutZone(g,bar,index));
     for(const chunk of bar.chunks)n.append(renderChunk(g,bar,chunk,index===g.bars.length-1));
     if(!bar.chunks.length&&mode!=='edit')for(const [i,lane] of g.lanes.entries())n.append(renderLaneSlot(g,bar,{key:null,slotId:null,lanes:{}},lane,i,false));
     return n;
   }
+  // A repeat sign is drawn from plain shapes (a rule and two dots), not gradients: gradients turn into grey blocks in a PDF.
+  function repeatSign(side){const sign=el('span','rep-sign '+side);sign.append(el('i','rep-dot a'),el('i','rep-dot b'));return sign;}
   function renderGroup(section,g){
     if(mode==='timing')return timing.renderGroup(section,g);
     const row=el('div','row'+(g.lanes.length?' has-lyrics':'')),bars=el('div','bars');row.dataset.group=g.id;
     g.model=g;refs.groups.push({node:row,model:g});
-    if(mode==='edit'&&g.passCount>1){
+    if(mode==='edit'&&tool==='write'&&g.passCount>1){
       const pick=el('span','pass-pick');pick.title='Which pass your chord changes apply to';
       for(let p=1;p<=g.passCount;p++){const s=el('button','',String(p));s.type='button';s.dataset.pass=String(p);s.onclick=()=>{targetPass[g.id]=p;paintTargets();};pick.append(s);}
       refs.lanes.push({pick,group:g});row.append(pick);
@@ -116,7 +125,7 @@ export function mountChartPage(root,handlers={}){
     g.bars.forEach((bar,i)=>{
       const node=renderBar(g,bar,i);
       // a repeated progression starts and ends with repeat signs (the count stays after the last chord)
-      if(g.repeat>1){if(i===0)node.classList.add('rep-start');if(i===g.bars.length-1)node.classList.add('rep-end');}
+      if(g.repeat>1){if(i===0){node.classList.add('rep-start');node.append(repeatSign('start'));}if(i===g.bars.length-1){node.classList.add('rep-end');node.append(repeatSign('end'));}}
       bars.append(node);
     });
     // lyric lines that were never placed on the chart: plain text (in Edit they get a line of their own, below)
@@ -126,7 +135,7 @@ export function mountChartPage(root,handlers={}){
     }
     row.append(bars);
     // Edit: choose how this repeating stretch is folded (2 bars x4, 4 bars x2, or written out).
-    if(mode==='edit'&&g.repeat>1){
+    if(mode==='edit'&&tool==='repeat'&&g.repeat>1){
       const source=model.projection.groups.find(x=>x.id===g.id),choices=compactFoldChoices(model.projection,source);
       if(choices.length>1){
         const wrap=el('div','repeat-fold'),open=el('button','repeat-fold-open','Fold ▾');open.type='button';open.title='Choose how this repeating stretch is grouped';
@@ -144,12 +153,31 @@ export function mountChartPage(root,handlers={}){
       const alts=el('div','alt-endings');
       for(const e of g.endings.filter(e=>!e.passNumbers.includes(1))){
         const item=el('div','alt-ending');item.append(el('span','ending-label',(e.passNumbers.length===1?'Ending ':'Endings ')+e.passNumbers.join(', ')),el('span','bar-no',String(e.measureNumber)));
-        for(const o of e.chords){const b=el('button','chord ending-chord',o.label??'?');b.type='button';b.dataset.occurrence=o.id;b.onclick=()=>{if(mode==='nav')seek(o.start);else onEndingEdit(g,o,b);};refs.endings.push({node:b,occurrence:o});item.append(b);}
+        for(const o of e.chords){const rest=isNoChordLabel(o.label);const b=el('button','chord ending-chord'+(rest?' rest':''),rest?'':o.label);b.type='button';b.dataset.occurrence=o.id;b.onclick=()=>{if(mode==='nav')seek(o.start);else if(tool==='write')onEndingEdit(g,o,b);};refs.endings.push({node:b,occurrence:o});item.append(b);}
         alts.append(item);
       }
       if(alts.children.length)row.append(alts);
     }
     return row;
+  }
+
+  // ======================= the tool rail =======================
+  if(handlers.dock)watchRail(handlers.dock);
+  // The rail stands beside the chart (never on it). The tool you hold decides what a click means everywhere else, so the chart itself
+  // stays free of little buttons. Esc puts the tool down (back to Navigate).
+  function renderTools(){
+    dock.dataset.owner='chart';
+    renderRail(dock,{groups:TOOL_GROUPS,active:tool,onPick:name=>api.setTool(name)});
+    // What the tool does is one quiet line under the chart; only a tool that has controls (Repeat) puts anything in the bar above it.
+    const controls=el('div','tool-controls'),lines=[];
+    if(tool==='repeat')fillRepeatHint(controls,lines);
+    const say=el('span','status-hint',lines.length?lines.join(' \u00b7 '):(TOOLS[tool]?.hint||''));
+    statusHost.replaceChildren(say);
+    if(tool!==DEFAULT_TOOL){
+      const back=el('button','tool-put-down');back.type='button';back.innerHTML='<kbd>Esc</kbd> put it down';back.onclick=()=>api.setTool(DEFAULT_TOOL);statusHost.append(back);
+    }
+    statusHost.append(message);
+    noteHost.replaceChildren(...(controls.children.length?[controls]:[]));
   }
 
   // ---------------- Fix repeats by hand ----------------
@@ -172,29 +200,25 @@ export function mountChartPage(root,handlers={}){
     if(!range||!fixing.b&&!fixing.a)return none;
     try{const info=compactRangeChoices(data.content,data.music,range.from,range.to);return {ids:new Set(info.measureIds||[range.from]),info,range};}catch{return none;}
   }
-  function fixPanel(){
-    const panel=el('div','fix-panel'),sel=fixSel;
-    const line=text=>panel.append(el('p','fix-line',text));
-    if(!fixing.a)line('Click the number of the first bar of the part that repeats.');
-    else if(!fixing.b)line('Bar '+barNumber(fixing.a.start)+' picked. To include more bars, click the number of the last bar. Or choose below to use just this.');
-    if(fixing.b||fixing.a&&sel.info){
+  // The Repeat tool: the steps go in the status line (`lines`), the choices and links in the bar above it (`controls`).
+  function fillRepeatHint(controls,lines){
+    const sel=fixSel;
+    if(!fixing.a)lines.push('Click the number of the first bar of the part that repeats');
+    else if(!fixing.b)lines.push('Bar '+barNumber(fixing.a.start)+' picked. Click the last bar to take in more, or choose below');
+    if(fixing.a&&sel.info){
       const info=sel.info;
       if(info?.measureIds){
-        line('Bars '+barNumber(info.measureIds[0])+'–'+barNumber(info.measureIds.at(-1))+' ('+info.length+' bars)');
-        if(info.problem)line(info.problem);
-        if(info.choices?.length){
-          const row=el('div','fix-choices');
-          for(const choice of info.choices){
-            const b=el('button','fix-choice'+(choice.expanded?' plain':''),choice.label);b.type='button';
-            b.onclick=()=>{try{const next=applyCompactRange(data.content,data.music,model.projection,sel.range.from,sel.range.to,choice);fixing.a=fixing.b=null;commitPlain(next,choice.expanded?'Unfold repeat':'Fold repeat');}catch(e){fail(e);}};
-            row.append(b);
-          }
-          panel.append(row);
+        lines.push(info.length===1?'Bar '+barNumber(info.measureIds[0]):'Bars '+barNumber(info.measureIds[0])+'\u2013'+barNumber(info.measureIds.at(-1))+' ('+info.length+' bars)');
+        if(info.problem)lines.push(info.problem);
+        for(const choice of info.choices||[]){
+          const b=el('button','fix-choice'+(choice.expanded?' plain':''),choice.label);b.type='button';
+          b.onclick=()=>{try{const next=applyCompactRange(data.content,data.music,model.projection,sel.range.from,sel.range.to,choice);fixing.a=fixing.b=null;commitPlain(next,choice.expanded?'Unfold repeat':'Fold repeat');}catch(e){fail(e);}};
+          controls.append(b);
         }
-      }else if(info?.problem)line(info.problem);
+      }else if(info?.problem)lines.push(info.problem);
     }
-    if(fixing.a){const again=el('button','secondary','Start over');again.type='button';again.onclick=()=>{fixing.a=fixing.b=null;keepPlace(()=>render());};panel.append(again);}
-    return panel;
+    if(fixing.a){const again=el('button','fix-link','Start over');again.type='button';again.onclick=()=>{fixing.a=fixing.b=null;keepPlace(()=>render());};controls.append(again);}
+    if(hasCompactPreferences(data.content)){const reset=el('button','fix-link','Reset all my repeat choices');reset.type='button';reset.onclick=()=>{fixing.a=fixing.b=null;commitPlain(resetCompactPreferences(data.content),'Reset repeat grouping');};controls.append(reset);}
   }
   // Redrawing (a new mode, zoom, a saved edit) keeps the row nearest the top of the view exactly where it was.
   function keepPlace(fn){
@@ -212,25 +236,27 @@ export function mountChartPage(root,handlers={}){
     refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[]};
     occById=new Map(model.projection.occurrences.map(o=>[o.id,o]));
     notices.replaceChildren();for(const w of model.warnings)notices.append(el('p','chart-notice',w));
-    if(hasCompactPreferences(data.content)&&mode==='edit'){const reset=el('button','secondary','Reset repeat grouping');reset.type='button';reset.onclick=()=>commitPlain(resetCompactPreferences(data.content),'Reset repeat grouping');notices.append(reset);}
-    if(mode==='edit'){const tool=el('button','secondary fix-toggle',fixing.on?'Done fixing repeats':'Fix repeats');tool.type='button';tool.title='Pick the first and last bar of a repeating part and choose how it is folded';tool.onclick=()=>{fixing.on=!fixing.on;fixing.a=fixing.b=null;keepPlace(()=>render());};notices.append(tool);}
-    fixSel=mode==='edit'&&fixing.on?fixSelection():{ids:new Set()};
+    fixSel=mode==='edit'&&tool==='repeat'?fixSelection():{ids:new Set()};
+    cutTimes=cutPoints();
+    renderTools();
     page.replaceChildren();
-    if(mode==='edit'&&fixing.on)page.append(fixPanel());
     for(const section of model.sections){
       const sec=el('section','sec');sec.dataset.section=section.id;sec.dataset.name=nameKey(section.name);
       const head=el('header','sec-head'),num=el('span','sec-num',pad2(section.number)),name=el('h3','sec-name',section.name),time=el('span','sec-time',clock(section.start));
       head.append(num,name,time);
-      if(mode==='edit'){name.contentEditable='plaintext-only';wireSectionName(name,section);if(refs.sections.length>0)head.append(joinButton(section));}
+      if(mode==='edit'){
+        if(tool==='write'){name.contentEditable='plaintext-only';wireSectionName(name,section);}
+        else if(tool==='glue'&&refs.sections.length>0)glueHead(head,section);
+      }
       else head.onclick=()=>{if(mode==='nav')seek(section.start);};
       sec.append(head);refs.sections.push({node:sec,section});
-      section.groups.forEach((g,i)=>{if(mode==='edit'&&i>0){const gap=el('div','split-gap');gap.append(splitButton(g.start,'row'));sec.append(gap);}sec.append(renderGroup(section,g));});
+      section.groups.forEach(g=>sec.append(renderGroup(section,g)));
       page.append(sec);
     }
     page.append(suggestions);
     layoutRows();
     if(pendingName){const node=page.querySelector?.('[data-section="'+pendingName+'"] .sec-name');pendingName=null;if(node){node.focus?.();getSelection?.()?.selectAllChildren?.(node);}}
-    root.dataset.mode=mode;last=null;paintTargets();updatePlayback(data.transport);positionEditors();
+    root.dataset.mode=mode;root.dataset.tool=tool;last=null;paintTargets();updatePlayback(data.transport);positionEditors();
   }
 
   // Share the bars of each row out evenly over its lines (2 + 2, not 3 + 1) and close every line with a barline.
@@ -298,7 +324,7 @@ export function mountChartPage(root,handlers={}){
       const pass=passForSeek(g),target=compactJumpTargets(model.projection,{groupId:g.id,slotId:chunk.slotId}).find(t=>t.passNumber===pass)||compactJumpTargets(model.projection,{groupId:g.id,slotId:chunk.slotId})[0];
       seekPass[g.id]=pass;seek(target?.seconds??chunk.start);return;
     }
-    if(mode==='edit')startChordEdit(g,chunk,button);
+    if(mode==='edit'&&tool==='write')startChordEdit(g,chunk,button);
   }
 
   // ======================= Edit: chords =======================
@@ -311,7 +337,7 @@ export function mountChartPage(root,handlers={}){
   function startChordEdit(g,chunk,button){
     if(blocked()||!chunk.chordId)return;
     if(handlers.canEdit?.()===false){message.textContent='Wait for the save, or reload the chart before editing again.';return;}
-    const input=el('input','chord-input');input.value=chunk.label==='?'?'':chunk.label;input.setAttribute('list','chord-list');input.setAttribute('aria-label','Chord');input.size=Math.max(3,input.value.length+1);
+    const input=el('input','chord-input');input.value=chunk.label==='?'||isNoChordLabel(chunk.label)?'':chunk.label;input.setAttribute('list','chord-list');input.setAttribute('aria-label','Chord');input.size=Math.max(3,input.value.length+1);
     draft={kind:'chord',node:input,dirty:false,failed:false};
     button.replaceWith?.(input);if(!button.replaceWith){button.parent?.children.splice(button.parent.children.indexOf(button),1,input);}
     let done=false;
@@ -370,7 +396,7 @@ export function mountChartPage(root,handlers={}){
         tag.onclick=e=>{e?.stopPropagation?.();targetPass[g.id]=item.passNumber;paintTargets();};
         refs.lanes.push({tag,group:g,lane:{passNumber:item.passNumber}});line.append(tag);line.classList.add('tagged');
       }
-      editor.contentEditable='plaintext-only';
+      editor.contentEditable=tool==='write'?'plaintext-only':'false';
       editor.dataset.placeholder=item.lane?'…':(g.passCount>1?'Click and type the words for pass '+item.passNumber:'Click and type the words');
       editor.append(document.createTextNode?document.createTextNode(text):text);
       const ref={...item,node:editor,line,row,original:text,anchorKey:tokens[0]?.chunkKey??null};
@@ -448,14 +474,39 @@ export function mountChartPage(root,handlers={}){
 
   // ======================= Edit: split and join sections =======================
   // A section is never empty: a split must fall inside it, and joining removes the boundary instead of leaving a hole.
-  function splitButton(seconds,kind){
-    const b=el('button','split-here'+(kind==='bar'?' in-bar':''),kind==='bar'?'✂':'✂ Split section here');b.type='button';
-    b.title='Start a new section here';b.setAttribute('aria-label','Split the section here');
-    b.onclick=e=>{e?.stopPropagation?.();splitAt(seconds);};return b;
+  // The Split tool: every bar gets two big halves; the half you point at shows a dashed split line on its edge.
+  let cutTimes=[];
+  function cutPoints(){
+    if(mode!=='edit'||tool!=='cut'||!model)return [];
+    const times=[];
+    for(const section of model.sections)section.groups.forEach((g,i)=>{
+      if(i>0)times.push(g.start);
+      if(g.passCount===1)g.bars.forEach((bar,j)=>{if(j>0&&bar.mapped)times.push(bar.start);});
+    });
+    return times;
   }
-  function joinButton(section){
-    const b=el('button','join-prev','Join with previous');b.type='button';b.title='Merge this section into the one above it';
-    b.onclick=e=>{e?.stopPropagation?.();joinWithPrevious(section);};return b;
+  const canCut=t=>Number.isFinite(t)&&cutTimes.some(x=>Math.abs(x-t)<1e-6);
+  function cutZone(g,bar,index){
+    const zone=el('div','cut-zone'),last=index===g.bars.length-1;
+    const sides=[['left',bar.start],['right',g.passCount===1?bar.end:last?g.end:NaN]];
+    for(const [side,seconds] of sides){
+      const half=el('button','cut-half '+side);half.type='button';
+      if(canCut(seconds)){
+        const snip=el('span','snip');snip.innerHTML=toolIcon('cut');half.append(snip);
+        half.setAttribute('aria-label','Start a new section at the '+side+' edge of bar '+bar.number);
+        half.onclick=e=>{e?.stopPropagation?.();splitAt(seconds);};
+      }else{half.classList.add('off');half.tabIndex=-1;half.setAttribute('aria-hidden','true');}
+      zone.append(half);
+    }
+    return zone;
+  }
+  // The Join tool: the whole section heading becomes a glue button for the section above it.
+  function glueHead(head,section){
+    head.classList.add('glue-able');
+    const badge=el('span','glue-badge');badge.innerHTML=toolIcon('glue')+'<span>Glue to the section above</span>';head.append(badge);
+    head.setAttribute('role','button');head.tabIndex=0;head.setAttribute('aria-label','Join '+section.name+' with the section above');
+    head.onclick=e=>{e?.stopPropagation?.();joinWithPrevious(section);};
+    head.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault?.();joinWithPrevious(section);}};
   }
   async function splitAt(seconds){
     if(blocked())return;
@@ -466,8 +517,9 @@ export function mountChartPage(root,handlers={}){
       const newId=crypto.randomUUID();
       const result=planSectionEdit(data.content,data.music,{sectionId:section.id,operation:'split',fields:{address:{measure_id:address.measure_id,beat:address.beat},newId,name:'New section'}});
       if(result.conflicts?.length)return fail(Error(result.conflicts[0].message));
-      pendingName=newId;
-      if(!await commitPlain(result.candidate,'Split section'))pendingName=null;
+      // Straight after a cut the new section's name is ready to type, so the scissors are put down and Write takes over.
+      pendingName=newId;tool='write';fixing.a=fixing.b=null;
+      if(!await commitPlain(result.candidate,'Split section')){pendingName=null;tool='cut';keepPlace(render);}
     }catch(e){pendingName=null;fail(e);}
   }
   async function joinWithPrevious(section){
@@ -498,8 +550,24 @@ export function mountChartPage(root,handlers={}){
 
   // ======================= public API =======================
   const api={
-    getMode:()=>mode,getScope:()=>scope,getSnap:()=>snap,
-    setMode(next){if(!['nav','edit','timing'].includes(next)||next===mode)return mode;if(blocked())return mode;mode=next;draft=null;keepPlace(render);handlers.onModeChange?.(mode);return mode;},
+    getMode:()=>mode,getScope:()=>scope,getSnap:()=>snap,getTool:()=>tool,
+    // The rail and its note are shared with the lead sheet: take them back when the chart is shown again.
+    showTools(){if(data&&dock.dataset?.owner!=='chart')renderTools();},
+    // Kept for callers that think in views: asks for the tool that draws that view.
+    setMode(next){const name={nav:'navigate',edit:'write',timing:'words'}[next];if(!name||next===mode)return mode;api.setTool(name);return mode;},
+    setTool(next){
+      if(!TOOL_NAMES.includes(next)||next===tool)return tool;
+      if(blocked())return tool;
+      const view=mode;tool=next;mode=MODE_OF[next];fixing.a=fixing.b=null;draft=null;keepPlace(render);
+      if(mode!==view)handlers.onModeChange?.(mode);
+      handlers.onToolChange?.(tool);return tool;
+    },
+    // Tool shortcuts (N W S J R T B) and Esc to put a tool down. Returns true when the key was used.
+    handleKey(event){
+      if(event.key==='Escape'){if(tool===DEFAULT_TOOL)return false;api.setTool(DEFAULT_TOOL);return true;}
+      const name=TOOL_FOR_KEY[String(event.key||'').toUpperCase()];
+      if(!name)return false;api.setTool(name);return true;
+    },
     setScope(next){if(['occurrence','all-matching'].includes(next))scope=next;handlers.onScopeChange?.(scope);},
     setSnap(next){snap=next;if(mode==='timing')keepPlace(render);handlers.onTimingChange?.({snap,zoom});},
     getZoom:()=>zoom,

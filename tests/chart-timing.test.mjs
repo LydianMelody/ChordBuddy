@@ -151,7 +151,7 @@ function withBarEdits(){
   const f=fixture();f.content.sections[0].lyrics='';f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[]};
   installDom();const root=new Node(),edits=[];
   const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{},onError:()=>{},onBarEdit:async c=>{edits.push(c);}});
-  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});view.setMode('timing');
+  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});view.setMode('timing');view.setTool('barlines');
   const bars=byClass(root,'tbar');let x=0;
   for(const b of bars){const w=parseFloat(b.style.width),left=x;b.getBoundingClientRect=()=>({left,right:left+w,top:0,bottom:100,width:w,height:100});x+=w;}
   return {f,root,view,edits,bars};
@@ -191,4 +191,13 @@ test('Timing: without a barline handler there are no barline controls', () => {
   const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{},onError:()=>{}});
   view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});view.setMode('timing');
   assert.equal(byClass(root,'beat-split').length+byClass(root,'bar-handle').length,0);
+  view.setTool('barlines');
+  assert.equal(byClass(root,'beat-split').length+byClass(root,'bar-handle').length,0);
+});
+
+test('Timing: the barline controls only show while the Barlines tool is picked', () => {
+  const s=withBarEdits();
+  assert.ok(byClass(s.root,'beat-split').length>0);
+  s.view.setTool('words');
+  assert.equal(byClass(s.root,'beat-split').length+byClass(s.root,'bar-handle').length,0);
 });

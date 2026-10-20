@@ -56,19 +56,6 @@ export function replaceAbcChord(abc, index, label) {
   return abc.slice(0, index + 1) + label.trim() + abc.slice(end);
 }
 
-export function validateNote(note) {
-  if (!Number.isInteger(note.pitch) || note.pitch < 0 || note.pitch > 127) return 'Pitch must be a whole MIDI number from 0 to 127.';
-  if (!Number.isFinite(note.start) || note.start < 0) return 'Start must be zero or later.';
-  if (!Number.isFinite(note.end) || note.end <= note.start) return 'End must be later than start.';
-  if (!Number.isInteger(note.velocity) || note.velocity < 1 || note.velocity > 127) return 'Velocity must be a whole number from 1 to 127.';
-  if (!Number.isInteger(note.track) || note.track < 0) return 'Track must be a nonnegative whole number.';
-  return null;
-}
-
-export function pitchName(pitch) {
-  return ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'][pitch % 12] + (Math.floor(pitch / 12) - 1);
-}
-
 export function displayChordLabel(value) {
   const match=/^([A-G](?:#{1,2}|b{1,2})?):?([^/]*)(?:\/(.+))?$/.exec(value || '');if(!match)return value;
   const qualities={maj:'',min:'m',dim:'dim',aug:'aug','7':'7',maj7:'maj7',min7:'m7',dim7:'dim7',hdim7:'m7b5',sus4:'sus4',sus2:'sus2',maj6:'6',min6:'m6','sus4(b7)':'7sus4',minmaj7:'m(maj7)'};

@@ -1,9 +1,10 @@
 import {commitPracticeDocument} from './practice-save.js';
 import {retryDocumentExport} from './export-retry.js';
 import {reconcileCompactPreferences} from './compact-chart.js';
+import {installTooltips} from './tooltips.js';
 import {mountChartPage} from './chart-page.js';
-import {SNAPS,DEFAULT_ZOOM} from './timing-geometry.js';
-import {askChoice,openTrash} from './dialogs.js';
+import {SNAPS} from './timing-geometry.js';
+import {askChoice,askSongSetup,openTrash} from './dialogs.js';
 import {updateViewport} from './practice-timeline.js';
 import {PlaybackGate} from './playback-ready.js';
 import {analysisUiState,songStatusLabel,analysisErrorMessage,lockStepStates,lockJobFailed} from './analysis-view.js';
@@ -11,10 +12,11 @@ import {ProposalGuard,renderRhythmPreview} from './rhythm-view.js';
 import {Transport} from './transport.js';
 import {mountMixer} from './mixer-rack.js';
 import {mountPlayer} from './player-view.js';
-import {activeChord, editChordContent, validateNote, pitchName, isJobActive, abcChordTokens, jobProgress, validateChart, reassignChartChords, splitChartSection, mergeChartSection, displayChordLabel, editChartSection, editChartChord, addChartChord, settleHistoryResult, updateAbcDraft, startChordAtMeasure} from './editor.js';
-import {renderLeadSheet,updateLeadSheetPlayback} from './lead-sheet.js';
-import {openSettings,openSongTiming,openReprocess,openModelAttribution} from './settings-view.js';
-import {indicateChord} from './confidence-view.js';
+import {activeChord, editChordContent, isJobActive, jobProgress, validateChart, displayChordLabel, settleHistoryResult} from './editor.js';
+import {renderLeadSheet,updateLeadSheetPlayback,markCurrentChord,followPlayback} from './lead-sheet.js';
+import {renderMidiRoll} from './midi-view.js';
+import {installPageNav} from './page-nav.js';
+import {openSongTiming,openReprocess,openModelAttribution} from './settings-view.js';
 import {effectiveMeasures, isNoChordLabel} from './chart-layout.js';
 import {icon} from './icons.js';
 import {prefs} from './prefs.js';
@@ -25,7 +27,7 @@ import {mountModelsPanel} from './models-view.js';
 const $ = id => document.getElementById(id);
 document.querySelector('.chart-intro h2')?.remove();
 const token = new URLSearchParams(location.hash.slice(1)).get('token') || '';
-const model = {state:null,setlist:null,song:null,detail:null,document:null,documents:new Map(),selectedNote:null,track:0,editingChord:null,loadingSong:0,polling:false,importing:false,pendingTitle:false,titleSave:null,pendingNote:false,pendingChord:false,dragSong:null,chartSection:null,chartChord:null,pendingChart:null};
+const model = {state:null,setlist:null,song:null,detail:null,document:null,documents:new Map(),loadingSong:0,polling:false,importing:false,pendingTitle:false,titleSave:null,dragSong:null,chartSection:null,chartChord:null,pendingChart:null};
 const clone = value => structuredClone(value);
 const mediaUrl = path => `${path}?token=${encodeURIComponent(token)}`;
 const timeLabel = seconds => `${Math.floor(Math.max(0,seconds)/60)}:${String(Math.floor(Math.max(0,seconds)%60)).padStart(2,'0')}`;
@@ -51,11 +53,21 @@ const transport=new Transport({audio:$('audio'),token});
 let separationDetail=null;
 let lockSig='',lockedMode='none';
 const playbackGate=new PlaybackGate(transport,id=>api('/api/playback/'+encodeURIComponent(id)));
-async function startAnalysis(songId,invalidate=[]){
- await playbackGate.analyze(songId,()=>api('/api/songs/'+encodeURIComponent(songId)+'/analyze',{invalidate}));
+// Whether to split the stems is remembered from the last time (off until chosen). The chart and lead sheet never wait for the stems.
+const wantsStems=()=>prefs.get('cb-stems','0')==='1';
+const stemsHint=()=>'Separates vocals, guitars, bass, drums and piano so you can mix them. It takes much longer'+(model.state?.models?.ready?'.':' and needs a one-time download of the stem models.');
+async function startAnalysis(songId,invalidate=[],stems=wantsStems(),editPolicy='keep'){
+ if(stems&&model.state?.models&&!model.state.models.ready){modelsPanel.want();throw Error('Splitting stems needs the stem models first. Download them below, then analyze again, or turn stems off.');}
+ await playbackGate.analyze(songId,()=>api('/api/songs/'+encodeURIComponent(songId)+'/analyze',{invalidate,stems,edit_policy:editPolicy}));
  await refreshState();
 }
-const mixer=mountMixer($('rack'),{transport,onError:showError,exportTarget:()=>{const runId=separationDetail?.active?.run_id,song=currentSong();return runId&&song?{title:song.title||'Chord Buddy',url:(query,name)=>mediaUrl(`/api/mix-export/${encodeURIComponent(runId)}`)+`&${query}&name=${encodeURIComponent(name)}`}:null;}});
+// "Split stems" on a song that was analyzed without them: the stems are made on their own, and the player switches to them when done.
+async function splitStems(){
+ const songId=model.song;if(!songId)return;
+ if(model.state?.models&&!model.state.models.ready){modelsPanel.want();throw Error('Splitting stems needs the stem models first. Download them below, then press Split stems again.');}
+ await api('/api/separate',{song_id:songId});await refreshState();
+}
+const mixer=mountMixer($('rack'),{transport,onError:showError,onSplit:()=>splitStems().catch(showError),exportTarget:()=>{const runId=separationDetail?.active?.run_id,song=currentSong();return runId&&song?{title:song.title||'Chord Buddy',url:(query,name)=>mediaUrl(`/api/mix-export/${encodeURIComponent(runId)}`)+`&${query}&name=${encodeURIComponent(name)}`}:null;}});
 
 let practiceViewport=null,practiceData=null;
 const player=mountPlayer($('player'),transport,showError,{onViewportChange:updatePracticeViewport,loadWaveform:run=>api('/api/waveform/'+encodeURIComponent(run))});
@@ -63,16 +75,16 @@ const practiceView=mountChartPage($('chart-sections'),{
  onSeek:seconds=>transport.seek(seconds),onCommit:commitPracticeEdit,onBarEdit:editBars,onError:showError,onReload:reloadPracticeChart,canEdit:()=>!currentRecord()?.practiceConflict&&!currentRecord()?.saving,
  onViewportChange:updatePracticeViewport,onRhythm:()=>rhythmButton.click(),onTimingSettings:()=>$('song-timing').click(),
  onDraftChange:info=>{const r=currentRecord();if(r&&!info.failed&&!info.saving)r.practiceSaveError=null;renderDocument();},
- onModeChange:()=>syncModeUi(),onScopeChange:()=>syncModeUi(),onTimingChange:()=>syncModeUi(),
+ onModeChange:()=>syncModeUi(),onToolChange:()=>syncModeUi(),onScopeChange:()=>syncModeUi(),onTimingChange:()=>syncModeUi(),
+ dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),
 });
-// Chart modes: Navigate / Edit / Timing. The page owns the mode; the toolbar and the N / E / T keys only ask it to change.
+// There are no chart modes: the tool you hold (Navigate, Write, Cut, Join, Repeat, Time, Barlines) decides what a click means and how the chart is drawn.
+// The page owns the tool; the rail and the N W S J R T B keys only ask it to change.
 function syncModeUi(){
  const mode=practiceView.getMode(),workspace=$('workspace');
- workspace.dataset.mode=mode;workspace.dataset.kind=currentRecord()?.doc.kind||'';
- for(const button of document.querySelectorAll('#modes .mode')){const on=button.dataset.m===mode;button.classList.toggle('on',on);button.setAttribute('aria-checked',String(on));}
+ workspace.dataset.mode=mode;workspace.dataset.tool=practiceView.getTool();workspace.dataset.kind=currentRecord()?.doc.kind||'';
  for(const button of document.querySelectorAll('#scope button'))button.classList.toggle('on',button.dataset.scope===practiceView.getScope());
  for(const button of document.querySelectorAll('#snap button'))button.classList.toggle('on',button.dataset.snap===practiceView.getSnap());
- const hint=[...document.querySelectorAll('#mode-hint [data-h]')].find(s=>s.dataset.h===mode);$('hint-toggle').title=hint?hint.textContent:'What does this mode do?';
  $('tz-label').textContent=practiceView.getZoom()+'×';
  if(typeof rhythmButton!=='undefined'){rhythmButton.hidden=currentRecord()?.doc.kind!=='chart';$('rhythm-tool').disabled=rhythmButton.disabled;}
 }
@@ -81,23 +93,40 @@ $('suggest').onchange=()=>{prefs.set('cb-suggest',$('suggest').checked?'1':'0');
 $('tz-in').onclick=()=>practiceView.zoomBy(1);$('tz-out').onclick=()=>practiceView.zoomBy(-1);
 $('timing-settings').onclick=()=>$('song-timing').click();
 $('rhythm-tool').onclick=()=>rhythmButton.click();
-for(const button of document.querySelectorAll('#modes .mode'))button.onclick=()=>practiceView.setMode(button.dataset.m);
-// Small help that stays out of the way: the ? explains the current mode, the i explains the confidence colours.
-function closeInfo(){$('key-pop').classList.add('hidden');$('mode-hint').classList.remove('show');$('hint-toggle').setAttribute('aria-expanded','false');$('info-pop').classList.add('hidden');}
-$('hint-toggle').onclick=event=>{event.stopPropagation();const show=!$('mode-hint').classList.contains('show');closeInfo();if(show){$('mode-hint').classList.add('show');$('hint-toggle').setAttribute('aria-expanded','true');}};
+installTooltips();
+// Middle-button drag pans, Ctrl+wheel zooms the page (page-nav.js).
+installPageNav({desk:$('desk'),pages:[$('chart-editor'),$('abc-editor')],prefs,pill:$('zoom-pill')});
+// Small help that stays out of the way: the i explains the confidence colours.
+function closeInfo(){$('key-pop').classList.add('hidden');$('info-pop').classList.add('hidden');}
 $('confidence-info').onclick=event=>{event.stopPropagation();const open=!$('info-pop').classList.contains('hidden');closeInfo();if(open)return;const box=$('confidence-info').getBoundingClientRect();$('info-pop').textContent=$('confidence-info').dataset.text||'';$('info-pop').style.top=(box.bottom+8)+'px';$('info-pop').style.right=Math.max(8,innerWidth-box.right-20)+'px';$('info-pop').classList.remove('hidden');};
-document.addEventListener('click',event=>{if(!event.target.closest?.('#mode-hint,#info-pop,#key-pop'))closeInfo();});
+document.addEventListener('click',event=>{if(!event.target.closest?.('#info-pop,#key-pop'))closeInfo();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeInfo();});
 for(const button of document.querySelectorAll('#scope button'))button.onclick=()=>practiceView.setScope(button.dataset.scope);
 document.addEventListener('keydown',event=>{
  if(event.ctrlKey||event.metaKey||event.altKey||event.defaultPrevented)return;
  const target=event.target;if(target&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)))return;
- if(currentRecord()?.doc.kind!=='chart'||document.querySelector('dialog[open]'))return;
- const mode={n:'nav',e:'edit',t:'timing'}[event.key.toLowerCase()];
- if(mode){event.preventDefault();practiceView.setMode(mode);return;}
+ if(document.querySelector('dialog[open]'))return;
+ if(currentRecord()?.doc.kind==='abc'){if(leadView?.handleKey(event))event.preventDefault();return;}
+ if(currentRecord()?.doc.kind!=='chart')return;
+ if(practiceView.handleKey?.(event)){event.preventDefault();return;}
  if(practiceView.getMode()==='timing'&&(event.key==='+'||event.key==='=')){event.preventDefault();practiceView.zoomBy(1);}
  else if(practiceView.getMode()==='timing'&&(event.key==='-'||event.key==='_')){event.preventDefault();practiceView.zoomBy(-1);}
 });
+// The space bar plays and pauses from anywhere: except while typing, or while one of our dialogs is open (the browser's own print and
+// save windows take the keys themselves). It also wins over a focused button, so a button you just clicked is not pressed a second time.
+let spaceHandled=false;
+const typingTarget=t=>!!t&&(t.isContentEditable||t.tagName==='TEXTAREA'||t.tagName==='SELECT'||(t.tagName==='INPUT'&&!/^(checkbox|radio|range|button|submit|reset|file|color)$/.test(t.type||'text')));
+document.addEventListener('keydown',event=>{
+ spaceHandled=false;
+ if(event.key!==' '&&event.code!=='Space')return;
+ if(event.ctrlKey||event.metaKey||event.altKey||event.shiftKey)return;
+ if(typingTarget(event.target)||document.querySelector('dialog[open]'))return;
+ if(!transport.getSnapshot().ready)return;
+ event.preventDefault();spaceHandled=true;
+ if(event.repeat)return;
+ if(transport.getSnapshot().playIntent)transport.pause();else transport.play().catch(showError);
+},true);
+document.addEventListener('keyup',event=>{if(spaceHandled&&(event.key===' '||event.code==='Space')){event.preventDefault();spaceHandled=false;}},true);
 // Export PDF prints the Navigate page: the finished, readable chart.
 window.addEventListener('beforeprint',()=>{if(practiceView.getMode()!=='nav')practiceView.setMode('nav');});
 function updatePracticeViewport(action){
@@ -149,7 +178,7 @@ function renderSections(){
 async function refreshSeparation(){
  const id=model.song;if(!id)return;
  let detail;try{detail=await api('/api/separation/'+encodeURIComponent(id));}catch(error){if(model.song===id)playbackGate.block('Could not verify analysis. Reconnecting.');throw error;}if(model.song!==id)return;
- separationDetail=detail;await playbackGate.refresh(id);if(model.song===id){model.readinessChecked=true;renderLock();}if(model.song===id)player.setWaveformRun(transport.getSnapshot().ready?detail.active?.run_id:null);
+ separationDetail=detail;await playbackGate.refresh(id);if(model.song===id){model.readinessChecked=true;renderLock();}if(model.song===id){const snap=transport.getSnapshot();player.setWaveformRun(snap.ready?snap.sourceRunId:null);mixer.setSplit({busy:model.state?.job?.kind==='separation'&&isJobActive(model.state.job)&&model.state.job.song_id===id,note:''});}
 }
 function currentSong(){return model.state?.songs.find(song=>song.id===model.song);}
 function currentRecord(){return model.documents.get(model.document);}
@@ -179,19 +208,18 @@ function renderLibrary() {
 }
 async function reorderSong(id,direction){try{const list=model.state.setlists.find(item=>item.id===model.setlist);const ids=[...list.song_ids];const index=ids.indexOf(id);[ids[index],ids[index+direction]]=[ids[index+direction],ids[index]];await api('/api/setlist/order',{id:list.id,song_ids:ids});await refreshState();}catch(error){showError(error);}}
 async function moveSongBefore(id,target){try{const list=model.state.setlists.find(item=>item.id===model.setlist);const destination=list.song_ids.indexOf(target);const ids=list.song_ids.filter(songId=>songId!==id);ids.splice(destination,0,id);await api('/api/setlist/order',{id:list.id,song_ids:ids});model.dragSong=null;await refreshState();}catch(error){showError(error);}}
+const TITLE_NODES=['page-song','score-title','midi-title'];
 function renderControls(){
   const song=currentSong();$('empty-state').classList.toggle('hidden',!!song);$('song-controls').classList.toggle('hidden',!song);$('workspace').classList.toggle('hidden',!song);
-  $('page-title').textContent=song?'Now practicing':'Song library';$('song-actions').classList.toggle('hidden',!song);
+  $('song-actions').classList.toggle('hidden',!song);
   renderSections();if(!song)return;
-  if(document.activeElement!==$('song-title')&&!model.pendingTitle&&!model.titleSave)$('song-title').value=song.title;
-  $('song-meta').textContent=[song.artist,song.filename,song.duration?timeLabel(song.duration):null].filter(Boolean).join(' · ');
+  if(!TITLE_NODES.some(id=>document.activeElement===$(id))&&!model.pendingTitle&&!model.titleSave){$('song-title').value=song.title;for(const id of TITLE_NODES)$(id).textContent=song.title;}
 
   const busy=isJobActive(model.state.job);
-  const modelsMissing=model.state.models&&!model.state.models.ready;
-  $('transcribe').disabled=!!busy || !model.state.engine.ready || model.importing || !!modelsMissing;
+  $('transcribe').disabled=!!busy || !model.state.engine.ready || model.importing;
   $('transcribe').querySelector('em').textContent=analysisUiState(song,model.state.job).label;renderChips();
-  if(typeof rhythmButton!=='undefined'){const job=model.state.job;rhythmButton.textContent=job?.kind==='rhythm'&&job.document_id===model.document&&job.status==='completed'?'Review rhythm proposal':'Drum-based rhythm correction';rhythmButton.disabled=isJobActive(job);}
-  $('transcribe').title=!model.state.engine.ready?model.state.engine.message || 'Set up the transcription engine first.':(modelsMissing?'Download the stem separation models first.':'');
+  if(typeof rhythmButton!=='undefined'){const job=model.state.job;rhythmButton.textContent=job?.kind==='rhythm'&&job.document_id===model.document&&job.status==='completed'?'Review rhythm proposal':'Drum-based rhythm correction';rhythmButton.disabled=isJobActive(job)||!separationDetail?.active;rhythmButton.title=separationDetail?.active?'':'Split the stems first: this listens to the drums.';}
+  $('transcribe').title=!model.state.engine.ready?model.state.engine.message || 'Set up the transcription engine first.':'';
   const field=$('song-controls').querySelector('#setlist-add');if(field)field.remove();
   const available=model.state.setlists.filter(list=>list.name!=='Default'&&!list.song_ids.includes(song.id));
   if(available.length){const select=element('select');select.id='setlist-add';select.setAttribute('aria-label','Add song to set list');const prompt=element('option','','Add to set list…');prompt.value='';select.append(prompt);for(const list of available){const option=element('option','',list.name);option.value=list.id;select.append(option);}select.onchange=async()=>{if(!select.value)return;try{await api('/api/setlist/add',{id:select.value,song_id:song.id});await refreshState();}catch(error){showError(error);}};$('song-title').parentElement.append(select);}
@@ -226,23 +254,26 @@ function renderLock(){
   }
   if(lockedMode!==mode){lockedMode=mode;renderSections();}
 }
-function renderChips(){
-  const song=currentSong(),chips=$('chips');chips.replaceChildren();if(!song)return;
-  const music=currentRecord()?.doc.music,bpm=music?.timing?.bpm,meter=music?.measures?.[0]?.meter;
-  const add=(text,cls='',name)=>{const chip=element('span','chip'+(cls?' '+cls:''));if(name){const wrap=element('span');wrap.innerHTML=icon(name);chip.append(wrap.firstChild);}chip.append(text);chips.append(chip);};
-  if(bpm)add(`${Math.round(bpm)} BPM${meter?` · ${meter[0]}/${meter[1]}`:''}`,'','metronome');
-  else if(meter)add(`${meter[0]}/${meter[1]}`,'','metronome');
+function renderChips(){renderKeyBoxes();}   // the song's details live in each page's banner now; there are no pills in the header
+// The key sits in each page's banner, beside the time signature. Click it to choose another.
+function renderKeyBoxes(){
   const key=songKey();
-  if(key.label){
-    const chip=element('button','chip key'+(key.custom?' set':''));chip.type='button';chip.textContent='Key '+key.label;
-    chip.title=key.custom?'Key set by you. Click to change it.':'Estimated from the chords. Click to change it.';
-    chip.onclick=event=>{event.stopPropagation();openKeyMenu(chip);};chips.append(chip);
+  for(const head of document.querySelectorAll('.jhead')){
+    let box=head.querySelector('.key-box');
+    if(!box){
+      box=element('button','key-box');box.type='button';box.append(element('small','','Key'),element('b'));
+      box.onclick=event=>{event.stopPropagation();openKeyMenu(box);};
+      const meter=head.querySelector('.meter-box');meter?head.insertBefore(box,meter):head.append(box);
+    }
+    box.hidden=!key.label;
+    box.querySelector('b').textContent=key.label||'';
+    box.title=key.custom?'Key set by you. Click to change it.':'Estimated from the chords. Click to change it.';
+    box.setAttribute('aria-label','Key of this song: '+(key.label||'unknown')+'. Click to change it.');
   }
-  if(song.active_run)add('Analyzed','ok','check');else add('Not analyzed','','lock');
 }
 // The key is guessed from the chords; the player's own choice is remembered with the library and wins.
 function songKey(){
-  const chords=(currentContent()?.chords||[]).filter(chord=>!isNoChordLabel(chord.label)),estimate=estimateKey(chords);
+  const chords=(currentContent()?.chords||chartRecord()?.doc.content?.chords||[]).filter(chord=>!isNoChordLabel(chord.label)),estimate=estimateKey(chords);
   const saved=prefs.get('cb-key:'+model.song,''),custom=KEY_CHOICES.includes(saved);
   return {estimate,custom,label:custom?saved:estimate?.label||null};
 }
@@ -256,10 +287,31 @@ function openKeyMenu(chip){
   pop.replaceChildren(element('label','','Key of this song'),select);
   const box=chip.getBoundingClientRect();pop.style.top=(box.bottom+8)+'px';pop.style.left=Math.max(8,box.left)+'px';pop.classList.remove('hidden');select.focus();
 }
+// The line under a song's name: the artist (read from the MP3's tags when the song was imported, and yours to change) then the details.
+function setSub(node,details){
+  const song=currentSong();let artist=node.querySelector('.jartist');
+  if(!artist){
+    artist=element('span','jartist');artist.contentEditable='plaintext-only';artist.spellcheck=false;artist.setAttribute('role','textbox');artist.setAttribute('aria-label','Artist');
+    artist.dataset.placeholder='Add artist';artist.dataset.tipTitle='Artist';artist.dataset.tip='Click to type who wrote or performs this song. It starts as the artist in the MP3’s tags, and stays empty if there is none.';
+    artist.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();artist.blur();}else if(event.key==='Escape'){artist.textContent=currentSong()?.artist||'';artist.blur();}};
+    artist.onblur=()=>commitArtist(artist).catch(showError);
+    node.replaceChildren(artist,element('span','jrest'));
+  }
+  if(document.activeElement!==artist)artist.textContent=song?.artist||'';
+  node.querySelector('.jrest').textContent=details.filter(Boolean).join(' · ');
+}
+async function commitArtist(node){
+  const song=currentSong();if(!song)return;
+  const artist=node.textContent.replace(/\s+/g,' ').trim();
+  if(artist===(song.artist||''))return;
+  const changed=await api('/api/song',{id:song.id,title:song.title,artist});
+  const latest=model.state?.songs.find(item=>item.id===song.id);if(latest)Object.assign(latest,changed);
+  renderLibrary();
+  if(model.song===song.id)for(const id of ['page-sub','score-sub','midi-sub']){const other=$(id).querySelector('.jartist');if(other&&other!==node)other.textContent=changed.artist||'';}
+}
 function renderPageHead(){
   const song=currentSong(),music=currentRecord()?.doc.music,meter=music?.measures?.[0]?.meter,bpm=music?.timing?.bpm;
-  $('page-song').textContent=song?.title||' ';
-  $('page-sub').textContent=[song?.artist,bpm?`♩ = ${Math.round(bpm)}`:null,song?.duration?timeLabel(song.duration):null,'arranged in Chord Buddy'].filter(Boolean).join(' · ');
+  setSub($('page-sub'),[bpm?`♩ = ${Math.round(bpm)}`:null,song?.duration?timeLabel(song.duration):null,'arranged in Chord Buddy']);
   const box=$('meter-box');box.hidden=!meter;box.replaceChildren();if(meter)box.append(String(meter[0]),document.createElement('hr'),String(meter[1]));
 }
 const jobKey=job=>JSON.stringify([job?.id,job?.kind,job?.status,job?.stage]);
@@ -299,10 +351,10 @@ async function selectSong(id){
   const request=++model.loadingSong;
   try{const saved=await window.chordBuddyFlush();if(!saved.ok)throw Error('Finish saving before changing the selected song or document.');}catch(error){showError(error);return;}
   if(request!==model.loadingSong)return;
-  playbackGate.block('Checking analysis.');player.setWaveformRun(null);practiceViewport=null;practiceData=null;player.setPractice({music:{measures:[]},projection:null,viewport:null});separationDetail=null;model.readinessChecked=false;model.song=id;model.detail=null;model.document=null;model.selectedNote=null;model.editingChord=null;
+  playbackGate.block('Checking analysis.');player.setWaveformRun(null);practiceViewport=null;practiceData=null;player.setPractice({music:{measures:[]},projection:null,viewport:null});separationDetail=null;model.readinessChecked=false;model.song=id;model.detail=null;model.document=null;
   clearError();renderLibrary();renderControls();renderDocument();renderLock();
   await transport.loadSong({songId:id,originalUrl:mediaUrl('/api/audio/'+encodeURIComponent(id)),separation:null});player.setNow({chord:'—',next:''});await refreshSeparation();if(request!==model.loadingSong)return;
-  try{const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(request!==model.loadingSong)return;model.detail=detail;renderTabs();loadMelody(detail,id);if(detail.documents.length)await selectDocument(detail.documents[0].id);else renderDocument();if(detail.song.error)showError(analysisErrorMessage(detail.song.error,!!detail.song.active_run));}catch(error){if(request===model.loadingSong)showError(error);}
+  try{const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(request!==model.loadingSong)return;model.detail=detail;renderTabs();loadMelody(detail,id);if(shownDocs(detail).length)await selectDocument(shownDocs(detail)[0].id);else renderDocument();if(detail.song.error)showError(analysisErrorMessage(detail.song.error,!!detail.song.active_run));}catch(error){if(request===model.loadingSong)showError(error);}
 }
 // The vocal melody (a MIDI output of the analysis) gives rough note starts for guessing where words fall.
 async function loadMelody(detail,songId){
@@ -321,45 +373,40 @@ async function keepDeskPlace(fn){
 }
 async function refreshSongDetail(id,force=false){
   const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(model.song!==id)return;model.detail=detail;renderTabs();loadMelody(detail,id);
-  if(!model.document && detail.documents.length)await selectDocument(detail.documents[0].id);
-  else if(model.document && detail.documents.length && !detail.documents.some(doc=>doc.id===model.document) && !currentRecord()?.dirty && !currentRecord()?.saving)await selectDocument(detail.documents[0].id);
+  if(!model.document && shownDocs(detail).length)await selectDocument(shownDocs(detail)[0].id);
+  else if(model.document && shownDocs(detail).length && !detail.documents.some(doc=>doc.id===model.document) && !currentRecord()?.dirty && !currentRecord()?.saving)await selectDocument(shownDocs(detail)[0].id);
   else if(force && model.document&&!practiceView.hasDraft()){const record=currentRecord();if(!record?.dirty&&!record?.saving){await keepDeskPlace(async()=>{model.documents.delete(model.document);await selectDocument(model.document);});}}
 }
-// Chart, Lead sheet and MIDI are the working tabs; every other analysis output lives in "More outputs".
+// Chart, Lead sheet and MIDI are the three views. Everything else the model writes (beats, chords, tokens...) is not shown: it comes in a zip.
 const TAB_KINDS=[['chart','Chart'],['abc','Lead sheet'],['midi','MIDI']];
+const shownDocs=detail=>detail.documents.filter(doc=>TAB_KINDS.some(([kind])=>kind===doc.kind)).sort((a,b)=>(b.kept?1:0)-(a.kept?1:0));
 function renderTabs(){
   const tabs=$('document-tabs');tabs.replaceChildren();
   $('transcription-history').disabled=isJobActive(model.state?.job)||!model.detail?.runs.some(r=>r.id!==currentSong()?.active_run&&r.has_documents);
-  const docs=model.detail?.documents||[],selected=docs.find(doc=>doc.id===model.document),direct=new Set();
+  renderExportMenu();
+  const docs=model.detail?.documents||[],selected=docs.find(doc=>doc.id===model.document);
   for(const [kind,label] of TAB_KINDS){
     const list=docs.filter(doc=>doc.kind===kind);if(!list.length)continue;
-    const target=selected?.kind===kind?selected:list.find(doc=>doc.name===model.lastMidiName)||list.find(doc=>/melody\.mid$/.test(doc.name))||list[0];direct.add(target.id);
+    const target=selected?.kind===kind?selected:list.find(doc=>doc.kept)||list.find(doc=>doc.name==='transcription.mid')||list.find(doc=>/melody\.mid$/.test(doc.name))||list[0];
     const button=element('button',`document-tab${selected?.kind===kind?' selected':''}`,label+(kind==='chart'&&target.kept?' · kept edits':''));
     button.role='tab';button.setAttribute('aria-selected',selected?.kind===kind?'true':'false');button.title=target.name;button.onclick=()=>selectDocument(target.id);tabs.append(button);
-  }
-  const others=docs.filter(doc=>!direct.has(doc.id));
-  if(others.length){
-    const menu=element('details','more outputs-menu'),summary=element('summary',`document-tab${selected&&!direct.has(selected.id)?' selected':''}`,selected&&!direct.has(selected.id)?selected.name:'More outputs');
-    const pop=element('div','more-pop');
-    for(const doc of others){const item=element('button','text-button',doc.name);item.type='button';item.onclick=()=>{menu.open=false;if(doc.kind==='midi')model.lastMidiName=doc.name;selectDocument(doc.id);};pop.append(item);}
-    menu.append(summary,pop);tabs.append(menu);
   }
 }
 async function selectDocument(id){
   if(id===model.document && model.documents.has(id))return;
   if(!practiceView.canNavigate())return;
   if(id!==model.document){try{const saved=await window.chordBuddyFlush();if(!saved.ok)throw Error('Finish saving before changing the selected song or document.');}catch(error){showError(error);return;}}
-  model.document=id;model.selectedNote=null;model.editingChord=null;model.chartSection=null;model.chartChord=null;model.track=0;renderTabs();renderDocument();
+  model.document=id;model.chartSection=null;model.chartChord=null;renderTabs();renderDocument();
   if(!model.documents.has(id)){try{const doc=await api(`/api/document/${encodeURIComponent(id)}`);model.documents.set(id,{doc,draft:clone(doc.content),dirty:false,saving:false,error:null,version:0,timer:null});}catch(error){showError(error);}}
   if(model.document===id){renderDocument();if(currentRecord()?.doc.kind==='chart')renderChart();}
 }
-function renderSaveStatus(){const record=currentRecord();const status=$('save-status');const warning=record?.doc.export_warning;status.classList.toggle('error',!!record?.practiceSaveError || !!record?.error || !!warning);status.textContent=record?.practiceSaveError?'Chart Save failed — use Retry Save':record?.doc.kind==='chart'&&practiceView.hasDraft()&&!record.saving?'Line draft — Save or Cancel':record?.error?'Save failed · click to retry':model.pendingNote||model.pendingChord||model.pendingChart?'Unsaved fields':record?.saving?'Saving…':record?.dirty?'Unsaved changes':record?.exporting?'Saved - retrying export...':warning?'Saved - click to retry export':'Saved';status.title=record?.error?.message || warning || '';status.tabIndex=(record?.error||warning)&&!record?.exporting?0:-1;}
+function renderSaveStatus(){const record=currentRecord();const status=$('save-status');const warning=record?.doc.export_warning;status.classList.toggle('error',!!record?.practiceSaveError || !!record?.error || !!warning);status.textContent=record?.practiceSaveError?'Chart Save failed — use Retry Save':record?.doc.kind==='chart'&&practiceView.hasDraft()&&!record.saving?'Line draft — Save or Cancel':record?.error?'Save failed · click to retry':model.pendingChord||model.pendingChart?'Unsaved fields':record?.saving?'Saving…':record?.dirty?'Unsaved changes':record?.exporting?'Saved - retrying export...':warning?'Saved - click to retry export':'Saved';status.title=record?.error?.message || warning || '';status.tabIndex=(record?.error||warning)&&!record?.exporting?0:-1;}
 function markRawDraft(key,value=true){model[key]=value;renderSaveStatus();$('undo').disabled=true;$('redo').disabled=true;$('restore').disabled=true;$('download').classList.add('disabled');}
 function renderDocument(){
-  const record=currentRecord();for(const id of ['abc-editor','midi-editor','text-editor','chart-editor'])$(id).classList.add('hidden');$('document-empty').classList.toggle('hidden',!!record);
-  const rawPending=model.pendingNote||model.pendingChord||!!model.pendingChart||(record?.doc.kind==='chart'&&practiceView.hasDraft());
+  const record=currentRecord();for(const id of ['abc-editor','midi-editor','chart-editor'])$(id).classList.add('hidden');$('document-empty').classList.toggle('hidden',!!record);
+  const rawPending=!!model.pendingChart||(record?.doc.kind==='chart'&&practiceView.hasDraft());
   $('undo').disabled=!record?.doc.can_undo||!!record?.dirty||!!record?.saving||rawPending;$('redo').disabled=!record?.doc.can_redo||!!record?.dirty||!!record?.saving||rawPending;$('restore').disabled=!record||!!record?.dirty||!!record?.saving||rawPending;
-  $('undo').title=record?.doc.undo_label || 'Undo last document edit';$('redo').title=record?.doc.redo_label || 'Redo document edit';
+  $('undo').dataset.tip=record?.doc.undo_label?'Undo: '+record.doc.undo_label+'.':'Undo the last change.';$('redo').dataset.tip=record?.doc.redo_label?'Redo: '+record.doc.redo_label+'.':'Put back what you just undid.';
   $('download').classList.toggle('disabled',!record||record.dirty||record.saving||rawPending);if(record){$('download').href=mediaUrl(`/api/export/${encodeURIComponent(record.doc.id)}`);$('download').setAttribute('download','');}else $('download').removeAttribute('href');
   renderSaveStatus();renderTabs();renderPageHead();renderChips();syncModeUi();
   const confidence=record?.doc.music?.confidence;
@@ -368,8 +415,7 @@ function renderDocument(){
   if(!record)return;
   if(record.doc.kind==='chart'){$('chart-editor').classList.remove('hidden');renderChart();}
   else if(record.doc.kind==='abc'){$('abc-editor').classList.remove('hidden');renderAbc();}
-  else if(record.doc.kind==='midi'){$('midi-editor').classList.remove('hidden');if(!model.pendingNote)renderMidi();}
-  else {$('text-editor').classList.remove('hidden');$('text-source').value=currentContent().text || '';}
+  else if(record.doc.kind==='midi'){$('midi-editor').classList.remove('hidden');renderMidi();}
 }
 function chartRecord(){const id=model.detail?.documents?.find(doc=>doc.kind==='chart')?.id;return id?model.documents.get(id):null;}
 async function loadChartRecord(){
@@ -377,18 +423,30 @@ async function loadChartRecord(){
   try{const doc=await api(`/api/document/${encodeURIComponent(id)}`);if(!model.documents.has(id))model.documents.set(id,{doc,draft:clone(doc.content),dirty:false,saving:false,error:null,version:0,timer:null});}catch(error){showError(error);}
 }
 function renderAbc(){
-  const content=currentContent();const strip=$('chord-strip');strip.replaceChildren();
-  for(const chord of content.chords || []){if(isNoChordLabel(chord.label))continue;const button=element('button',`chord-chip${chord.id===model.editingChord?' editing':''}`,chord.label);button.dataset.chordId=chord.id;button.append(element('small','',timeLabel(chord.start)));button.disabled=!Number.isInteger(chord.abc_index);button.title=button.disabled?'No reliable ABC association; edit the notation directly.':'Edit this chord label';button.onclick=()=>openChord(chord.id);indicateChord(button,chord,currentRecord().doc.music,model.state.settings);strip.append(button);}
-  $('chord-form').classList.toggle('hidden',!model.editingChord);
-  if(!$('confirm-chord')){const confirm=element('button','secondary small-button','Confirm chord');confirm.type='button';confirm.id='confirm-chord';confirm.onclick=async()=>{try{const chord=currentContent()?.chords?.find(item=>item.id===model.editingChord);if(!chord)throw new Error('Select a chord first.');const label=$('chord-label').value.trim();if(!label)throw new Error('Enter a chord label first.');model.pendingChord=true;commitChordDraft();const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving the chord edit before confirming it.');await confirmChordOverride(chord,label,chord.start,chord.end);model.editingChord=null;renderDocument();}catch(error){showError(error);}};$('chord-form').append(confirm);}
-  if($('abc-source').value!==(content.abc||''))$('abc-source').value=content.abc || '';
+  const content=currentContent();$('chord-strip').replaceChildren();
   // The lead sheet shows (and edits) the same lyrics as the chart, so it needs the chart document too.
   const chart=chartRecord();
   if(!chart)loadChartRecord().then(()=>{if(currentRecord()?.doc.kind==='abc')renderAbc();});
-  renderLeadSheet($('score'),{key:model.document,content,music:currentRecord().doc.music,title:currentSong()?.title,settings:model.state.settings,
+  const song=currentSong(),record=currentRecord();
+  if(document.activeElement!==$('score-title'))$('score-title').textContent=song?.title||'';
+  setSub($('score-sub'),[record.doc.music?.timing?.bpm?`♩ = ${Math.round(record.doc.music.timing.bpm)}`:null,'arranged in Chord Buddy']);
+  const meter=record.doc.music?.measures?.[0]?.meter,box=$('score-meter');box.hidden=!meter;box.replaceChildren();if(meter)box.append(String(meter[0]),document.createElement('hr'),String(meter[1]));
+  leadView=renderLeadSheet($('score'),{key:model.document,content,music:record.doc.music,title:song?.title,artist:song?.artist,settings:model.state.settings,
+    dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),frozen:readFrozen(song?.id),
+    onSeek:seconds=>transport.seek(seconds),onExternal:sendToExternalEditor,
+    onFreeze:snapshot=>{writeFrozen(song.id,snapshot);renderAbc();},onUnfreeze:()=>{writeFrozen(song.id,null);renderAbc();},
     chart:chart?{content:chart.draft||chart.doc.content,music:chart.doc.music,documentId:chart.doc.id,revision:chart.doc.revision}:null,
-    onChange:(next,label)=>markEdit(next,label),onChord:openChord,onError:showError,onChartEdit:commitChartFromLeadSheet});
+    onChange:(next,label)=>markEdit(next,label),onChord:commitChordLabel,onError:showError,onChartEdit:commitChartFromLeadSheet});
   updatePlayback();
+}
+// The lead sheet can be handed to another program (MuseScore and the like). From then on it is a frozen copy of what the chord chart said when
+// it was sent: it keeps showing that, and nothing in Chord Buddy edits it, until you choose to follow the chord chart again.
+let leadView=null;
+const readFrozen=songId=>{if(!songId)return null;try{const value=JSON.parse(prefs.get('cb-frozen:'+songId,'null'));return value&&Array.isArray(value.lyrics)?value:null;}catch{return null;}};
+const writeFrozen=(songId,value)=>prefs.set('cb-frozen:'+songId,value?JSON.stringify(value):'null');
+async function sendToExternalEditor({xml,filename}){
+  const song=currentSong();if(!song)throw new Error('Choose a song first.');
+  return api('/api/lead-sheet/external',{song_id:song.id,filename,xml});
 }
 // Lyrics typed on the lead sheet are edits to the chart's lyrics, so they are saved to the chart document and both views show them.
 async function commitChartFromLeadSheet(next,label,expected){
@@ -398,7 +456,16 @@ async function commitChartFromLeadSheet(next,label,expected){
   try{await pending;if(r.doc.export_warning)showError(r.doc.export_warning);}
   finally{if(currentRecord()?.doc.kind==='abc')renderAbc();}
 }
-function openChord(id){try{commitChordDraft();}catch(error){showError(error);return;}const chord=currentContent()?.chords?.find(item=>item.id===id);if(!chord||!Number.isInteger(chord.abc_index))return;model.editingChord=id;model.pendingChord=false;$('chord-label').value=chord.label;renderAbc();$('chord-label').focus();$('chord-label').select();}
+// A chord typed on the lead sheet is saved to the lead sheet and confirmed, exactly as the old Apply button did.
+async function commitChordLabel(id,text){
+  const chord=currentContent()?.chords?.find(item=>item.id===id),label=String(text||'').trim();
+  if(!chord||!label||label===chord.label)return;
+  markEdit(editChordContent(currentContent(),id,label),'Correct chord label');
+  renderAbc();
+  const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving the chord edit before confirming it.');
+  await confirmChordOverride({...chord,label},label,chord.start,chord.end);
+  renderDocument();
+}
 function markEdit(content,label,delay=450){const record=currentRecord();if(!record)return;record.draft=content;record.dirty=true;record.error=null;record.version++;record.label=label;clearTimeout(record.timer);record.timer=setTimeout(()=>saveDocument(record.doc.id),delay);renderSaveStatus();$('undo').disabled=true;$('redo').disabled=true;$('restore').disabled=true;$('download').classList.add('disabled');}
 async function saveDocument(id){
   const record=model.documents.get(id);if(!record||!record.dirty||record.saving)return;
@@ -407,24 +474,20 @@ async function saveDocument(id){
   catch(error){record.error=error;showError(error.status===409?new Error('This document changed in another window. Your edits are kept here. Reopen the app to load that revision, or retry after resolving the other window.'):error);}
   finally{record.saving=false;if(model.document===id){renderSaveStatus();if(!record.dirty)renderDocument();}if(record.dirty&&!record.error)setTimeout(()=>saveDocument(id),100);}
 }
-function reconcileAbc(abc,oldChords){
-  const tokens=abcChordTokens(abc);
-  const mapped=(oldChords || []).filter(chord=>Number.isInteger(chord.abc_index));
-  if(tokens.length!==mapped.length)return {abc,chords:(oldChords || []).map(chord=>({...chord,abc_index:null}))};
-  let i=0;return {abc,chords:(oldChords || []).map(chord=>Number.isInteger(chord.abc_index)?{...chord,label:tokens[i].label,abc_index:tokens[i++].index}:{...chord})};
-}
+// The piano roll is a viewer. Its view settings (hidden tracks, zoom) are kept per document, so playback redraws never reset them.
+let midiRoll=null;const midiView={doc:null,hidden:new Set(),view:null};   // the roll's own view: tracks shown, and its time and pitch scales (remembered per song by the roll)
 function renderMidi(){
-  const content=currentContent();const tracks=content.tracks || [];const trackSelect=$('midi-track');trackSelect.replaceChildren();
-  for(let i=0;i<Math.max(1,tracks.length);i++){const option=element('option','',tracks[i]?.name || `Track ${i+1}`);option.value=i;trackSelect.append(option);}trackSelect.value=model.track;
-  const notes=(content.notes || []).filter(note=>note.track===model.track);const min=Math.max(0,Math.min(48,...notes.map(note=>note.pitch))-2),max=Math.min(127,Math.max(72,...notes.map(note=>note.pitch))+2);const scale=Number($('midi-zoom').value);const duration=Math.max(8,content.duration || 0,...notes.map(note=>note.end));
-  const timeline=$('timeline');timeline.replaceChildren();timeline.style.width=`${Math.max(620,46+duration*scale+40)}px`;timeline.style.height=`${(max-min+1)*18+24}px`;
-  for(let pitch=max;pitch>=min;pitch--){const row=element('div',`timeline-row${[1,3,6,8,10].includes(pitch%12)?' black':''}`);row.style.top=`${24+(max-pitch)*18}px`;row.append(element('span','pitch-label',pitchName(pitch)));timeline.append(row);}
-  const interval=duration>120?10:duration>45?5:1;for(let second=0;second<=duration;second+=interval){const line=element('div','timeline-second');line.style.left=`${46+second*scale}px`;line.append(element('span','',timeLabel(second)));timeline.append(line);}
-  for(const note of notes){const button=element('button',`midi-note${note.id===model.selectedNote?' selected':''}`);button.style.left=`${46+note.start*scale}px`;button.style.top=`${26+(max-note.pitch)*18}px`;button.style.width=`${Math.max(6,(note.end-note.start)*scale)}px`;button.title=`${pitchName(note.pitch)} · ${note.start.toFixed(2)}–${note.end.toFixed(2)}s · velocity ${note.velocity}`;button.setAttribute('aria-label',button.title);button.onclick=()=>{try{commitNoteDraft();model.selectedNote=note.id;renderMidi();}catch(error){showError(error);}};timeline.append(button);}
-  const playhead=element('div','timeline-playhead');playhead.id='playhead';timeline.append(playhead);
-  const selected=(content.notes || []).find(note=>note.id===model.selectedNote);$('selected-note').textContent=selected?`${pitchName(selected.pitch)} · Track ${model.track+1}`:'Select a note on the timeline, or add one.';
-  for(const key of ['pitch','start','end','velocity']){$(`note-${key}`).disabled=!selected;$(`note-${key}`).value=selected?.[key] ?? '';}
-  $('apply-note').disabled=!selected;$('delete-note').disabled=!selected;updatePlayback();
+  const record=currentRecord(),song=currentSong(),content=currentContent();
+  if(midiView.doc!==record.doc.id){Object.assign(midiView,{doc:record.doc.id,hidden:new Set(),view:null});}
+  const chart=chartRecord();if(!chart)loadChartRecord().then(()=>{if(currentRecord()?.doc.kind==='midi')renderMidi();});
+  const offset=practiceView.getModel()?.barOffset||0;      // silence before the music is not a bar: numbering starts at the first bar with music
+  const bars=chart?effectiveMeasures(chart.doc.music,chart.doc.content?.layout).map(m=>({start:m.start,end:m.end,number:m.number-offset,beats:m.beats||[]})):[];
+  if(document.activeElement!==$('midi-title'))$('midi-title').textContent=song?.title||'';
+  renderKeyBoxes();
+  midiRoll=renderMidiRoll($('roll'),midiView,{songId:song?.id,content,bars,sections:chart?.doc.content?.sections||[],seconds:transport.getSnapshot().seconds,dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),
+    onSeek:seconds=>transport.seek(seconds),onExternal:()=>api('/api/midi/external',{song_id:model.song,document_id:record.doc.id}),onError:showError});
+  setSub($('midi-sub'),[]);
+  updatePlayback();
 }
 function renderChart(){
  const r=currentRecord();if(r?.doc.kind!=='chart')return;
@@ -434,6 +497,7 @@ function renderChart(){
  const onsets=model.melody?.song===model.song?model.melody.onsets:null,hasMelody=!!onsets?.length;
  $('suggest').disabled=!hasMelody;$('suggest').checked=hasMelody&&prefs.get('cb-suggest','1')!=='0';
  $('suggest-wrap').classList.toggle('off',!hasMelody);$('suggest-wrap').title=hasMelody?'Unpinned words are placed on the vocal melody\'s notes as a rough guess. Drag a word to pin it.':'No vocal melody was found for this song, so words spread evenly.';
+ practiceView.showTools();
  practiceView.update({documentId:r.doc.id,revision:r.doc.revision,songId:model.song,content,music,transport:transport.getSnapshot(),viewport:practiceViewport,onsets,suggest:$('suggest').checked});
  updatePracticePlayer();
 }
@@ -452,17 +516,20 @@ function nowAndNext(chords,chord,time){
 function updatePlayback(){
   const time=transport.getSnapshot().seconds;const chord=activeChord(currentChords(),time);player.setNow(nowAndNext(currentChords(),chord,time));
   for(const chip of $('chord-strip').children)chip.classList.toggle('active',chip.dataset.chordId===chord?.id);
-  const groups=$('score').querySelectorAll('.abcjs-chord');for(const group of groups)group.classList.remove('score-chord-active');
-  if(chord && Number.isInteger(chord.abc_index)){const index=abcChordTokens(currentContent()?.abc || '').findIndex(item=>item.index===chord.abc_index);if(index>=0)groups[index]?.classList.add('score-chord-active');}
-  const playhead=$('playhead');if(playhead)playhead.style.left=`${46+time*Number($('midi-zoom').value)}px`;
+  if(currentRecord()?.doc.kind==='abc'){
+    markCurrentChord($('score'),chord&&Number.isInteger(chord.abc_index)?leadView?.chordNodeAt(chord.abc_index):null);
+    const snap=transport.getSnapshot();
+    if(snap.playIntent&&practiceViewport?.follow!==false)followPlayback($('score'));
+  }
+  if(currentRecord()?.doc.kind==='midi')midiRoll?.update(time,transport.getSnapshot().playIntent);
   if(currentRecord()?.doc.kind==='chart')practiceView.updatePlayback(transport.getSnapshot());
   else if(currentRecord()?.doc.kind==='abc'){updateLeadSheetPlayback($('score'),$('score').querySelector('.lead-notation')?$('score').querySelector('.lead-notation')._scoreTiming:$('score')._scoreTiming,time);}
   if(practiceData&&practiceViewport?.follow)updatePracticeViewport({type:'tick'});
 }
 async function historyAction(action){
-  const record=currentRecord();if(!record||record.dirty||record.saving||model.pendingNote||model.pendingChord||model.pendingChart||practiceView.hasDraft())return;
+  const record=currentRecord();if(!record||record.dirty||record.saving||model.pendingChart||practiceView.hasDraft())return;
   const id=record.doc.id,version=record.version;record.saving=true;record.historyPending=true;$('workspace').inert=true;renderDocument();
-  try{const doc=await api(`/api/document/${encodeURIComponent(id)}/${action}`,{revision:record.doc.revision});settleHistoryResult(record,doc,version);if(model.document===id&&!record.dirty){model.selectedNote=null;model.editingChord=null;model.chartSection=null;model.chartChord=null;}}
+  try{const doc=await api(`/api/document/${encodeURIComponent(id)}/${action}`,{revision:record.doc.revision});settleHistoryResult(record,doc,version);if(model.document===id&&!record.dirty){model.chartSection=null;model.chartChord=null;}}
   catch(error){showError(error);}
   finally{record.saving=false;record.historyPending=false;$('workspace').inert=false;if(model.document===id){renderSaveStatus();if(!record.dirty)renderDocument();}if(record.dirty&&!record.error)setTimeout(()=>saveDocument(id),0);}
 }
@@ -474,22 +541,25 @@ async function updateTitle(){
   try{const changed=await model.titleSave;const latest=model.state?.songs.find(item=>item.id===songId);if(latest)Object.assign(latest,changed);if(model.song===songId){model.pendingTitle=$('song-title').value.trim()!==title;renderPageHead();}renderLibrary();}
   finally{model.titleSave=null;}
 }
-function commitNoteDraft(){
-  if(!model.pendingNote)return;
-  const content=clone(currentContent());const index=content?.notes?.findIndex(note=>note.id===model.selectedNote);if(index===undefined||index<0){model.pendingNote=false;return;}
-  const note={...content.notes[index]};for(const key of ['pitch','start','end','velocity']){const value=$(`note-${key}`).value;if(!value.trim())throw new Error('Complete every selected-note field before continuing.');note[key]=Number(value);}
-  const error=validateNote(note);if(error)throw new Error(error);content.notes[index]=note;content.duration=Math.max(content.duration || 0,note.end);model.pendingNote=false;markEdit(content,'Edit MIDI note');
+async function commitUiDrafts(){if(model.pendingTitle||model.titleSave)await updateTitle();}
+// Straight after an import: the song's name and artist (read from the file's tags, so usually right already) and whether to split the stems.
+async function setupImportedSong(song){
+ const setup=await askSongSetup({title:song.title,artist:song.artist,stems:wantsStems(),stemsHint:stemsHint(),device:model.state?.settings?.device||'auto'});
+ if(!setup)return;
+ prefs.set('cb-stems',setup.stems?'1':'0');
+ await api('/api/song',{id:song.id,title:setup.title,artist:setup.artist});
+ if(setup.device&&setup.device!==model.state?.settings?.device)model.state.settings=await api('/api/settings',{device:setup.device});   // kept for every later analysis too
+ await refreshState();
+ if(!model.state.engine.ready){showError(model.state.engine.message||'Set up the transcription engine first.');return;}
+ await startAnalysis(song.id,[],setup.stems);
 }
-function commitChordDraft(){
-  if(!model.pendingChord)return null;
-  const before=currentContent()?.chords?.find(item=>item.id===model.editingChord);const content=editChordContent(currentContent(),model.editingChord,$('chord-label').value);model.pendingChord=false;model.editingChord=null;markEdit(content,'Correct chord label');return before?{...before,label:$('chord-label').value.trim()}:null;
-}
-async function commitUiDrafts(){if(model.pendingTitle||model.titleSave)await updateTitle();commitNoteDraft();commitChordDraft();}
 async function importFile(file){
   if(!file)return;if(!/\.mp3$/i.test(file.name)){showError('Choose an MP3 recording.');return;}if(file.size>250*1024*1024){showError('This recording is larger than the 250 MB import limit.');return;}
   if(model.importing)return;model.importing=true;$('import-button').disabled=true;$('import-button').querySelector('em').textContent='Importing…';clearError();
-  try{const bytes=await file.arrayBuffer();const song=await api(`/api/import?filename=${encodeURIComponent(file.name)}&setlist=${encodeURIComponent(model.setlist || '')}`,undefined,{method:'POST',headers:{'Content-Type':'audio/mpeg'},body:bytes});await refreshState();await selectSong(song.id);$('song-title').focus();$('song-title').select();}
+  let added=null;
+  try{const bytes=await file.arrayBuffer();const song=await api(`/api/import?filename=${encodeURIComponent(file.name)}&setlist=${encodeURIComponent(model.setlist || '')}`,undefined,{method:'POST',headers:{'Content-Type':'audio/mpeg'},body:bytes});await refreshState();await selectSong(song.id);added=song;}
   catch(error){showError(error);}finally{model.importing=false;$('import-button').disabled=false;$('import-button').querySelector('em').textContent='Import MP3';$('file-input').value='';renderControls();}
+  if(added)setupImportedSong(added).catch(showError);
 }
 $('import-button').onclick=$('empty-import').onclick=()=>$('file-input').click();$('file-input').onchange=()=>importFile($('file-input').files[0]);
 $('new-setlist').onclick=()=>{$('setlist-form').classList.toggle('hidden');if(!$('setlist-form').classList.contains('hidden'))$('setlist-name').focus();};
@@ -498,8 +568,14 @@ $('song-search').oninput=renderLibrary;
 let titleTimer=null;
 $('song-title').oninput=()=>{model.pendingTitle=$('song-title').value.trim()!==currentSong()?.title;clearTimeout(titleTimer);titleTimer=setTimeout(()=>updateTitle().catch(showError),600);};
 $('song-title').onchange=()=>{clearTimeout(titleTimer);updateTitle().catch(showError);};
+// The title is written in the chart's own header (a heading you can type in); the hidden field carries it to the saving code above.
+for(const id of TITLE_NODES){
+  const node=$(id);
+  node.oninput=()=>{$('song-title').value=node.textContent.replace(/\s+/g,' ').trim();$('song-title').oninput();};
+  node.onblur=()=>{if($('song-title').value||!currentSong())$('song-title').onchange();else node.textContent=currentSong().title;};
+  node.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();event.target.blur();}else if(event.key==='Escape'){event.target.textContent=currentSong()?.title||'';$('song-title').value=currentSong()?.title||'';event.target.blur();}};
+}
 
-$('settings-button').onclick=()=>openSettings({settings:model.state?.settings||{},onSave:async values=>{await commitUiDrafts();model.state.settings=await api('/api/settings',values);if(model.song)await refreshSongDetail(model.song,true);renderDocument();}});
 $('model-attribution').onclick=()=>openModelAttribution(model.state?.engine?.model);
 $('song-timing').onclick=async()=>{try{await commitUiDrafts();const record=currentRecord();if(record?.doc.kind!=='chart')throw new Error('Choose a Song chart for timing controls.');const id=record.doc.id;openSongTiming({metadata:{timing:record.doc.timing_binding.overrides},onSave:async metadata=>{if(model.document!==id)throw new Error('Selected chart changed.');await window.chordBuddyFlush();const fresh=currentRecord().doc;await api('/api/documents/'+id+'/timing',{timing:metadata.timing,revision:fresh.revision});await refreshSongDetail(model.song,true);renderDocument();}});}catch(error){showError(error);}};
 $('transcription-history').onclick=async()=>{
@@ -509,9 +585,39 @@ $('transcription-history').onclick=async()=>{
     openReprocess({hasEdits:false,runs:model.detail.runs,activeRun:currentSong().active_run,canRun:false,onRestore:async runId=>{await api('/api/activate-run',{song_id:songId,run_id:runId});await refreshState();await refreshSongDetail(songId);}});
   }catch(error){showError(error);}
 };
-// Export PDF: open the song's chart in Navigate mode, then print only the page (print rules live in shell.css).
-async function exportChartPdf(){
+// ---- Export: saving and exporting live in one menu, in the same place in every view ----
+function renderExportMenu(){
+  const docs=model.detail?.documents||[],song=currentSong();
+  const has={ 'pdf-chart':docs.some(d=>d.kind==='chart'),'pdf-lead':docs.some(d=>d.kind==='abc'),midi:docs.some(d=>d.kind==='midi'),'midi-tracks':docs.some(d=>d.kind==='midi'),outputs:!!song?.active_run };
+  for(const button of document.querySelectorAll('[data-export]'))button.disabled=!has[button.dataset.export];
+  $('export-button').classList.toggle('disabled',!song);
+}
+const downloadUrl=url=>{const link=document.createElement('a');link.href=url;link.download='';document.body.append(link);link.click();link.remove();};
+async function runExport(kind){
+  const song=currentSong();if(!song)return;
+  const docs=model.detail?.documents||[],midi=docs.find(d=>d.kind==='midi'&&d.name==='transcription.mid')||docs.find(d=>d.kind==='midi');
+  if(kind==='pdf-chart')return exportPdf('chart');
+  if(kind==='pdf-lead')return exportPdf('lead');
+  if(kind==='midi'||kind==='midi-tracks'){if(!midi)throw new Error('This song has no MIDI yet.');return downloadUrl(mediaUrl('/api/export-midi/'+encodeURIComponent(midi.id))+'&mode='+(kind==='midi'?'single':'tracks'));}
+  if(kind==='outputs')return downloadUrl(mediaUrl('/api/export-outputs/'+encodeURIComponent(song.id)));
+}
+for(const button of document.querySelectorAll('[data-export]'))button.onclick=()=>{$('export-menu').open=false;runExport(button.dataset.export).catch(showError);};
+
+// Export PDF: print only the page that is showing, the lead sheet or the chart (print rules live in shell.css). The page is drawn in light
+// colours, without tool hints, whichever look is on screen.
+const exportChartPdf=()=>exportPdf(currentRecord()?.doc.kind==='abc'?'lead':'chart');
+async function exportPdf(which){
  try{
+  if(which==='lead'){
+   const lead=model.detail?.documents.find(doc=>doc.kind==='abc');if(!lead)throw new Error('This song has no lead sheet to export yet.');
+   await loadChartRecord();                                                 // the words come from the chart
+   if(currentRecord()?.doc.kind!=='abc'||model.document!==lead.id)await selectDocument(lead.id);
+   if(currentRecord()?.doc.kind!=='abc'||!leadView)return;
+   await new Promise(resolve=>setTimeout(resolve,150));
+   leadView.printMode(true);
+   try{await new Promise(resolve=>setTimeout(resolve,80));window.print();}finally{leadView.printMode(false);}
+   return;
+  }
   const chart=model.detail?.documents.find(doc=>doc.kind==='chart');if(!chart)throw new Error('This song has no chart to export yet.');
   if(currentRecord()?.doc.kind!=='chart'||model.document!==chart.id)await selectDocument(chart.id);
   if(currentRecord()?.doc.kind!=='chart')return;
@@ -519,19 +625,31 @@ async function exportChartPdf(){
  }catch(error){showError(error);}
 }
 document.addEventListener('chordbuddy:export-pdf',exportChartPdf);
-// Analyzing again builds a new chart and new stems. The old chart is kept as a previous transcription, but ask first, and offer a printout.
+// Analyze again always runs the analysis afresh (it does not just reuse what was saved), so it can be rerun at any time. If the song has
+// edits, you choose: keep them (your edited chart and lead sheet stay in front; the fresh result fills in everything you have not
+// changed) or start over (the fresh chart and lead sheet are shown; the edited ones stay under Previous transcriptions).
 async function confirmReanalyze(song){
+ const hasStems=!!separationDetail?.active,edited=(model.detail?.documents||[]).some(d=>d.user_modified);
+ let policy='keep',resplit=hasStems?false:wantsStems();
  const answer=await askChoice({title:'Analyze “'+song.title+'” again?',
-  message:['Analyzing again repairs anything that is missing or out of date, and reuses whatever is still good.','Your chart and its edits are kept. If a new chart does get built, your current one stays under “Previous transcriptions” in the ⋯ menu so you can bring it back. Export it first if you would like a printout.'],
-  choices:[{id:'export',label:'Export current chart as PDF',keepOpen:true},{id:'analyze',label:'Analyze again',kind:'danger'}],onPick:()=>exportChartPdf()});
- return answer==='analyze';
+  message:['Chord Buddy works out the chords, melody and sections again from the recording, fresh, instead of reusing the last result.'],
+  radios:edited?{label:'Your edits',value:'keep',onChange:value=>{policy=value;},options:[
+   {id:'keep',label:'Keep my edits',hint:'Your edited chart and lead sheet stay as they are. The new analysis is used for everything else.'},
+   {id:'replace',label:'Start over',hint:'Show the new chart and lead sheet instead. Your edited versions are kept under Previous transcriptions in the ⋯ menu, so you can bring them back.'}]}:null,
+  checkbox:hasStems?{label:'Split the stems again',hint:'Only needed if the stems sound wrong. It takes several minutes.',checked:false,onChange:value=>{resplit=value;}}
+   :{label:'Also split the stems',hint:stemsHint(),checked:resplit,onChange:value=>{resplit=value;prefs.set('cb-stems',value?'1':'0');}},
+  choices:[{id:'export',label:'Export current chart as PDF',keepOpen:true},{id:'analyze',label:'Analyze again',kind:'primary'}],onPick:()=>exportChartPdf()});
+ if(answer!=='analyze')return null;
+ return {editPolicy:policy,stems:hasStems||resplit,invalidate:['transcription',...(hasStems&&resplit?['separation']:[])]};
 }
 $('transcribe').onclick=async()=>{
  const songId=model.song;
  try{
   const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving your edits first.');if(model.song!==songId)return;
-  const song=currentSong();if(song?.active_run&&!await confirmReanalyze(song))return;
-  if(model.song!==songId)return;await startAnalysis(songId);
+  const song=currentSong();let again=null;
+  if(song?.active_run){again=await confirmReanalyze(song);if(!again)return;}
+  if(model.song!==songId)return;
+  if(again)await startAnalysis(songId,again.invalidate,again.stems,again.editPolicy);else await startAnalysis(songId);
  }catch(error){showError(error);}
 };
 $('banner-export').onclick=exportChartPdf;$('banner-reanalyze').onclick=()=>$('transcribe').click();
@@ -567,21 +685,9 @@ $('cancel-job').onclick=async()=>{try{const job=model.state?.job;if(job&&!isJobA
 $('song-folder').onclick=()=>api('/api/open-folder',{song_id:model.song}).catch(showError);
 $('undo').onclick=()=>historyAction('undo');$('redo').onclick=()=>historyAction('redo');$('restore').onclick=()=>historyAction('restore');
 $('save-status').onclick=()=>{const r=currentRecord();if(r?.error)saveDocument(model.document);else if(r?.doc.export_warning)retryDocumentExport(r,api,()=>{if(currentRecord()===r){renderSaveStatus();if(!r.exporting&&!r.doc.export_warning&&$('alert').textContent.startsWith('Edit saved;'))clearError();}});};$('save-status').onkeydown=event=>{if(event.key==='Enter')$('save-status').click();};
-$('toggle-abc').onclick=()=>{$('abc-source-panel').classList.toggle('hidden');$('toggle-abc').textContent=$('abc-source-panel').classList.contains('hidden')?'Edit ABC notation':'Hide ABC notation';};
-$('chord-label').oninput=()=>markRawDraft('pendingChord');
-$('chord-form').onsubmit=async event=>{event.preventDefault();try{model.pendingChord=true;const chord=commitChordDraft();renderAbc();const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving the chord edit before confirming it.');if(chord)await confirmChordOverride(chord,chord.label,chord.start,chord.end);renderDocument();}catch(error){showError(error);}};
-$('close-chord').onclick=()=>{model.pendingChord=false;model.editingChord=null;renderDocument();};
-$('abc-source').oninput=()=>{const parsed=reconcileAbc($('abc-source').value,currentContent().chords);markEdit(updateAbcDraft(currentContent(),parsed.abc,parsed.chords),'Edit ABC notation',1000);renderAbc();};
-$('apply-abc').onclick=()=>saveDocument(model.document);
-$('text-source').oninput=()=>markEdit({text:$('text-source').value},'Edit text',1000);$('apply-text').onclick=()=>saveDocument(model.document);
-$('midi-track').onchange=()=>{try{commitNoteDraft();model.track=Number($('midi-track').value);model.selectedNote=null;renderMidi();}catch(error){showError(error);$('midi-track').value=model.track;}};$('midi-zoom').oninput=()=>{try{commitNoteDraft();renderMidi();}catch(error){showError(error);}};
-$('add-note').onclick=()=>{try{commitNoteDraft();const content=clone(currentContent());const start=Number(transport.getSnapshot().seconds.toFixed(2)) || 0;const note={id:crypto.randomUUID(),pitch:60,start,end:start+0.5,velocity:100,track:model.track};content.notes.push(note);content.duration=Math.max(content.duration || 0,note.end);model.selectedNote=note.id;markEdit(content,'Add MIDI note');renderMidi();}catch(error){showError(error);}};
-for(const key of ['pitch','start','end','velocity'])$(`note-${key}`).oninput=()=>markRawDraft('pendingNote');
-$('note-form').onsubmit=event=>{event.preventDefault();try{model.pendingNote=true;commitNoteDraft();renderMidi();}catch(error){showError(error);}};
-$('delete-note').onclick=()=>{const content=clone(currentContent());content.notes=content.notes.filter(note=>note.id!==model.selectedNote);model.pendingNote=false;model.selectedNote=null;markEdit(content,'Delete MIDI note');renderMidi();};
 // Playback views subscribe to the transport; the audio element no longer owns chart time.
 let dragDepth=0;window.addEventListener('dragenter',event=>{if(event.dataTransfer.types.includes('Files')){event.preventDefault();dragDepth++;$('drop-overlay').classList.remove('hidden');}});window.addEventListener('dragover',event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();});window.addEventListener('dragleave',()=>{dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)$('drop-overlay').classList.add('hidden');});window.addEventListener('drop',event=>{event.preventDefault();dragDepth=0;$('drop-overlay').classList.add('hidden');importFile(event.dataTransfer.files[0]);});
-window.chordBuddyHasPendingEdits=()=>practiceView.hasPendingSave()||!!document.querySelector('[data-edit-dialog]')||model.pendingTitle || !!model.titleSave || model.pendingNote || model.pendingChord || !!model.pendingChart || [...model.documents.values()].some(record=>record.dirty||record.saving||record.practiceSaveError);
+window.chordBuddyHasPendingEdits=()=>practiceView.hasPendingSave()||!!document.querySelector('[data-edit-dialog]')||model.pendingTitle || !!model.titleSave || !!model.pendingChart || [...model.documents.values()].some(record=>record.dirty||record.saving||record.practiceSaveError);
 window.addEventListener('beforeunload',event=>{if(window.chordBuddyHasPendingEdits()){event.preventDefault();event.returnValue='';}});
 window.chordBuddyShowCloseError=message=>showError(message || 'Your edits could not finish saving. Keep this window open and retry the failed save before closing.');
 window.chordBuddyFlush=async()=>{
@@ -605,9 +711,7 @@ export {transport};
 const proposalGuard=new ProposalGuard(()=>model.document);
 const rhythmButton=element('button','secondary','Drum-based rhythm correction');
 const cleanupButton=element('button','secondary','Check empty end artifact');
-const advancedButton=element('button','secondary','Reanalyze stage…');
-rhythmButton.hidden=true;cleanupButton.hidden=true;$('more-tools').append(rhythmButton,cleanupButton,advancedButton);
-advancedButton.onclick=async()=>{try{if(!model.song)return;const stage=prompt('Stage to reanalyze: separation or transcription');if(stage===null)return;if(!['separation','transcription'].includes(stage))throw new Error('Choose separation or transcription.');if(!confirm('Recompute '+stage+' and its dependent results? Existing edited charts remain available.'))return;await startAnalysis(model.song,[stage]);}catch(error){showError(error);}};
+rhythmButton.hidden=true;cleanupButton.hidden=true;$('more-tools').append(rhythmButton,cleanupButton);
 rhythmButton.onclick=async()=>{try{
  const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving edits first.');const doc=currentRecord()?.doc;if(doc?.kind!=='chart')throw new Error('Choose a Song chart.');const ticket=proposalGuard.begin();const job=model.state?.job;
  if(job?.kind!=='rhythm'||job.document_id!==doc.id||job.status!=='completed'||!job.proposal_id){await api('/api/documents/'+doc.id+'/rhythm/propose',{});await refreshState();return;}

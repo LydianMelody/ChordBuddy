@@ -62,7 +62,7 @@ export function fallingLevel(previous,target){return Math.max(target,previous*ME
 
 const make=(tag,className,text)=>{const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;};
 
-export function mountMixer(root,{transport,onError=()=>{},exportTarget=()=>null}){
+export function mountMixer(root,{transport,onError=()=>{},exportTarget=()=>null,onSplit=()=>{}}){
   const presetsRoot=root.querySelector('#rack-presets'),stripsRoot=root.querySelector('#rack-strips');
   const master=root.querySelector('#rack-master'),masterOut=root.querySelector('#rack-master-out'),exportLink=root.querySelector('#rack-export');
   const update=change=>{
@@ -91,10 +91,19 @@ export function mountMixer(root,{transport,onError=()=>{},exportTarget=()=>null}
   });
   master.oninput=()=>update(mix=>{mix.master=Number(master.value)/100;});
 
+  // Until the stems are split the mixer is switched off and says why, with the button that fixes it.
+  const split=make('div','rack-split'),splitText=make('p','','The stems have not been split yet, so there is nothing to mix. The song plays as it was recorded.'),splitButton=make('button','btn hot','Split stems');
+  splitButton.type='button';splitButton.id='rack-split-button';splitButton.onclick=()=>{try{onSplit();}catch(error){onError(error);}};
+  split.append(splitText,splitButton);split.hidden=true;
+  root.querySelector('.rack-head')?.after(split);
+  let splitting={busy:false,note:''};
+  function setSplit(value){splitting={busy:!!value?.busy,note:value?.note||''};render();}
   const shown=Array(7).fill(0);
   function render(state=transport.getSnapshot()){
-    const {mix,ready}=state,levels=effectiveLevels(mix),soloActive=mix.solos.some(Boolean),current=activePreset(mix),live=state.levels;
-    root.classList.toggle('disabled',!ready);
+    const {mix}=state,mixable=state.ready&&state.stems!==false,ready=mixable,levels=effectiveLevels(mix),soloActive=mix.solos.some(Boolean),current=activePreset(mix),live=state.levels;
+    root.classList.toggle('disabled',!ready);root.classList.toggle('stemless',state.ready&&state.stems===false);
+    split.hidden=!(state.ready&&state.stems===false);splitButton.disabled=splitting.busy;splitButton.textContent=splitting.busy?'Splitting…':'Split stems';
+    splitText.textContent=splitting.note||'The stems have not been split yet, so there is nothing to mix. The song plays as it was recorded.';
     for(const {strip,node,fader,mute,solo,level} of strips){
       const i=strip.index;
       if(document.activeElement!==fader)fader.value=Math.round(mix.gains[i]*100);
@@ -116,5 +125,5 @@ export function mountMixer(root,{transport,onError=()=>{},exportTarget=()=>null}
   }
   const unsubscribe=transport.subscribe(render);
   render();
-  return {render,dispose:unsubscribe};
+  return {render,dispose:unsubscribe,setSplit};
 }

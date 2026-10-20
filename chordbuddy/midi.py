@@ -116,3 +116,32 @@ def write_midi(path,content):
     stream=io.BytesIO()
     midi.save(file=stream)
     return stream.getvalue()
+
+
+FRIENDLY_TRACKS={'ins':'Instruments','vocal':'Vocal melody','chords':'Chords'}
+
+
+def friendly_track_name(name, index=0):
+    """What a track is called to people: SheetSage names them Vocal, Ins and Chords."""
+    clean = (name or '').strip()
+    return FRIENDLY_TRACKS.get(clean.lower()) or clean or f'Track {index+1}'
+
+
+def split_tracks(data):
+    """One standalone MIDI file per track that has notes, as [(track name, bytes)].
+    Every file keeps the tempo and time-signature track, so each opens at the right speed on its own."""
+    source = mido.MidiFile(file=io.BytesIO(data))
+    has_notes = lambda track: any(m.type in ('note_on', 'note_off') for m in track)
+    conductor = [track for track in source.tracks if not has_notes(track)]
+    files = []
+    for index, track in enumerate(source.tracks):
+        if not has_notes(track):
+            continue
+        out = mido.MidiFile(type=1, ticks_per_beat=source.ticks_per_beat)
+        for other in conductor:
+            out.tracks.append(mido.MidiTrack(other.copy()))
+        out.tracks.append(mido.MidiTrack(track.copy()))
+        stream = io.BytesIO()
+        out.save(file=stream)
+        files.append((friendly_track_name(track.name, index), stream.getvalue()))
+    return files

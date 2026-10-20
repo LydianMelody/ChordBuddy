@@ -1,9 +1,6 @@
 export function analysisUiState(song,job){
  return {label:song?.active_run?'Analyze again':'Analyze song',busy:!!job&&['running','cancelling','starting'].includes(job.status),stage:job?.stage||'',error:job?.error||''};
 }
-export function renderAnalysis({song,job},handlers){
- const button=document.createElement('button');const state=analysisUiState(song,job);button.textContent=state.label;button.disabled=state.busy;button.onclick=handlers.start;return button;
-}
 
 export function songStatusLabel(song){
  if(['error','failed'].includes(song.status))return song.active_run?'Saved chart; latest analysis failed':'Transcription failed';

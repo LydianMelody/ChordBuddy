@@ -1,4 +1,4 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {updateViewport,mountPracticeTimeline} from '../chordbuddy/web/practice-timeline.js';
+import test from 'node:test';import assert from 'node:assert/strict';import {updateViewport,mountPracticeTimeline,rulerMarks} from '../chordbuddy/web/practice-timeline.js';
 const context={start:0,end:100,playhead:15,selectedSeconds:null,minSpan:1};
 test('zoom anchor, manual pan, each fixed opposite edge, and Follow are presentation only',()=>{
  const base={start:10,end:30,follow:true},copy=JSON.stringify(base);
@@ -24,13 +24,11 @@ test('offscreen current time is explicit and overview interactions never seek',(
  const mounted=mountPracticeTimeline(root,{transport,onViewportChange:a=>actions.push(a)});
  const music={measures:[{id:'a',number:1,start:0,end:100,beats:[0,25,50,75],quarter_positions:[0,1,2,3,4],meter:'4/4'}]};
  mounted.update({music,projection:null,viewport:{start:10,end:30,follow:false}});
- const seek=root.querySelector('.practice-seek'),overview=root.querySelector('.practice-overview');
+ const seek=root.querySelector('.practice-seek'),navigator=mounted.navigator;
  assert.match(seek.className,/outside/);assert.match(seek.getAttribute('aria-valuetext'),/outside the visible span/);
  assert.match(root.querySelector('.practice-position').textContent,/outside visible span/);
  assert.equal(root.querySelector('.practice-playhead').hidden,true);
- overview.getBoundingClientRect=()=>({width:100,left:0});overview.setPointerCapture=()=>{};
- overview.onpointerdown({button:0,target:overview,clientX:10,pointerId:1,preventDefault(){}});
- overview.onpointermove({clientX:20,pointerId:1});overview.onpointerup({pointerId:1});
+ navigator.gesture.start('move',10,100);navigator.gesture.move(20);navigator.gesture.end();
  assert.deepEqual(actions,[{type:'pan-to',start:20,end:40}]);assert.deepEqual(seeks,[]);
  snapshot={...snapshot,seconds:20};paint(snapshot);assert.doesNotMatch(seek.className,/outside/);assert.doesNotMatch(root.querySelector('.practice-position').textContent,/outside visible span/);
  seek.value=22;seek.onchange();assert.deepEqual(seeks,[22]);mounted.dispose();
@@ -131,17 +129,16 @@ test('wheel pans, Ctrl+wheel zooms around the pointer, and neither seeks',()=>{
  assert.equal(actions[1].type,'zoom');assert.equal(actions[1].factor,.8);assert.equal(actions[1].anchor,4);assert.deepEqual(seeks,[]);
 });
 
-test('pan buttons, zoom buttons and the Follow toggle only send viewport actions',()=>{
+test('the navigator caps step through the song and Follow toggles, and neither seeks',()=>{
  const {root,actions,seeks}=nav({viewport:{start:0,end:8,follow:true}});
- const [left,right]=pick(root,'practice-pan');left.onclick();right.onclick();
  root.querySelector('.practice-follow').onclick();
- assert.deepEqual(actions,[{type:'pan',delta:-4},{type:'pan',delta:4},{type:'set-follow',value:false}]);assert.deepEqual(seeks,[]);
+ assert.deepEqual(actions,[{type:'set-follow',value:false}]);assert.deepEqual(seeks,[]);
  assert.equal(root.querySelector('.practice-follow').getAttribute('aria-pressed'),'true');
 });
 
-test('the span label says what is visible, and the current section is highlighted behind the waveform',()=>{
+test('the navigator says what is visible (to screen readers), and the current section is highlighted behind the waveform',()=>{
  const {root}=nav({viewport:{start:0,end:8,follow:false}});
- assert.match(root.querySelector('.practice-span-label').textContent,/0:00 – 0:08 · 8 s visible/);
+ assert.match(pick(root,'cassette-window')[0].attributes['aria-valuetext'],/0:00 – 0:08 · 8 s visible/);
  assert.equal(pick(root,'practice-current-band')[0].style.display,'block');
 });
 
@@ -151,4 +148,33 @@ test('viewport reducer: pointer-anchored zoom and Follow on/off are presentation
  assert.deepEqual([zoomed.start,zoomed.end],[15,25]);
  const off=updateViewport({start:10,end:30,follow:true},{type:'set-follow',value:false},context);assert.equal(off.follow,false);
  const on=updateViewport({start:60,end:80,follow:false},{type:'set-follow',value:true},context);assert.equal(on.follow,true);assert.ok(on.start<=15&&on.end>=15);
+});
+
+test('the navigator: dragging the middle of its window moves the view, dragging a grip zooms from that end, and neither seeks',()=>{
+ const {root}=nav({duration:100,viewport:{start:20,end:60,follow:false}});assert.ok(pick(root,'cassette')[0],'the navigator is a cassette');
+ const navigator=nav({duration:100,viewport:{start:20,end:60,follow:false}});
+ navigator.mounted.navigator.gesture.start('start',50,200);navigator.mounted.navigator.gesture.move(70);navigator.mounted.navigator.gesture.end();   // 200px = 100s: 20px = 10s
+ navigator.mounted.navigator.gesture.start('end',300,200);navigator.mounted.navigator.gesture.move(260);navigator.mounted.navigator.gesture.end();
+ assert.deepEqual(navigator.actions,[{type:'pan-to',start:30,end:60},{type:'pan-to',start:20,end:40}]);assert.deepEqual(navigator.seeks,[]);
+});
+
+test('ruler marks: evenly spaced times, or the bars that really start nearest those spots, labelled with their own numbers',()=>{
+ const times=rulerMarks('time',100,[],5);
+ assert.deepEqual(times.map(m=>m.text),['0:00','0:25','0:50','1:15','1:40']);assert.deepEqual(times.map(m=>m.at),[0,25,50,75,100]);
+ // a tempo change: bars 1-3 last 10s each, then the bars shorten to 5s each
+ const measures=[1,2,3].map((n,i)=>({number:n,start:i*10,end:i*10+10})).concat([4,5,6,7,8].map((n,i)=>({number:n,start:30+i*5,end:35+i*5})));
+ const bars=rulerMarks('bars',55,measures,3);
+ assert.deepEqual(bars.map(m=>m.text),['1','4','8'],'the middle spot (27.5s) is nearest bar 4, which starts at 30s, because the bars before it were longer');
+ assert.deepEqual(rulerMarks('bars',55,[{number:0,start:0,end:5},...measures],2).map(m=>m.text),['1','8'],'a bar before bar 1 is not labelled');
+ assert.deepEqual(rulerMarks('bars',10,[],4),[],'no measured bars, no bar labels');
+});
+
+test('the TIME / BARS switch changes the labels and nothing else',()=>{
+ const {root,actions,mounted}=nav({duration:16,viewport:{start:4,end:12,follow:false}});
+ const [timeButton,barsButton]=pick(root,'ruler-toggle')[0].children;
+ const text=()=>pick(root,'tick').map(n=>n.textContent);
+ const before=text();barsButton.onclick();const inBars=text();timeButton.onclick();
+ assert.ok(before.every(t=>/:/.test(t)),'times by default');assert.ok(inBars.every(t=>/^\d+$/.test(t)),'bar numbers after the switch');
+ assert.deepEqual(actions,[],'the viewport is untouched');
+ assert.equal(barsButton.attributes['aria-pressed'],'false');
 });

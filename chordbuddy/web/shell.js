@@ -1,4 +1,4 @@
-import {hydrateIcons} from './icons.js';
+import {hydrateIcons,icon} from './icons.js';
 import {prefs as remember} from './prefs.js';
 
 // Theme and folded panels are remembered with the library (see prefs.js), not in the browser.
@@ -17,6 +17,25 @@ function setTheme(name, save = true) {
   if (save) remember.set('cb-theme', name);
 }
 
+// Light or dark. Until you choose, the computer's own setting decides; a choice is remembered with the library.
+const dark = matchMedia?.('(prefers-color-scheme: dark)');
+function setScheme(choice, save = true) {
+  const scheme = choice === 'dark' || choice === 'light' ? choice : (dark?.matches ? 'dark' : 'light');
+  root.dataset.scheme = scheme;
+  const button = $('scheme-toggle');
+  if (button) {
+    button.innerHTML = icon(scheme === 'dark' ? 'sun' : 'moon');
+    button.dataset.tip = scheme === 'dark' ? 'Switch to the light look.' : 'Switch to the dark look.';
+    button.setAttribute('aria-pressed', String(scheme === 'dark'));
+  }
+  if (save) remember.set('cb-scheme', scheme);
+}
+dark?.addEventListener?.('change', () => { if (!['dark', 'light'].includes(remember.get('cb-scheme', 'auto'))) setScheme('auto', false); });
+// Printing (Export PDF) is always the light, paper look.
+let printedScheme = null;
+window.addEventListener('beforeprint', () => { printedScheme = root.dataset.scheme; root.dataset.scheme = 'light'; });
+window.addEventListener('afterprint', () => { if (printedScheme) root.dataset.scheme = printedScheme; printedScheme = null; });
+
 function setSide(open, save = true) {
   $('app').dataset.side = open ? 'open' : 'closed';
   $('side-open').classList.toggle('hidden', open);
@@ -34,6 +53,7 @@ hydrateIcons();
 const applyPrefs = () => {
   // Only a choice you make is saved; applying what was remembered (or the defaults) must never overwrite it.
   setTheme(remember.get('cb-theme', 'plum'), false);
+  setScheme(remember.get('cb-scheme', 'auto'), false);
   setSide(remember.get('cb-side', 'open') !== 'closed', false);
   setRack(remember.get('cb-rack', 'open') !== 'closed', false);
 };
@@ -42,12 +62,11 @@ remember.onLoad(applyPrefs);
 $('rack-toggle').onclick = () => setRack(false);
 $('rack-open').onclick = () => setRack(true);
 for (const button of document.querySelectorAll('[data-theme-pick]')) button.onclick = () => setTheme(button.dataset.themePick);
+$('scheme-toggle').onclick = () => setScheme(root.dataset.scheme === 'dark' ? 'light' : 'dark');
 $('side-toggle').onclick = () => setSide(false);
 $('side-open').onclick = () => setSide(true);
 
-// Export PDF prints only the chart page (see the @media print rules in shell.css). WebView2's print dialog offers "Save as PDF".
-// The app decides what to print (it opens the chart and Navigate mode first); this button only asks.
-$('export-pdf').onclick = () => document.dispatchEvent(new CustomEvent('chordbuddy:export-pdf'));
+// Everything in the Export menu is handled by the app, which knows what each view needs (see runExport in app.js).
 
 // Close the "more tools" menu when clicking elsewhere.
 document.addEventListener('click', event => {
@@ -55,4 +74,9 @@ document.addEventListener('click', event => {
 });
 
 // Generated rows (set lists, songs) ask for icons after they render.
-new MutationObserver(() => hydrateIcons()).observe(document.body, {childList: true, subtree: true});
+let hydrateQueued = false;
+new MutationObserver(mutations => {
+  if (hydrateQueued || !mutations.some(m => m.addedNodes.length)) return;
+  hydrateQueued = true;
+  requestAnimationFrame(() => { hydrateQueued = false; hydrateIcons(); });   // once per frame, and only when something was added
+}).observe(document.body, {childList: true, subtree: true});

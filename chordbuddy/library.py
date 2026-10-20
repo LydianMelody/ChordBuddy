@@ -25,13 +25,6 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def safe_title(title):
-    title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', title).strip(' .')[:80]
-    if not title or re.fullmatch(r'(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])', title):
-        title = 'Untitled'
-    return title
-
-
 def metadata_defaults():
     return {'timing': {'constant_tempo': False, 'bpm': None}, 'chord_overrides': []}
 
@@ -242,11 +235,15 @@ class Library:
 
         return self.song(song_id)
 
-    def rename_song(self,song_id,title):
+    def rename_song(self,song_id,title,artist=None):
         title = self.clean_name(title)
+        if artist is not None and not isinstance(artist,str):raise ValueError('Artist must be text')
+        # An empty artist is allowed (a song may have none); it is only trimmed and bounded like a name.
+        artist = ' '.join(artist.split())[:200] if artist is not None else None
         with self.transaction() as db:
             self.song(song_id)
             db.execute('UPDATE songs SET title=? WHERE id=?',(title,song_id))
+            if artist is not None:db.execute('UPDATE songs SET artist=? WHERE id=?',(artist,song_id))
         return self.song(song_id)
 
     # ---- Deleting a song: first to the Trash (hidden everywhere, files and history untouched, fully restorable),

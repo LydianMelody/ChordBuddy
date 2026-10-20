@@ -31,7 +31,7 @@
 .practice-section-track{position:absolute;left:0;right:0;top:26px;height:30px}
 .practice-section-block{position:absolute;top:0;height:28px;padding:0 2px;background:none;border:0;min-width:0}
 .practice-section-block{display:block;text-align:center;font:800 12px/24px var(--g);font-stretch:88%;text-transform:uppercase;letter-spacing:.03em;color:var(--ink);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;border:2px solid var(--ink);border-radius:7px;background:var(--tint);box-sizing:border-box;margin:0 1px}
-.practice-section-block[data-name="verse"]{background:var(--a3)}
+.practice-section-block[data-name="verse"]{background:var(--a3);color:var(--onA3)}
 .practice-section-block[data-name="chorus"]{background:var(--a1);color:var(--onA1)}
 .practice-section-block[data-name="interlude"],.practice-section-block[data-name="bridge"]{background:var(--a2);color:var(--onA2)}
 .practice-section-block:not(.current){filter:saturate(.55) brightness(1.06)}
@@ -62,29 +62,13 @@
 .practice-loop-clear:hover{background:rgba(255,255,255,.25)}
 
 /* pan / zoom strip */
-.practice-overview-row{display:flex;align-items:center;gap:6px;margin:0;height:auto}
-.practice-overview-row>button{min-width:0;min-height:0;width:28px;height:24px;padding:0;border:2px solid var(--ink);border-radius:7px;background:var(--page);font:800 13px/1 var(--g);display:grid;place-items:center}
-.practice-overview-row>button.practice-follow{width:auto;padding:0 8px;font:700 11px var(--m)}
-.practice-overview-row>button.on{background:var(--a2);color:var(--onA2)}
-.practice-overview-row>button:hover{background:var(--hl)}
-.practice-overview-row>button.on:hover{background:var(--a2)}
-.practice-overview{position:relative;flex:1;height:24px;margin:0;border:2px solid var(--ink);border-radius:999px;background:var(--desk);overflow:hidden;touch-action:none}
-.practice-overview-blocks{position:absolute;inset:0}
-.practice-overview-block{position:absolute;top:0;bottom:0;opacity:.45;background:var(--tint)}
-.practice-overview-block[data-name="verse"]{background:var(--a3)}
-.practice-overview-block[data-name="chorus"]{background:var(--a1)}
-.practice-overview-block[data-name="interlude"],.practice-overview-block[data-name="bridge"]{background:var(--a2)}
 .practice-overview-loop{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--violet) 45%,transparent);display:none}
 .practice-ov-head{position:absolute;top:0;bottom:0;width:2px;background:var(--gold)}
-.practice-visible-span{position:absolute;top:2px;bottom:2px;min-width:14px;border:2.5px solid var(--a2);border-radius:999px;background:color-mix(in srgb,var(--a2) 14%,transparent);cursor:grab}
-.practice-viewport-handle{position:absolute;top:2px;bottom:2px;width:6px;min-width:0;min-height:0;padding:0;border:0;border-radius:2px;background:var(--a2);color:transparent;font-size:0;cursor:ew-resize}
-.practice-viewport-handle.start{left:2px}.practice-viewport-handle.end{right:2px}
-.practice-span-label{font:700 10.5px var(--m);color:var(--soft);white-space:nowrap;min-width:140px;text-align:center}
 
 /* clock, pass, speed */
 .nav-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .clock{font:700 22px var(--m);letter-spacing:-.02em;white-space:nowrap}
-.pass{font:700 11px var(--m);color:var(--a1);min-height:15px}
+.pass{font:700 11px var(--m);color:var(--a1t);min-height:15px}
 .speed{display:flex;align-items:center;border:var(--bd) solid var(--ink);border-radius:999px;overflow:hidden;background:var(--page);box-shadow:2px 2px 0 var(--ink);height:42px}
 .speed button{width:30px;height:100%;padding:0;display:grid;place-items:center;font:800 18px/1 var(--g);background:none;min-width:0;min-height:0}
 .speed button:hover:not(:disabled){background:var(--hl)}
@@ -100,5 +84,5 @@
 .nav-lock .ic{width:14px}
 .player:has(.nav-lock:not(.hidden)) .nav-grid{opacity:.45;pointer-events:none;filter:grayscale(.6)}
 
-@media (max-width:1100px){.nav-grid{grid-template-columns:210px minmax(0,1fr) 140px;gap:12px}.practice-span-label{min-width:0}}
+@media (max-width:1100px){.nav-grid{grid-template-columns:210px minmax(0,1fr) 140px;gap:12px}}
 @media (max-width:900px){.player{margin:0 -14px;padding:10px 14px}.nav-grid{grid-template-columns:1fr}.nav-right{flex-direction:row;align-items:center;justify-content:space-between}}

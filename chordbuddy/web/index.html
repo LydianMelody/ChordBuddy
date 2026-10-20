@@ -6,12 +6,17 @@
   <title>Chord Buddy</title>
   <link rel="stylesheet" href="/fonts/fonts.css">
   <link rel="stylesheet" href="/press-room.base.css">
+  <link rel="stylesheet" href="/dark.css">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/lead-sheet.css">
   <link rel="stylesheet" href="/settings.css">
   <link rel="stylesheet" href="/shell.css">
   <link rel="stylesheet" href="/nav-bar.css">
+  <link rel="stylesheet" href="/cassette.css">
   <link rel="stylesheet" href="/chart-page.css">
+  <link rel="stylesheet" href="/chart-tools.css">
+  <link rel="stylesheet" href="/song-setup.css">
+  <link rel="stylesheet" href="/midi-view.css">
   <script defer src="/vendor/abcjs-basic-min.js"></script>
   <script type="module" src="/shell.js"></script>
   <script type="module" src="/app.js"></script>
@@ -20,7 +25,7 @@
   <div class="app" id="app">
     <aside class="side" id="side">
       <div class="side-top">
-        <div class="brand"><div class="mark">♮</div><b>Chord<br>Buddy</b></div>
+        <div class="brand"><div class="mark" aria-hidden="true">♮</div><h1>Chord<br>Buddy</h1></div>
         <button id="side-toggle" class="fold" title="Hide the library" aria-label="Hide the library" aria-expanded="true"><span data-icon="chevronLeft"></span></button>
       </div>
       <div class="side-body">
@@ -38,19 +43,21 @@
 
     <main class="main">
       <header class="top">
-        <div class="top-left">
-          <span class="eyebrow" id="page-title">Song library</span>
-          <section id="song-controls" class="song-controls hidden" aria-label="Song settings">
-            <div class="title-field"><label for="song-title" class="sr">Song title</label><input id="song-title" maxlength="200" placeholder="Song title"><small id="song-meta"></small></div>
-            <div class="chips" id="chips"></div>
-          </section>
-        </div>
+        <section id="song-controls" class="song-controls hidden" aria-label="Song settings">
+          <div class="chips" id="chips"></div>
+        </section>
         <div class="top-right">
         <div id="song-actions" class="actions hidden">
           <details class="more" id="more-menu"><summary class="btn sq" title="More tools" aria-label="More tools"><span data-icon="more"></span></summary><div class="more-pop" id="more-tools"><button id="transcription-history" class="text-button" disabled>Previous transcriptions</button><button id="delete-song" class="text-button" type="button">Delete song…</button><button id="song-timing" class="secondary hidden" title="Adjust this song's timing">Song timing</button></div></details>
           <button id="song-folder" class="btn sq" title="Open song folder" aria-label="Open song folder"><span data-icon="folder"></span></button>
           <button id="transcribe" class="btn" title="Analyze this song"><span data-icon="sparkle"></span><em>Analyze song</em></button>
-          <button id="export-pdf" class="btn blue" title="Export the chart as a PDF"><span data-icon="printer"></span>Export PDF</button>
+          <details class="more export-menu" id="export-menu"><summary class="btn blue" id="export-button" title="Save or export this song" aria-label="Export"><span data-icon="download"></span>Export</summary><div class="more-pop" id="export-pop">
+            <button type="button" class="text-button" data-export="pdf-chart">Chord chart · PDF</button>
+            <button type="button" class="text-button" data-export="pdf-lead">Lead sheet · PDF</button>
+            <button type="button" class="text-button" data-export="midi">MIDI · one file, all tracks</button>
+            <button type="button" class="text-button" data-export="midi-tracks">MIDI · one file per track (zip)</button>
+            <button type="button" class="text-button" data-export="outputs" title="Everything SheetSage wrote for this song: beats, chords, melody, tokens and more">All SheetSage outputs (zip)</button>
+          </div></details>
         </div>
         <div class="actions actions-global">
           <div class="themes" id="themes" title="Ink colours">
@@ -58,8 +65,8 @@
             <button data-theme-pick="forest" style="--c1:#E8743B;--c2:#1F5C46" title="Persimmon &amp; Forest" aria-label="Persimmon and Forest"></button>
             <button data-theme-pick="plum" style="--c1:#E2466B;--c2:#4A2F86" title="Rose &amp; Plum" aria-label="Rose and Plum"></button>
           </div>
+          <button id="scheme-toggle" class="btn sq" type="button" aria-label="Switch between light and dark" data-tip-title="Light or dark" data-tip="Switch between the light and the dark look."><span data-icon="moon"></span></button>
           <button id="model-attribution" class="btn sq" title="Model &amp; attribution" aria-label="Model and attribution"><span data-icon="note"></span></button>
-          <button id="settings-button" class="btn sq" title="Settings" aria-label="Settings"><span data-icon="gear"></span></button>
           <button id="import-button" class="btn hot"><span data-icon="plus"></span><em>Import MP3</em></button>
         </div>
         </div>
@@ -83,34 +90,41 @@
       <section id="workspace" class="workspace hidden">
         <div class="toolbar">
           <div id="document-tabs" class="document-tabs tabs" role="tablist" aria-label="Transcription outputs"></div>
-          <div class="modes" id="modes" role="radiogroup" aria-label="Chart mode">
-            <button class="mode" type="button" data-m="nav" role="radio" title="Navigate (N)"><span data-icon="pointer"></span>Navigate <kbd>N</kbd></button>
-            <button class="mode" type="button" data-m="edit" role="radio" title="Edit (E)"><span data-icon="pencil"></span>Edit <kbd>E</kbd></button>
-            <button class="mode" type="button" data-m="timing" role="radio" title="Timing (T)"><span data-icon="metronome"></span>Timing <kbd>T</kbd></button>
+            <div class="tool-options" id="tool-options">
+            <div class="tool-note" id="tool-note" role="status"></div>
+            <div class="opt opt-timing"><span data-icon="magnet"></span>Snap <div class="seg" id="snap"></div> Zoom <div class="seg zoomseg"><button type="button" id="tz-out" title="Zoom out (−)">−</button><b id="tz-label">2×</b><button type="button" id="tz-in" title="Zoom in (+)">+</button></div> <label class="suggest-toggle" id="suggest-wrap" title="Unpinned words are placed on the vocal melody's notes as a rough guess. Drag a word to pin it."><input type="checkbox" id="suggest" checked> Guess from melody</label> <button type="button" id="timing-settings" class="secondary" title="Tempo and beat grid for this song">Timing settings</button> <button type="button" id="rhythm-tool" class="secondary" title="Use the drums to correct the beat grid">Rhythm</button></div>
+            <div class="opt opt-edit">Apply to <div class="seg" id="scope"><button type="button" class="on" data-scope="occurrence">This pass</button><button type="button" data-scope="all-matching">All matching</button></div></div>
           </div>
-          <span class="hint-wrap"><button type="button" id="hint-toggle" class="info-dot" aria-label="What does this mode do?" aria-expanded="false" title="What does this mode do?">?</button>
-          <div class="mode-hint" id="mode-hint" role="note">
-            <span data-h="nav"><b>Navigate:</b> click any chord, word or section to jump there. Drag across the waveform to set a loop.</span>
-            <span data-h="edit"><b>Edit:</b> click a chord to change it. Click under the chords and type the words. <b>+</b> adds a chord. Click a pass number to choose which pass you are fixing.</span>
-            <span data-h="timing"><b>Timing:</b> drag any word to a beat. Words between pinned words spread out on their own. Click a pin to release it.</span>
-          </div></span>
-          <div class="opt opt-timing"><span data-icon="magnet"></span>Snap <div class="seg" id="snap"></div> Zoom <div class="seg zoomseg"><button type="button" id="tz-out" title="Zoom out (−)">−</button><b id="tz-label">2×</b><button type="button" id="tz-in" title="Zoom in (+)">+</button></div> <label class="suggest-toggle" id="suggest-wrap" title="Unpinned words are placed on the vocal melody's notes as a rough guess. Drag a word to pin it."><input type="checkbox" id="suggest" checked> Guess from melody</label> <button type="button" id="timing-settings" class="secondary" title="Tempo and beat grid for this song">Timing settings</button> <button type="button" id="rhythm-tool" class="secondary" title="Use the drums to correct the beat grid">Rhythm</button></div>
-          <div class="opt opt-edit">Apply to <div class="seg" id="scope"><button type="button" class="on" data-scope="occurrence">This pass</button><button type="button" data-scope="all-matching">All matching</button></div></div>
-          <div class="hist history-actions"><button type="button" id="confidence-info" class="info-dot hidden" aria-label="About the confidence colours">i</button><span id="save-status" class="saved" role="status">Saved</span><button id="undo" class="secondary" disabled title="Undo"><span data-icon="undo"></span><em>Undo</em></button><button id="redo" class="secondary" disabled title="Redo"><span data-icon="redo"></span><em>Redo</em></button><button id="restore" class="text-button" disabled>Restore original</button><a id="download" class="secondary disabled" title="Download this output"><span data-icon="download"></span><em>Download</em></a></div>
+          <div class="hist history-actions"><button type="button" id="confidence-info" class="info-dot hidden" aria-label="About the confidence colours">i</button><span id="save-status" class="saved" role="status">Saved</span><button id="undo" class="secondary" disabled aria-label="Undo" data-tip-title="Undo" data-tip="Undo the last change."><span data-icon="undo"></span></button><button id="redo" class="secondary" disabled aria-label="Redo" data-tip-title="Redo" data-tip="Put back what you just undid."><span data-icon="redo"></span></button><button id="restore" class="secondary" disabled aria-label="Restore original" data-tip-title="Restore original" data-tip="Go back to the chart exactly as Chord Buddy first made it. Undo can still bring your edits back."><span data-icon="restore"></span></button><a id="download" class="secondary disabled" aria-label="Download this output" data-tip-title="Download" data-tip="Download this output as a file."><span data-icon="download"></span></a></div>
         </div>
         <p id="confidence-notice" class="confidence-notice"></p>
+        <div class="stage">
+        <nav id="tool-rail" class="tool-rail" aria-label="Chart tools"></nav>
         <div class="desk" id="desk">
           <div id="document-empty" class="document-empty"><span>♩</span><h2>Your transcription will live here.</h2><p>Review the song title and press Analyze.<br>First-time model setup may take a little longer.</p></div>
           <div id="chart-editor" class="hidden">
             <article class="page" id="page">
-              <div class="jhead"><div class="spine" id="page-spine">Chord chart</div><div class="jt"><h2 id="page-song">&nbsp;</h2><p id="page-sub"></p></div><div class="meter-box" id="meter-box" hidden></div></div>
+              <div class="jhead"><div class="spine" id="page-spine">Chart</div><div class="jt"><h2 id="page-song" class="jtitle" contenteditable="plaintext-only" spellcheck="false" role="textbox" aria-label="Song title" data-placeholder="Song title" data-tip-title="Rename the song" data-tip="Click the title to rename the song."></h2><input id="song-title" maxlength="200" hidden tabindex="-1"><p id="page-sub"></p></div><div class="meter-box" id="meter-box" hidden></div></div>
               <div class="chartbody"><div id="chart-sections" class="practice-chart"></div></div>
             </article>
           </div>
-          <div id="abc-editor" class="hidden"><div class="score-heading"><span class="eyebrow">LEAD SHEET</span><button id="toggle-abc" class="text-button">Edit ABC notation</button></div><details><summary>Edit chord labels</summary><div id="chord-strip" class="chord-strip" aria-label="Edit chord labels"></div></details><form id="chord-form" class="chord-form hidden"><label for="chord-label">Chord label</label><input id="chord-label" maxlength="80" autocomplete="off"><button class="primary small-button">Apply</button><button type="button" id="close-chord" class="text-button">Cancel</button><small>Changes this lead sheet’s label; timing stays attached.</small></form><div id="score" class="score"></div><div id="abc-source-panel" class="source-panel hidden"><label for="abc-source">ABC NOTATION</label><textarea id="abc-source" spellcheck="false" aria-label="ABC notation"></textarea><button id="apply-abc" class="primary small-button">Save notation</button><small>Direct notation edits update chord labels by token order. Added or removed chord tokens cannot inherit timing.</small></div></div>
-          <div id="midi-editor" class="hidden"><div class="score-heading"><span class="eyebrow">MIDI NOTE EDITOR</span><span class="hint">Select a note to edit it</span></div><div class="timeline-controls"><label>Track <select id="midi-track"></select></label><label>Zoom <input id="midi-zoom" type="range" min="24" max="160" value="56"></label><button id="add-note" class="secondary">+ Add note</button></div><div id="timeline-scroll" class="timeline-scroll"><div id="timeline" class="timeline" aria-label="MIDI note timeline"></div></div><form id="note-form" class="note-form"><span id="selected-note" class="hint">Select a note on the timeline</span><label>Pitch <input id="note-pitch" type="number" min="0" max="127" step="1" required></label><label>Start (s) <input id="note-start" type="number" min="0" step="0.01" required></label><label>End (s) <input id="note-end" type="number" min="0" step="0.01" required></label><label>Velocity <input id="note-velocity" type="number" min="1" max="127" step="1" required></label><button id="apply-note" class="primary small-button" disabled>Apply</button><button id="delete-note" type="button" class="text-button" disabled>Delete</button></form></div>
-          <div id="text-editor" class="source-panel hidden"><label for="text-source">TEXT OUTPUT</label><textarea id="text-source" spellcheck="false"></textarea><button id="apply-text" class="primary small-button">Save text</button></div>
+          <div id="abc-editor" class="hidden">
+            <article class="page score-page" id="score-page">
+              <div class="jhead"><div class="spine">Lead</div><div class="jt"><h2 id="score-title" class="jtitle" contenteditable="plaintext-only" spellcheck="false" role="textbox" aria-label="Song title" data-placeholder="Song title"></h2><p id="score-sub"></p></div><div class="meter-box" id="score-meter" hidden></div></div>
+              <div class="scorebody"><div id="score" class="score"></div></div>
+            </article>
+            <div id="chord-strip" hidden></div>
+          </div>
+          <div id="midi-editor" class="hidden">
+            <article class="page midi-page" id="midi-page">
+              <div class="jhead"><div class="spine">MIDI</div><div class="jt"><h2 id="midi-title" class="jtitle" contenteditable="plaintext-only" spellcheck="false" role="textbox" aria-label="Song title" data-placeholder="Song title"></h2><p id="midi-sub"></p></div></div>
+              <div class="midibody"><div id="roll" class="roll"></div></div>
+            </article>
+          </div>
         </div>
+        </div>
+        <div class="tool-status" id="tool-status" role="status"></div>
+        <div class="zoom-pill" id="zoom-pill" role="status" title="Click to go back to 100%"></div>
       </section>
       <button id="rack-open" class="fold fold-open-right" title="Show the mixer" aria-label="Show the mixer"><span data-icon="chevronLeft"></span></button>
       <aside id="rack" class="rack" aria-label="Mixer">

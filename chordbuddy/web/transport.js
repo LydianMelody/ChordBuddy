@@ -1,7 +1,7 @@
 import {defaultMix,PcmMixer} from './pcm-mixer-core.js';
 import {createPcmSession} from './pcm-session.js';
 const noLoop=()=>({enabled:false,start:null,end:null,implicit:false});
-const initialState=songId=>({songId,runId:null,ready:false,readiness:'Analyze this song to enable playback.',mode:'stems',seconds:0,duration:0,playing:false,playIntent:false,buffering:false,error:null,mix:defaultMix(),loop:noLoop(),rate:100,levels:null});
+const initialState=songId=>({songId,runId:null,ready:false,readiness:'Analyze this song to enable playback.',mode:'stems',stems:true,sourceRunId:null,seconds:0,duration:0,playing:false,playIntent:false,buffering:false,error:null,mix:defaultMix(),loop:noLoop(),rate:100,levels:null});
 export class Transport{
  constructor({audio,token,createPcm=createPcmSession}){
   this.audio=audio;this.token=token;this.factory=createPcm;this.listeners=new Set();this.serial=0;this.pcm=null;this.active=false;this.separation=null;this.sessionEpoch=null;
@@ -35,6 +35,8 @@ export class Transport{
    this.blockPlayback('Loading completed analysis.');this.separation=manifest;
   }
   this.state.duration=manifest.frames/44100;this.state.seconds=Math.min(this.state.seconds,this.state.duration);
+  // A song analyzed without splitting its stems plays its recording; the mixer waits until the stems are split.
+  this.state.stems=manifest.stems!==false;this.state.sourceRunId=manifest.run_id;
   this.state.ready=true;this.state.readiness=value.reason||'Analysis ready.';this.emit();
  }
  failPlayback(error,seconds=this.state.seconds){
@@ -114,7 +116,7 @@ export class Transport{
    await this.pcm.prime(manifest,Math.min(manifest.frames,Math.floor(seconds*44100)),this.loopFrames(manifest));
    if(serial!==this.serial)return;
    this.currentManifest=manifest;this.active=true;this.state.runId=manifest.run_id;this.state.duration=manifest.frames/44100;this.state.seconds=Math.min(seconds,this.state.duration);
-   this.state.buffering=false;this.priming=false;this.pendingManifest=null;this.pcm.mix(this.state.mix);this.pcm.mode('stems');this.pcm.rate?.(this.state.rate/100);
+   this.state.buffering=false;this.priming=false;this.pendingManifest=null;this.pcm.mix(this.state.mix);this.pcm.mode(manifest.stems===false?'original':'stems');this.pcm.rate?.(this.state.rate/100);
    const pcm=this.pcm;await pcm.resume();
    if(serial!==this.serial||pcm!==this.pcm)return;
    pcm.play(this.state.playIntent);this.emit();

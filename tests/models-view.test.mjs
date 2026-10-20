@@ -19,6 +19,8 @@ test('sizes read like a person would say them', () => {
 test('the panel appears only while models are missing, shows each license, and downloading needs the box ticked', () => {
   const {root,calls,panel}=setup();
   panel.update(status([model('base'),model('guitar')]));
+  assert.equal(root.className.includes('hidden'),true,'the models are only needed for stems, so nothing is asked until then');
+  panel.want();
   assert.equal(root.className.includes('hidden'),false);
   assert.match(root.textContent,/Base model/);assert.match(root.textContent,/License: unconfirmed/);assert.match(root.textContent,/2\.0 GB/);
   const download=byId(root,'models-download'),ack=byId(root,'models-ack');

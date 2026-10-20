@@ -2,17 +2,17 @@
 .chart-flow{display:block}
 .chart-notices:empty{display:none}
 .chart-notice{margin:6px 0;padding:6px 10px;border:2px dashed var(--ink);border-radius:8px;background:var(--hl);font:700 12px var(--m)}
-.chart-message{min-height:0;margin:4px 0;font:700 12px var(--m);color:var(--a1)}
+.chart-message{min-height:0;margin:4px 0;font:700 12px var(--m);color:var(--a1t)}
 .chart-message:empty{display:none}
 
 /* ---------- sections ---------- */
 .sec{position:relative;padding:18px 0 10px}
 .sec-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
 .sec-num{position:absolute;left:-58px;top:22px;width:36px;text-align:right;font:700 13px var(--m);color:var(--faint)}
-.sec.now .sec-num{color:var(--a1)}
+.sec.now .sec-num{color:var(--ink)}
 .sec.now .sec-num::before{content:'▶ ';font-size:10px}
 .sec-name{margin:0;font:800 15px/1 var(--g);font-stretch:85%;text-transform:uppercase;letter-spacing:.04em;padding:5px 11px 4px;border:2px solid var(--ink);border-radius:6px;background:var(--tint);box-shadow:2px 2px 0 var(--ink);transform:rotate(-1.2deg);outline:0}
-.sec[data-name="verse"] .sec-name{background:var(--a3)}
+.sec[data-name="verse"] .sec-name{background:var(--a3);color:var(--onA3)}
 .sec[data-name="chorus"] .sec-name{background:var(--a1);color:var(--onA1)}
 .sec[data-name="interlude"] .sec-name,.sec[data-name="bridge"] .sec-name{background:var(--a2);color:var(--onA2)}
 .sec-time{font:400 11px var(--m);color:var(--faint)}
@@ -61,7 +61,7 @@
 .chord-input{font:800 25px/1 var(--g);font-stretch:86%;width:3.4em;min-width:2.2em;padding:2px 6px;margin:0 0 5px -6px;border:2.5px solid var(--ink);border-radius:6px;background:var(--hl);color:var(--ink);box-shadow:2px 2px 0 var(--ink);outline:0}
 .add-chord{position:absolute;right:-21px;top:5px;z-index:2;width:22px;height:22px;margin:0;padding:0;background:var(--page);border:2px dashed var(--a1);border-radius:50%;color:var(--a1);font:800 16px/1 var(--g);display:grid;place-items:center;opacity:.35;min-width:0;min-height:0}
 .add-chord:hover{opacity:1;background:var(--a1);color:var(--onA1);border-style:solid}
-.add-lyrics{align-self:center;margin:12px 0 0 12px;padding:4px 10px;border:2px dashed var(--a1);border-radius:999px;font:700 11px var(--m);color:var(--a1);background:none}
+.add-lyrics{align-self:center;margin:12px 0 0 12px;padding:4px 10px;border:2px dashed var(--a1);border-radius:999px;font:700 11px var(--m);color:var(--a1t);background:none}
 .add-lyrics:hover{background:var(--a1);color:var(--onA1)}
 .pass-pick{display:flex;gap:4px;margin:0 0 -4px;align-items:center}
 .pass-pick::before{content:'edit pass';font:700 10px var(--m);color:var(--faint);margin-right:2px}
@@ -113,20 +113,6 @@
 .lane-edit .lyr{display:block;flex:1 1 auto;min-width:12em;white-space:pre-wrap;padding:1px 4px}
 .lane-edit .add-lyrics{margin:0}
 
-/* ---------- Edit: split and join sections ---------- */
-.split-gap{display:flex;align-items:center;height:14px;margin:-8px 0 2px;position:relative}
-.split-gap::before{content:'';position:absolute;left:0;right:0;top:50%;border-top:2px dashed transparent}
-.split-gap:hover::before,.split-gap:focus-within::before{border-top-color:var(--a1)}
-.split-here{min-width:0;min-height:0;padding:2px 10px;border:2px dashed var(--a1);border-radius:999px;background:var(--page);color:var(--a1);font:700 11px var(--m);opacity:0;position:relative;z-index:1}
-.split-gap:hover .split-here,.split-here:focus-visible{opacity:1}
-.split-here:hover{background:var(--a1);color:var(--onA1);border-style:solid}
-.split-here.in-bar{position:absolute;right:2px;top:-13px;left:auto;padding:0;width:18px;height:18px;min-width:18px;border-radius:50%;display:grid;place-items:center;font-size:11px;z-index:3}
-.bar:hover .split-here.in-bar{opacity:.55}
-.bar .split-here.in-bar:hover,.bar .split-here.in-bar:focus-visible{opacity:1}
-.join-prev{min-width:0;min-height:0;margin-left:auto;padding:2px 10px;border:2px solid var(--faint);border-radius:999px;background:none;color:var(--soft);font:700 11px var(--m);opacity:.0}
-.sec-head:hover .join-prev,.join-prev:focus-visible{opacity:1}
-.join-prev:hover{border-color:var(--ink);background:var(--hl);color:var(--ink)}
-
 /* ---------- Timing: words placed by the melody guess (not pinned yet) ---------- */
 .wchip.guess{border-style:dashed;background:color-mix(in srgb,var(--a3) 22%,var(--page))}
 
@@ -143,13 +129,14 @@
 .bar.rep-start,.bar.rep-end{position:relative}
 .bar.rep-start{border-left-width:6px;padding-left:36px}
 .bar.rep-end{border-right:6px solid var(--ink);padding-right:36px}
-.bar.rep-start::before,.bar.rep-end::after{content:'';position:absolute;top:0;bottom:0;width:22px;pointer-events:none;
-  background:
-    linear-gradient(var(--ink),var(--ink)) 0 0/2px 100% no-repeat,
-    radial-gradient(circle 3.2px at 15px 38%,var(--ink) 96%,transparent) 0 0/100% 100% no-repeat,
-    radial-gradient(circle 3.2px at 15px 62%,var(--ink) 96%,transparent) 0 0/100% 100% no-repeat}
-.bar.rep-start::before{left:5px}
-.bar.rep-end::after{right:5px;transform:scaleX(-1)}
+.rep-sign{position:absolute;top:0;bottom:0;width:22px;pointer-events:none}
+.rep-sign.start{left:5px;border-left:2px solid var(--ink)}
+.rep-sign.end{right:5px;border-right:2px solid var(--ink)}
+.rep-dot{position:absolute;width:6.4px;height:6.4px;margin:-3.2px 0 0;border-radius:50%;background:var(--ink)}
+.rep-sign.start .rep-dot{left:9px}
+.rep-sign.end .rep-dot{right:9px}
+.rep-dot.a{top:38%}
+.rep-dot.b{top:62%}
 
 /* a bar shorter or longer than the usual one: an informal note */
 .bar-meter.odd{background:var(--page);border-style:dashed;font-weight:700;color:var(--ink)}
@@ -172,12 +159,11 @@
 .repeat-fold-option.current{opacity:.55;cursor:default}
 
 /* ---------- Edit: fixing repeats by hand ---------- */
-.fix-toggle{margin:4px 6px 4px 0}
-.fix-panel{position:sticky;top:0;z-index:8;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 8px;padding:8px 12px;border:2px solid var(--ink);border-radius:10px;background:var(--hl);box-shadow:3px 3px 0 var(--ink)}
-.fix-line{margin:0;font:700 13px/1.3 var(--m)}
-.fix-choices{display:flex;flex-wrap:wrap;gap:6px}
-.fix-choice{min-height:0;padding:5px 10px;border:2px solid var(--ink);border-radius:8px;background:var(--page);font:800 13px/1 var(--m);cursor:pointer}
-.fix-choice.plain{font-weight:600}
-.fix-choice:hover{background:var(--a1);color:#fff}
 .bar-no.pickable{cursor:pointer;text-decoration:underline;outline:1.5px dashed var(--a1);outline-offset:1px;border-radius:3px}
 .bar.rt-sel{background:color-mix(in srgb,var(--hl) 70%,transparent);box-shadow:inset 0 0 0 2px var(--a1)}
+
+/* a break in the music: an empty, quiet space where a chord would be (still clickable, so a chord can be written there) */
+.chord.rest{min-width:30px;min-height:28px;background:none}
+[data-tool="write"] .chord.rest{border:2px dashed var(--line);border-radius:6px}
+[data-tool="write"] .chord.rest:hover{border-color:var(--ink)}
+@media print{.chord.rest{border:0!important}}

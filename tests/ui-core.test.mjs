@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activeChord, replaceAbcChord, validateNote, editChordContent, isJobActive, abcChordTokens, validateChart, reassignChartChords, splitChartSection, mergeChartSection, displayChordLabel, editChartSection, editChartChord, addChartChord, settleHistoryResult, startChordAtMeasure } from '../chordbuddy/web/editor.js';
+import { activeChord, replaceAbcChord, editChordContent, isJobActive, abcChordTokens, validateChart, reassignChartChords, splitChartSection, mergeChartSection, displayChordLabel, editChartSection, editChartChord, addChartChord, settleHistoryResult, startChordAtMeasure } from '../chordbuddy/web/editor.js';
 
 test('chord replacement keeps notes, lyric quotes, and other chord tokens intact', () => {
   const abc = 'X:1\nT:Song\nK:C\n"C"C2 "G7"G2 |\nw: hello world';
@@ -19,14 +19,6 @@ test('playback chord has inclusive start and exclusive end', () => {
   assert.equal(activeChord(chords, 4), null);
   assert.equal(activeChord(chords, -1), null);
 });
-test('note validation catches invalid MIDI and preserves valid values', () => {
-  const note = {id:'n',pitch:60,start:0,end:1,velocity:100,track:0};
-  assert.equal(validateNote(note), null);
-  for (const changed of [{pitch:128},{pitch:60.5},{start:-1},{end:0},{velocity:0},{velocity:128},{start:NaN},{track:-1}]) {
-    assert.ok(validateNote({...note,...changed}));
-  }
-});
-
 test('editing one chord updates subsequent associations and leaves timing independent', () => {
   const content = {abc:'"C"C2 "G"G2',chords:[
     {id:'a',start:0,end:2,label:'C',abc_index:0},

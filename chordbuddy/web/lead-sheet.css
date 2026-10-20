@@ -1,17 +1,75 @@
-.lead-sheet{width:100%;color:var(--ink,#183b32)}
-.lead-notation{position:relative}.lead-inline-editor{position:absolute;z-index:3;left:1rem;top:.5rem;width:min(240px,calc(100% - 2rem));padding:.45rem .6rem;border:2px solid #527c42;border-radius:6px;background:#fffef8;box-shadow:0 4px 14px #24352730}.abcjs-note.current-beat{filter:drop-shadow(0 0 4px #b08318)}.abcjs-note.current-measure{opacity:.92}.lead-notation .abcjs-chord{transition:opacity .15s ease}
-.lead-controls{display:flex;align-items:center;flex-wrap:wrap;gap:.6rem;margin:.5rem 0 1rem}.lead-controls label{display:flex;align-items:center;gap:.35rem;font-size:.85rem}.lead-controls select{max-width:19rem}.lead-help{font-size:.85rem;color:var(--muted,#61736a);line-height:1.5}.lead-notation{overflow-x:auto;background:#fffdf5;border-radius:10px;padding:.5rem}.lead-notation>div{min-width:640px}.lead-lyrics{margin-top:1rem;background:#f3f5e9;border:1px solid #d5dfc9;border-radius:10px;padding:1rem}.lead-lyrics summary{cursor:pointer;font-weight:650;margin-bottom:.75rem}.lead-lyrics textarea{display:block;width:100%;box-sizing:border-box;resize:vertical;margin-top:.75rem}.lead-tray,.lead-anchors{display:flex;gap:.45rem;flex-wrap:wrap;margin:.65rem 0 1rem}.lead-tray button,.lead-anchor button{padding:.4rem .7rem;background:#fffdf5;border:1px solid #bbccb5;border-radius:6px;color:#244b3d}.lead-tray button.selected,.lead-anchor button.selected{background:#28553f;color:white}.lead-anchor{display:inline-flex;gap:2px}.lead-lyrics button:focus-visible,.lead-controls select:focus-visible{outline:3px solid #527c42;outline-offset:2px}
+/* The lead sheet: a paper page like the chord chart's, with the score engraved in the ink colour, a tool rail down the left side
+   (see tool-rail.js and chart-tools.css) and every control in the same Press Room look. */
+.score-page{max-width:880px}
+.scorebody{padding:6px 18px 30px}
+/* the page is the paper; its holder is not a second one */
+#workspace #abc-editor{max-width:880px;margin:0 auto;padding:0;border:0;border-radius:0;background:none;box-shadow:none}
+.lead-sheet{width:100%;color:var(--ink)}
+.lead-notation{position:relative;overflow:visible;background:none;padding:0}
+.lead-notation>div{min-width:0}
+.lead-notation svg{display:block;width:100%;height:auto;overflow:visible}
+.lead-notation .abcjs-chord{transition:opacity .15s ease}
+.abcjs-note.current-beat{filter:drop-shadow(0 0 4px var(--hl))}
+.abcjs-note.current-measure{opacity:.92}
+
+/* staves: the lines a touch firmer so they read on the page, section names as tags like the chart's */
+.lead-notation .abcjs-staff path,.lead-notation path.abcjs-top-line,.lead-notation path.abcjs-bar{stroke:var(--ink)}
+.lead-notation .abcjs-staff path{stroke-width:.9}
+.lead-section-tag{stroke:var(--ink);stroke-width:1.8px}
+.lead-section-name{font-weight:800;letter-spacing:.05em;text-transform:uppercase}
+
+/* a frozen copy (sent to another editor) */
+.lead-banner{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;margin:6px 0 12px;padding:8px 14px;border:2px solid var(--ink);border-radius:12px;background:var(--hl);color:#1A1C24;box-shadow:3px 3px 0 var(--ink);font:700 12.5px/1.45 var(--m)}
+.lead-banner[hidden]{display:none}
+.lead-banner strong{font:800 14px var(--g);font-stretch:85%;text-transform:uppercase;letter-spacing:.05em}
+
+/* selecting a note */
+.lead-selbox{position:absolute;z-index:2;pointer-events:none;border:2.5px dashed var(--a1);border-radius:10px;background:color-mix(in srgb,var(--hl) 38%,transparent);transition:left .08s,top .08s}
+.abcjs-note.lead-sel{fill:var(--a1);stroke:var(--a1)}
+.lead-notation[data-tip]{cursor:default}
+[data-tool="select"] .lead-notation .abcjs-note{cursor:pointer}
+[data-tool="chords"] .lead-notation .abcjs-chord{cursor:text}
+
+/* the note beside the rail: selected note, its buttons, the line settings */
+
+.lead-selected{font:800 12.5px var(--m);margin-right:4px}
+.lead-label{font:700 11px var(--m);text-transform:uppercase;letter-spacing:.08em}
+.lead-btn{min-width:0;min-height:0;padding:4px 10px;border:2px solid var(--ink);border-radius:9px;background:var(--page);color:var(--ink);font:800 12.5px/1 var(--m);box-shadow:2px 2px 0 var(--ink);cursor:pointer}
+.lead-btn.icon{padding:4px 0;width:30px;font-size:15px}
+.lead-btn:hover{background:var(--a1);color:var(--onA1);transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--ink)}
+.lead-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink)}
+.lead-btn.link{padding:0;border:0;background:none;box-shadow:none;color:var(--ink);font-weight:700;font-size:11.5px;text-decoration:underline;text-underline-offset:3px;opacity:.8}
+.lead-btn.link:hover{background:none;color:var(--ink);transform:none;opacity:1}
+.lead-check{display:inline-flex;align-items:center;gap:4px;font:700 12px var(--m)}
+.tool-controls .seg button.on{background:var(--a1);color:var(--onA1)}
+
+/* line breaks: a chip on the end of each bar */
+.lead-break{position:absolute;z-index:6;width:26px;height:26px;margin-left:-13px;padding:0;border:2px solid var(--ink);border-radius:50%;background:var(--page);color:var(--ink);display:grid;place-items:center;box-shadow:2px 2px 0 var(--ink);opacity:.5;cursor:pointer;transition:opacity .12s,transform .12s}
+.lead-break .tool-ic{width:17px;height:17px}
+.lead-break:hover:not(:disabled){opacity:1;transform:translateY(-1px)}
+.lead-break.on{background:var(--hl);color:#1A1C24;opacity:1}
+.lead-break.auto{border-style:dashed;box-shadow:none;cursor:default;opacity:.75}
 
 /* Typing lyrics under the staves (the words are the chart's; see lead-lyric-editor.js) */
-.lead-run{position:absolute;z-index:4;display:block;box-sizing:border-box;padding:1px 4px;font:13px/18px var(--type,Georgia,serif);white-space:nowrap;color:transparent;caret-color:var(--ink,#183b32);cursor:text;border-radius:4px;outline:0}
-.lead-run:hover{background:color-mix(in srgb,var(--hl,#ffd84a) 40%,transparent)}
-.lead-run.empty:hover::before{content:attr(data-placeholder);color:var(--faint,#8a8a8a);font-style:italic}
-.lead-run.editing{color:var(--ink,#183b32);background:var(--page,#fff);border:2px solid var(--ink,#183b32);box-shadow:3px 3px 0 var(--ink,#183b32);z-index:6;min-width:240px;padding:2px 8px}
+.lead-run{position:absolute;z-index:4;display:block;box-sizing:border-box;padding:1px 4px;font:13.5px/18px var(--type,Georgia,serif);white-space:nowrap;color:transparent;caret-color:var(--ink);cursor:text;border-radius:4px;outline:0}
+.lead-run:hover{background:color-mix(in srgb,var(--hl) 40%,transparent)}
+.lead-run.empty{box-shadow:inset 0 -2px 0 color-mix(in srgb,var(--a1) 55%,transparent)}
+.lead-run.empty:hover::before{content:attr(data-placeholder);color:var(--faint);font-style:italic}
+.lead-run.editing{color:var(--ink);background:var(--page);border:2px solid var(--ink);box-shadow:3px 3px 0 var(--ink);z-index:6;min-width:240px;padding:2px 8px}
 .lead-run.editing::before{content:none!important}
 
 /* Dragging a word to a note to pin it */
 .lead-chip{position:absolute;z-index:5;display:block;box-sizing:border-box;cursor:grab;border-radius:4px;touch-action:none}
-.lead-chip:hover{background:color-mix(in srgb,var(--a2,#2b8a6e) 22%,transparent);box-shadow:inset 0 0 0 1.5px var(--a2,#2b8a6e)}
-.lead-chip.pinned::before{content:'';position:absolute;left:1px;top:1px;width:6px;height:6px;border-radius:50%;background:var(--a2,#2b8a6e);border:1px solid var(--ink,#183b32)}
-.lead-ghost{position:absolute;z-index:9;pointer-events:none;padding:1px 8px;border:2px solid var(--ink,#183b32);border-radius:7px;background:var(--hl,#ffd84a);font:13px/18px var(--type,Georgia,serif);box-shadow:3px 3px 0 var(--ink,#183b32);transform:translate(-50%,-50%) rotate(-2deg)}
-.lead-drop{position:absolute;z-index:8;width:3px;pointer-events:none;background:var(--a1,#e0553d);border-radius:2px}
+.lead-chip:hover{background:color-mix(in srgb,var(--a2) 22%,transparent);box-shadow:inset 0 0 0 1.5px var(--a2)}
+.lead-chip.pinned::before{content:'';position:absolute;left:1px;top:1px;width:6px;height:6px;border-radius:50%;background:var(--a2);border:1px solid var(--ink)}
+.lead-ghost{position:absolute;z-index:9;pointer-events:none;padding:1px 8px;border:2px solid var(--ink);border-radius:7px;background:var(--hl);color:#1A1C24;font:13.5px/18px var(--type,Georgia,serif);box-shadow:3px 3px 0 var(--ink);transform:translate(-50%,-50%) rotate(-2deg)}
+.lead-drop{position:absolute;z-index:8;width:3px;pointer-events:none;background:var(--a1);border-radius:2px}
+
+/* the chord form and the ABC text, as cards */
+
+/* the chord that is playing: the chart's yellow tag with black writing, in every look */
+.lead-chord-now{fill:var(--hl);stroke:var(--ink);stroke-width:1.5;pointer-events:none}
+.lead-notation .score-chord-active,.lead-notation .score-chord-active *{fill:#1A1C24!important}
+/* typing a new chord right on its symbol */
+.lead-chord-input{position:absolute;z-index:5;box-sizing:border-box;padding:0 8px;border:2px solid var(--ink);border-radius:8px;background:var(--page);color:var(--ink);font:800 17px var(--g);text-align:center;box-shadow:3px 3px 0 var(--ink);outline:none}
+.lead-chord-input:focus{border-color:var(--a2)}

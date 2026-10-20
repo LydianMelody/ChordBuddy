@@ -87,7 +87,7 @@ export function planRunEdits(ctx,runs,startIndex,raw,anchorNote=null){
 
 // Draw the editable lines over the lyric rows. `host` is the positioned element that holds the rendered score.
 export function mountLyricEditors(host,{systems,byNote,ctx,onCommit,onError,focusNote=null}){
-  const box=host.getBoundingClientRect();
+  const box=host.getBoundingClientRect(),scale=box.width/(host.offsetWidth||box.width)||1;     // 1 unless the page is zoomed on screen
   const runs=buildRuns(systems,byNote),nodes=[];
   const pct=(value,total)=>(100*value/total).toFixed(3)+'%';
   runs.forEach((run,index)=>{
@@ -156,7 +156,7 @@ export function mountLyricEditors(host,{systems,byNote,ctx,onCommit,onError,focu
         if(!start.moved&&Math.hypot(event.clientX-start.x,event.clientY-start.y)<5)return;
         start.moved=true;const at=toHost(event);
         if(!ghost){ghost=document.createElement('span');ghost.className='lead-ghost';ghost.textContent=word.text;host.append(ghost);marker=document.createElement('span');marker.className='lead-drop';host.append(marker);}
-        ghost.style.left=at.x+'px';ghost.style.top=at.y+'px';
+        ghost.style.left=(at.x/scale)+'px';ghost.style.top=(at.y/scale)+'px';
         target=nearest(at);
         if(target){const s=around.find(n=>n.index===target.index).system;marker.style.left=pct((target.left+target.right)/2-1,box.width);marker.style.top=pct(s.lyricTop-34,box.height);marker.style.height=pct(s.lyricBottom-s.lyricTop+40,box.height);}
       };

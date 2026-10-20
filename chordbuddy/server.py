@@ -26,6 +26,8 @@ from .model_downloads import ModelManager
 from .analysis import AnalysisCoordinator,TERMINAL
 from .rhythm_apply import RhythmService
 from .playback_ready import PlaybackReadiness
+from .filenames import safe_stem
+from . import original_playback
 
 
 PROJECT=Path(__file__).resolve().parent.parent
@@ -102,15 +104,55 @@ class Application:
             if self._song_busy(song_id):raise RevisionConflict('This song is being analyzed. Cancel the analysis or wait for it to finish first.')
             return self.library.purge_song(song_id)
 
-    def analyze(self,song_id,invalidate=()):
+    def analyze(self,song_id,invalidate=(),stems=True,edit_policy='keep'):
+        if type(stems) is not bool:raise ValueError('Invalid stems setting')
         with self.job_lock:
             if self._closed:raise RevisionConflict('Chord Buddy is closing')
             if self._inference_recovery_error:raise RevisionConflict(self._inference_recovery_error)
-            if not self.models.ready():raise ValueError('The stem separation models have not been downloaded yet. Use "Download models" first.')
-            try:result=self.analysis.start(song_id,invalidate)
+            # Only splitting the stems needs the separation models; the chart and lead sheet do not.
+            if stems and not self.models.ready():raise ValueError('The stem separation models have not been downloaded yet. Use "Download models" first.')
+            try:result=self.analysis.start(song_id,invalidate,stems,edit_policy)
             except RuntimeError as exc:raise RevisionConflict(str(exc)) from exc
             self._last_job_kind='analysis'
             return result
+
+    def open_external_score(self,song_id,filename,xml):
+        """Saves a lead sheet as a MusicXML file next to the song and opens it in whatever program the computer uses for that."""
+        if not isinstance(xml,str) or not xml.strip() or len(xml)>16*1024*1024:raise ValueError('There is no score to open.')
+        if '<!ENTITY' in xml:raise ValueError('This score cannot be opened.')
+        try:
+            from xml.etree import ElementTree
+            root=ElementTree.fromstring(xml.encode('utf-8'))
+        except Exception as exc:raise ValueError('The score is not valid MusicXML: '+str(exc)) from exc
+        if root.tag!='score-partwise':raise ValueError('The score is not valid MusicXML.')
+        name=str(filename or 'Lead sheet.musicxml')
+        if name.lower().endswith('.musicxml'):name=name[:-9]
+        return self._open_in_other_program(song_id,safe_stem(name,'Lead sheet')+'.musicxml',xml.encode('utf-8'),'MusicXML')
+
+    def open_external_midi(self,song_id,document_id):
+        """Saves a MIDI output next to the song (one file, or a folder of one file per track) and opens it in the program the computer uses for MIDI."""
+        doc=self.documents._row(document_id)
+        if doc['song_id']!=song_id:raise ValueError('That MIDI belongs to another song.')
+        data,name=self.documents.midi_download(document_id,'single')
+        return self._open_in_other_program(song_id,name,data,'MIDI')
+
+    def _open_in_other_program(self,song_id,name,data,what):
+        self.library.validate_song_paths(song_id)
+        folder=self.library.folder(song_id)/'external'
+        folder.mkdir(exist_ok=True)
+        path=folder/name
+        path.write_bytes(data)
+        result={'path':str(path),'opened':False,'message':''}
+        try:
+            if os.name=='nt':
+                os.startfile(str(path))
+                result['opened']=True
+            else:
+                result['message']='Saved. Open this file in your '+('notation' if what=='MusicXML' else 'music')+' program: '+str(path)
+        except OSError:
+            result['message']='No program on this computer opens '+what+' files yet. The file is saved here: '+str(path)
+        if result['opened']:result['message']='Opened in your '+('notation' if what=='MusicXML' else 'music')+' program. Changes made there are not read back.'
+        return result
 
     def propose_rhythm(self,document_id):
         with self.job_lock:
@@ -243,7 +285,7 @@ class Handler(BaseHTTPRequestHandler):
             return False
         if path.startswith('/api/'):
             token=self.headers.get('X-ChordBuddy-Token','')
-            if path.startswith(('/api/audio/','/api/export/','/api/mix-export/')):
+            if path.startswith(('/api/audio/','/api/export/','/api/mix-export/','/api/export-midi/','/api/export-outputs/')):
                 token=token or query.get('token',[''])[0]
             return secrets.compare_digest(token,self.app.token)
         return True
@@ -332,7 +374,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(version)
         if path.startswith('/api/waveform/'):
             run_id=path.removeprefix('/api/waveform/')
-            root,manifest=self.app.separation_store.get_published_run(run_id)
+            if original_playback.song_of(run_id):
+                description=self.app.playback.original_run(original_playback.song_of(run_id));root,manifest=description['root'],description['manifest']
+            else:
+                root,manifest=self.app.separation_store.get_published_run(run_id)
             asset=next(a for a in manifest['assets'] if a['role']=='original')
             key=(run_id,asset['file_sha256'])
             with self.app.waveform_lock:
@@ -358,8 +403,11 @@ class Handler(BaseHTTPRequestHandler):
             query=parse_qs(urlparse(self.path).query)
             if set(query)!={'start_frame','frame_count'} or any(len(v)!=1 for v in query.values()):raise ValueError('Expected frame bounds')
             start=int(query['start_frame'][0]);count=int(query['frame_count'][0])
-            root,manifest=self.app.separation_store.get_published_run(run_id)
-            payload,actual=wire_chunk(root,manifest,start,count)
+            if original_playback.song_of(run_id):
+                payload,actual=original_playback.wire_chunk(self.app.playback.original_run(original_playback.song_of(run_id)),start,count)
+            else:
+                root,manifest=self.app.separation_store.get_published_run(run_id)
+                payload,actual=wire_chunk(root,manifest,start,count)
             self.send_response(200)
             self.send_header('Content-Type','application/octet-stream')
             self.send_header('Content-Length',str(len(payload)))
@@ -382,8 +430,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(self.app.documents.get(path.removeprefix('/api/document/')))
         if path.startswith('/api/audio/'):
             return self._audio(self.app.library.source_path(path.removeprefix('/api/audio/')))
-        if path.startswith('/api/export/'):
-            data,name=self.app.documents.export(path.removeprefix('/api/export/'))
+        if path.startswith(('/api/export/','/api/export-midi/','/api/export-outputs/')):
+            if path.startswith('/api/export-midi/'):data,name=self.app.documents.midi_download(path.removeprefix('/api/export-midi/'),parse_qs(urlparse(self.path).query).get('mode',['single'])[0])
+            elif path.startswith('/api/export-outputs/'):data,name=self.app.documents.outputs_zip(path.removeprefix('/api/export-outputs/'))
+            else:data,name=self.app.documents.export(path.removeprefix('/api/export/'))
             self.send_response(200)
             self.send_header('Content-Type','application/octet-stream')
             self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote(name))
@@ -420,7 +470,7 @@ class Handler(BaseHTTPRequestHandler):
             elif action=='preview':result=self.app.rhythm.preview(document_id,body['proposal_id'],body['policy'])
             else:result=self.app.rhythm.apply(document_id,body['preview_id'],body['stamp'],body['policy'])
         elif re.fullmatch(r'/api/songs/[^/]+/analyze',path):
-            result=self.app.analyze(path.split('/')[3],body.get('invalidate',[]))
+            result=self.app.analyze(path.split('/')[3],body.get('invalidate',[]),body.get('stems',True),body.get('edit_policy','keep'))
         elif re.fullmatch(r'/api/analysis/[^/]+/cancel',path):
             result=self.app.analysis.cancel(path.split('/')[3])
         elif path=='/api/separate':
@@ -428,7 +478,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path=='/api/separation/cancel':
             result=self.app.separation.cancel(body['job_id'])
         elif path=='/api/song':
-            result=lib.rename_song(body['id'],body['title'])
+            result=lib.rename_song(body['id'],body['title'],body.get('artist'))
         elif path=='/api/song/trash':
             result=self.app.trash_song(body['id'])
         elif path=='/api/song/restore':
@@ -472,6 +522,10 @@ class Handler(BaseHTTPRequestHandler):
             result=self.app.activate_run(body['song_id'],body['run_id'])
         elif path=='/api/cancel':
             result=self.app.engine.cancel()
+        elif path=='/api/lead-sheet/external':
+            result=self.app.open_external_score(body['song_id'],body.get('filename'),body.get('xml'))
+        elif path=='/api/midi/external':
+            result=self.app.open_external_midi(body['song_id'],body['document_id'])
         elif path=='/api/open-folder':
             folder=lib.folder(body['song_id'])
             if os.name=='nt':

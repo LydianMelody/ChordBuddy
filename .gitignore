@@ -19,15 +19,14 @@
 /qa/
 /OLD-*/
 /tools/OLD-*/
-/docs/OLD-*/
+/docs/OLD-*
 /stem-separation-tests/
 /verification/
 /backups/
 /old/
 
-# --- Private working notes (remove these two lines if you want them public) ---
-/mockups/NOTES-for-Melody.md
-/mockups/CLEANUP-CANDIDATES.md
+# --- Private working notes for Melody and for AI assistants: every Markdown file in mockups/ stays on this computer ---
+/mockups/*.md
 
 # --- Generated files ---
 __pycache__/
@@ -45,7 +44,14 @@ portable-error.log
 hf_token*
 .claude/
 
-# --- Agent working notes kept on this computer only (CLAUDE.md and AGENTS.md stay public) ---
-/HANDOFF.md
-/AGENTS.chatgpt-old.md
-/mockups/HANDOFF-for-Sonnet.md
+# --- Notes and instructions for AI assistants: kept on this computer only, never published ---
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+AGENTS.*.md
+HANDOFF*.md
+GEMINI.md
+.cursorrules
+.cursor/
+.codex/
+.github/copilot-instructions.md

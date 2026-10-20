@@ -9,6 +9,8 @@ export function formatBytes(bytes){
 }
 
 export function mountModelsPanel(root,{onDownload,onCancel,onFile}){
+  // The models are only needed to split stems, so the panel stays away until that is asked for (or a download is already running).
+  let wanted=false;
   const title=el('h3','','Download the stem separation models');
   const intro=el('p','models-intro');
   const list=el('ul','models-list');
@@ -41,7 +43,7 @@ export function mountModelsPanel(root,{onDownload,onCancel,onFile}){
 
   function paint(){
     const status=latest;if(!status)return;
-    root.classList.toggle('hidden',status.ready);
+    root.classList.toggle('hidden',status.ready||!(wanted||status.active||status.models.some(model=>model.error)));
     const missingEngine=status.models.some(model=>!model.environment);
     intro.textContent=`Chord Buddy does not ship the models that split a song into stems. They are downloaded once (${formatBytes(status.bytes_missing)}) from public sources, and every file is checked against a fingerprint, so a wrong or damaged copy is refused.`;
     for(const model of status.models){
@@ -61,5 +63,5 @@ export function mountModelsPanel(root,{onDownload,onCancel,onFile}){
     own.disabled=status.active;
   }
 
-  return {update(status){latest=status;if(status)paint();}};
+  return {update(status){latest=status;if(status)paint();},want(){wanted=true;if(latest)paint();}};
 }

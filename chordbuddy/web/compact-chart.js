@@ -146,20 +146,6 @@ export function reconcileCompactPreferences(content,music){const next=structured
  const pref=next.layout.compact,warnings=[];pref.groups=pref.groups.filter(group=>{const candidate=structuredClone(next);candidate.layout.compact.groups=[group];const v=buildCompactChart(candidate,music);const valid=!invalidCompactPreferences(candidate,effectiveMeasures(music,next.layout||{}))&&!v.warnings.some(w=>w.includes('saved grouping'));if(!valid)warnings.push('A changed grouping is now expanded. Undo restores its layout preference.');return valid;});return {content:next,warnings};}
 
 
-export function compactLyricTargets(content,music,view,ref){
- const section=content.sections.find(s=>s.id===ref.sectionId);if(!section)return {targets:[],matchingLines:[],shared:false};
- const measures=effectiveMeasures(music,content.layout||{});
- const targetsFor=line=>{const anchors=[];const placement=content.layout?.lines?.find(p=>p.section_id===ref.sectionId&&p.line===line);
-  for(const w of placement?.words||[]){const m=measures.find(m=>m.id===w.measure_id),i=Math.floor(w.beat);if(!m)continue;const points=[...m.beats,m.end];if(points[i+1]!==undefined)anchors.push({seconds:points[i]+(w.beat-i)*(points[i+1]-points[i]),offset:w.offset});}
-  if(!anchors.length)for(const c of content.chords.filter(c=>c.section_id===ref.sectionId&&c.line===line))anchors.push({seconds:c.start,offset:c.offset,chordId:c.id});
-  const result=[];for(const a of anchors){const at=locateCompactPlayback(view,a.seconds);if(!at)continue;let target=result.find(t=>t.groupId===at.groupId&&t.passNumber===at.passNumber);if(!target){target={...at,seconds:a.seconds,label:'Pass '+at.passNumber,chordIds:[],offsets:[]};result.push(target);}target.seconds=Math.min(target.seconds,a.seconds);target.offsets.push(a.offset);if(a.chordId)target.chordIds.push(a.chordId);}
-  return result;
- };
- const targets=targetsFor(ref.line),shared=targets.length>1&&targets.every(t=>t.chordIds.length&&t.offsets.includes(0))&&new Set(targets.map(t=>t.groupId)).size===1;
- const matchingLines=[],matchingPasses=[];const lines=section.lyrics.split('\n');
- if(targets.length===1)lines.forEach((text,line)=>{const ts=targetsFor(line);if(text===lines[ref.line]&&ts.length===1&&ts[0].groupId===targets[0].groupId&&!matchingPasses.includes(ts[0].passNumber)){matchingLines.push(line);matchingPasses.push(ts[0].passNumber);}});
- return {targets,shared,matchingLines:shared?[ref.line]:matchingLines,matchingPasses:shared?targets.map(t=>t.passNumber):matchingPasses};
-}
 
 // ---- Choosing how a repeating stretch is folded: the same bars as 2 bars x4, 4 bars x2, or not folded at all ----
 export function compactFoldChoices(view,group){

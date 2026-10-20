@@ -11,7 +11,6 @@ export function lyricTokens(line){
  push(chars.length);return result;
 }
 function skeleton(text){const chars=Array.from(text),indices=[];chars.forEach((c,i)=>{if(!separator(chars,i))indices.push(i);});return {chars,indices,key:indices.map(i=>chars[i]).join('')};}
-export const lyricBoundaryKey=text=>skeleton(text).key;
 export function boundaryOffsetMap(before,after){
  if(before===after)return new Map(Array.from({length:Array.from(before).length+1},(_,i)=>[i,i]));
  const a=skeleton(before),b=skeleton(after);if(a.key!==b.key)return null;

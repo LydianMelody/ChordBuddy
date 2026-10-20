@@ -1,6 +1,8 @@
 import {musicalPosition} from './musical-grid.js';
 import {buildPracticeMarkers} from './practice-state.js';
 import {snapGrain,snapRange,moveEdge,describeRange,BEAT_ZOOM} from './loop-range.js';
+import {createZoomBar} from './zoom-bar.js';
+import {prefs} from './prefs.js';
 
 // Pure viewport reducer: the visible window of the song on the navigation bar. It only ever changes presentation, never playback.
 export function updateViewport(viewport,action,context){
@@ -28,9 +30,25 @@ export function updateViewport(viewport,action,context){
  return {start,end,follow};
 }
 
+// Where the labels under the navigator go. TIME: evenly spaced clock times. BARS: the bars that start closest to those spots, labelled with
+// their real numbers, so tempo and time-signature changes are already in the positions (they come from the measured bars, not a formula).
+export function rulerMarks(mode,total,measures,count){
+  const marks=[],n=Math.max(2,count);
+  for(let i=0;i<n;i++){
+    const t=total*i/(n-1);
+    if(mode==='bars'){
+      let best=null;
+      for(const m of measures){if(!(m.number>=1)||m.start>total)continue;if(!best||Math.abs(m.start-t)<Math.abs(best.start-t))best=m;}
+      if(best&&!marks.some(x=>x.text===String(best.number)))marks.push({at:best.start,text:String(best.number)});
+    }else marks.push({at:t,text:clock(t)});
+  }
+  return marks;
+}
+
 const node=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls||'';if(text!==undefined)n.textContent=text;return n;};
 const clock=s=>Number.isFinite(s)?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'):'0:00';
 const DRAG_PIXELS=5;   // a press that moves less than this is a click (seek); more is a loop selection
+const SECTION_COLOUR={verse:'--a3',chorus:'--a1',interlude:'--a2',bridge:'--a2'};
 const nameKey=name=>String(name||'').toLowerCase().replace(/[^a-z]/g,'');
 
 export function mountPracticeTimeline(container,{transport,onViewportChange,onError=()=>{}}){
@@ -52,19 +70,41 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
  const playhead=node('div','practice-playhead'),grip=node('i','practice-playhead-grip'),position=node('span','practice-position');playhead.setAttribute('aria-label','Playhead');playhead.append(grip);
  surface.append(band,sections,wave,loop,playhead,position);container.append(surface);
 
- // ----- pan / zoom strip: overview with a draggable, resizable viewport thumb -----
- const row=node('div','practice-overview-row'),overview=node('div','practice-overview'),overviewBlocks=node('div','practice-overview-blocks'),overviewLoop=node('div','practice-overview-loop'),overviewHead=node('div','practice-ov-head');
- const span=node('div','practice-visible-span'),start=node('button','practice-viewport-handle start','‹'),end=node('button','practice-viewport-handle end','›');
- start.type=end.type='button';start.setAttribute('aria-label','Visible span start');end.setAttribute('aria-label','Visible span end');span.setAttribute('aria-label','Pan visible music');span.tabIndex=0;span.append(start,end);overview.append(overviewBlocks,overviewLoop,overviewHead,span);
+ // ----- the navigator ("the cassette"): which part of the song is in view. It sits right against the lane above, as one instrument.
+ //       Drag the window to move, its grips to zoom, the caps to step. Under it: the ruler, with Follow and TIME / BARS at its right end.
+ const nav=node('div','timeline-nav'),foot=node('div','timeline-foot');
  const button=(cls,text,label)=>{const b=node('button',cls,text);b.type='button';b.setAttribute('aria-label',label);b.title=label;return b;};
- const panLeft=button('secondary practice-pan','◀','Pan left'),panRight=button('secondary practice-pan','▶','Pan right');
- const spanLabel=node('span','practice-span-label');
- const minus=button('secondary','−','Zoom out'),plus=button('secondary','+','Zoom in'),follow=button('secondary practice-follow','Follow','Follow the playhead');follow.setAttribute('aria-pressed','true');
- row.append(panLeft,overview,panRight,spanLabel,minus,plus,follow);container.append(row);
- const nudge=direction=>{const v=visible();onViewportChange({type:'pan',delta:direction*(v.end-v.start)*.5});};
- panLeft.onclick=()=>nudge(-1);panRight.onclick=()=>nudge(1);
- minus.onclick=()=>onViewportChange({type:'zoom',factor:2});plus.onclick=()=>onViewportChange({type:'zoom',factor:.5});
+ const follow=button('tl-btn practice-follow','Follow','Follow the playhead');follow.setAttribute('aria-pressed','true');
+ const toggle=node('div','ruler-toggle'),timeButton=button('','TIME','Label the ruler with times'),barsButton=button('','BARS','Label the ruler with bar numbers');
+ toggle.setAttribute('role','group');toggle.setAttribute('aria-label','Ruler labels');toggle.append(timeButton,barsButton);
+ const tools=node('div','timeline-tools');tools.append(follow,toggle);
+ const cassette=createZoomBar({label:'The part of the song in view: drag to move, drag the ends to zoom',windowLabel:'VIEW',
+  bounds:()=>{const b=bounds();return {lo:b.start,hi:b.end||1};},minSpan:()=>.15,
+  getRange:()=>{const v=visible();return {start:v.start,end:v.end};},
+  setRange:r=>onViewportChange({type:'pan-to',start:r.start,end:r.end})});
+ const overviewLoop=node('div','practice-overview-loop'),overviewHead=node('div','practice-ov-head');cassette.overlay.append(overviewLoop,overviewHead);
+ const ruler=node('div','timeline-ruler');
+ foot.append(ruler,tools);nav.append(cassette.el,foot);container.append(nav);
  follow.onclick=()=>onViewportChange({type:'set-follow',value:!visible().follow});
+ // TIME / BARS only changes the labels under the navigator (and on the piano roll's ruler); the part in view stays where it is
+ let rulerMode=prefs.get('cb-ruler','time')==='bars'?'bars':'time',rulerKey='';
+ const setRuler=(mode,announce=true)=>{
+  rulerMode=mode;prefs.set('cb-ruler',mode);
+  for(const [b,m] of [[timeButton,'time'],[barsButton,'bars']]){b.classList.toggle('active',mode===m);b.setAttribute('aria-pressed',String(mode===m));}
+  rulerKey='';paintRuler();if(announce&&typeof window!=='undefined'&&window.dispatchEvent&&typeof CustomEvent==='function')window.dispatchEvent(new CustomEvent('chordbuddy:ruler'));
+ };
+ function paintRuler(){
+  const total=bounds().end,width=ruler.clientWidth||600,free=width-(tools.offsetWidth||0)-8;   // labels stop short of the switches at the right end
+  const key=JSON.stringify([rulerMode,total,measures().length,value.barOffset||0,Math.round(width/20),Math.round(free/20)]);
+  if(key===rulerKey)return;rulerKey=key;
+  const marks=rulerMarks(rulerMode,total,numbered(),Math.min(9,Math.floor(width/90))).filter(m=>m.at/Math.max(.001,total)*width<free-28);
+  ruler.replaceChildren(...marks.map((m,i)=>{
+   const label=node('span','tick',m.text);label.style.left=(100*m.at/Math.max(.001,total))+'%';
+   label.style.transform=i===0&&m.at<total*.02?'none':'translateX(-50%)';return label;
+  }));
+ }
+ timeButton.onclick=()=>setRuler('time');barsButton.onclick=()=>setRuler('bars');
+ setRuler(rulerMode,false);
 
  function positionAt(t){const p=musicalPosition(numbered(),t);return p?(p.bar<1?'Before bar 1':'Bar '+p.bar)+(Number.isFinite(p.beat)?' · Beat '+p.beat.toFixed(2):' · timing unavailable'):'Musical position unavailable';}
  const percentOf=(t,axis)=>100*(t-axis.start)/Math.max(.001,axis.end-axis.start);
@@ -120,9 +160,8 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
   position.textContent=positionAt(t)+(outside?' · outside visible span':'');position.classList.toggle('outside',outside);playhead.hidden=outside;
   const percent=percentOf(t,v);playhead.style.left=percent+'%';position.style.left=Math.max(12,Math.min(88,percent))+'%';
   played.style.clipPath='inset(0 '+Math.max(0,Math.min(100,100-percent))+'% 0 0)';
-  span.style.left=percentOf(v.start,b)+'%';span.style.width=(100*(v.end-v.start)/Math.max(.001,b.end-b.start))+'%';overviewHead.style.left=percentOf(t,b)+'%';
-  start.setAttribute('aria-valuetext',positionAt(v.start));end.setAttribute('aria-valuetext',positionAt(v.end));
-  spanLabel.textContent=clock(v.start)+' – '+clock(v.end)+' · '+(v.end-v.start>=60?Math.round((v.end-v.start)/6)/10+' min':Math.round(v.end-v.start)+' s')+' visible';
+  cassette.refresh();paintRuler();overviewHead.style.left=percentOf(t,b)+'%';
+  cassette.setValueText(clock(v.start)+' – '+clock(v.end)+' · '+(v.end-v.start>=60?Math.round((v.end-v.start)/6)/10+' min':Math.round(v.end-v.start)+' s')+' visible');
   follow.classList.toggle('on',!!v.follow);follow.setAttribute('aria-pressed',String(!!v.follow));
   let active=null;for(const item of markerRefs){const current=t>=item.marker.seconds&&t<item.marker.end;item.node.disabled=!s.ready;item.node.classList.toggle('current',current);if(current)active=item.marker;}
   band.style.display=active?'block':'none';if(active){const left=Math.max(0,percentOf(active.seconds,v)),right=Math.min(100,percentOf(active.end,v));band.style.left=left+'%';band.style.width=Math.max(0,right-left)+'%';}
@@ -176,26 +215,15 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
   if(e.ctrlKey)onViewportChange({type:'zoom',factor:e.deltaY<0?.8:1.25,anchor:timeAt(e.clientX,v,surface)});
   else onViewportChange({type:'pan',delta:((e.deltaX||e.deltaY)/width)*(v.end-v.start)});
  };
- overview.onpointerdown=e=>{if(e.button!==0)return;const v=visible(),kind=e.target===start?'resize-start':e.target===end?'resize-end':'pan';gesture={kind:'overview',overview:kind,x:e.clientX,rect:overview.getBoundingClientRect(),viewport:{...v},pointer:e.pointerId};overview.setPointerCapture(e.pointerId);e.preventDefault();};
- overview.onpointermove=e=>{
-  if(gesture?.kind!=='overview'||e.pointerId!==gesture.pointer)return;
-  const b=bounds(),delta=(e.clientX-gesture.x)/Math.max(1,gesture.rect.width)*(b.end-b.start);
-  if(gesture.overview==='pan')onViewportChange({type:'pan-to',start:gesture.viewport.start+delta,end:gesture.viewport.end+delta});
-  else onViewportChange({type:gesture.overview,seconds:gesture.viewport[gesture.overview==='resize-start'?'start':'end']+delta});
- };
- overview.onpointerup=overview.onpointercancel=e=>{if(gesture?.kind==='overview'&&gesture.pointer===e.pointerId){overview.releasePointerCapture?.(e.pointerId);gesture=null;}};
- span.onkeydown=e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();const v=visible();onViewportChange({type:'pan',delta:(e.key==='ArrowLeft'?-1:1)*(v.end-v.start)/10});}};
- for(const [handle,type] of [[start,'resize-start'],[end,'resize-end']])handle.onkeydown=e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();e.stopPropagation();const v=visible();onViewportChange({type,seconds:v[type==='resize-start'?'start':'end']+(e.key==='ArrowLeft'?-1:1)*(v.end-v.start)/10});}};
-
  const unsubscribe=transport.subscribe(paint),observer=typeof ResizeObserver!=='undefined'?new ResizeObserver(()=>{waveKey='';paint(transport.getSnapshot());}):null;observer?.observe(surface);
  const api={update(next){
   if(seekAxis){pendingTimeline=next;paint(transport.getSnapshot());return;}
   value=next;const v=visible(),list=next.projection?buildPracticeMarkers(next.projection):[],k=JSON.stringify([list,v.start,v.end]);
   if(k!==markerKey){
-   markerKey=k;sections.replaceChildren();overviewBlocks.replaceChildren();markerRefs=[];
-   const total=Math.max(.001,bounds().end);
+   markerKey=k;sections.replaceChildren();markerRefs=[];
+   const total=Math.max(.001,bounds().end),picture=[];
    for(const m of list){
-    const ov=node('i','practice-overview-block');ov.dataset.name=nameKey(m.sectionName);ov.style.left=100*m.seconds/total+'%';ov.style.width=100*(m.end-m.seconds)/total+'%';overviewBlocks.append(ov);
+    picture.push({from:m.seconds,to:m.end,colour:'var('+(SECTION_COLOUR[nameKey(m.sectionName)]||'--tint')+')',opacity:.55});
     if(m.end<=v.start||m.seconds>=v.end)continue;
     const block=node('button','practice-section-block',m.sectionName);block.type='button';block.dataset.name=nameKey(m.sectionName);block.title=m.sectionName+' · '+positionAt(m.seconds)+' · double-click to loop it';
     block.style.left=100*(Math.max(v.start,m.seconds)-v.start)/(v.end-v.start)+'%';block.style.width=100*(Math.min(v.end,m.end)-Math.max(v.start,m.seconds))/(v.end-v.start)+'%';
@@ -203,8 +231,9 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
     block.ondblclick=()=>applyLoop({start:m.seconds,end:m.end},{follow:true});
     sections.append(block);markerRefs.push({marker:m,node:block});
    }
+   cassette.setPreview(picture);
   }
   paint(transport.getSnapshot());
- },setWaveform(next,message='Waveform unavailable.'){waveform=next;waveMessage=message;waveKey='';paint(transport.getSnapshot());},dispose(){unsubscribe();observer?.disconnect();container.replaceChildren();}};
+ },setWaveform(next,message='Waveform unavailable.'){waveform=next;waveMessage=message;waveKey='';paint(transport.getSnapshot());},navigator:cassette,dispose(){unsubscribe();observer?.disconnect();container.replaceChildren();}};
  return api;
 }

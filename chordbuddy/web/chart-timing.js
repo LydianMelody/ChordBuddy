@@ -63,7 +63,7 @@ export function createTiming(env){
       const bp=n?width/n:width/4;node.style.setProperty?.('--bp',bp+'px');node.style.setProperty?.('--sp',bp*stepBeats(env.getSnap())+'px');
       const offset=env.getModel().barOffset||0,numbers=g.passes.map(p=>measures.find(m=>m.id===p.measureIds[g.bars.indexOf(bar)])?.number).filter(v=>v!==undefined).map(v=>v-offset);
       node.append(el('span','tno',numbers.length>1?numbers.join(' · '):String(bar.number)));
-      if(env.editBars&&bar.measure&&bar.mapped&&n)addBarControls(node,bar,width,n,measures);
+      if(env.editBars&&env.tool?.()==='barlines'&&bar.measure&&bar.mapped&&n)addBarControls(node,bar,width,n,measures);
       const chords=el('div','tchords');
       for(const chunk of bar.chunks){
         const a=beatOfSeconds(measures,chunk.start),cell=el('span','chunk tchord');cell.dataset.chunk=chunk.key;
@@ -119,13 +119,13 @@ export function createTiming(env){
     const measure=bar.measure,at=measures.findIndex(m=>m.id===measure.id);
     for(let j=1;j<n;j++){
       const split=el('button','beat-split','+');split.type='button';split.style.left=(beatToX(j,width,n)-8)+'px';
-      split.title='Start a new bar on this beat';split.setAttribute('aria-label','Start a new bar on beat '+(j+1));
+      split.dataset.tipTitle='Split the bar';split.dataset.tip='Start a new bar on this beat.';split.setAttribute('aria-label','Start a new bar on beat '+(j+1));
       split.onclick=e=>{e?.stopPropagation?.();if(!env.blocked())env.editBars({addBars:[measure.beats[j]]});};
       node.append(split);
     }
     if(at<=0)return;                                         // the first barline of the song stays where the recording starts
     const handle=el('button','bar-handle');handle.type='button';
-    handle.title='Drag to move this barline to another beat. Double-click to join this bar with the one before it.';
+    handle.dataset.tipTitle='Barline';handle.dataset.tip='Drag to move this barline to another beat. Double-click it to join this bar with the one before.';
     handle.setAttribute('aria-label','Barline before bar '+bar.number);
     handle.ondblclick=e=>{e?.stopPropagation?.();if(!env.blocked())env.editBars({removeBars:[measure.start]});};
     let drag=null;
@@ -226,9 +226,10 @@ export function createTiming(env){
       if(Math.hypot(e.clientX-drag.x0,e.clientY-drag.y0)<DRAG_PIXELS)return;
       drag.moved=true;drag.chip.classList.add('lifted');drag.ghost=el('span','wchip ghost',drag.token.text);(drag.ctx.row||document.body).append(drag.ghost);
     }
-    drag.ghost.style.left=(e.clientX+8)+'px';drag.ghost.style.top=(e.clientY+8)+'px';
+    const zoom=drag.ctx.row?.offsetWidth&&drag.ctx.row.getBoundingClientRect?drag.ctx.row.getBoundingClientRect().width/drag.ctx.row.offsetWidth||1:1;     // the page may be zoomed on screen
+    drag.ghost.style.left=((e.clientX+8)/zoom)+'px';drag.ghost.style.top=((e.clientY+8)/zoom)+'px';
     const hit=hitBar(drag.ctx,e);if(!hit)return;
-    const {b,rect}=hit,target=nearestTarget(targetsFor(b),e.clientX-rect.left,b.width,b.n);if(!target)return;
+    const {b,rect}=hit,unit=b.node.offsetWidth?rect.width/b.node.offsetWidth:1,target=nearestTarget(targetsFor(b),(e.clientX-rect.left)/unit,b.width,b.n);if(!target)return;
     let actual=actualFor(b,target);if(!actual)return;
     // a word may never pass a pinned neighbour: if the pointer is past one, use the nearest grid point that is still between them
     if(!allowedTime(actual.seconds,drag.limits)){

@@ -2,10 +2,7 @@
 import copy
 import json
 import uuid
-from pathlib import Path
-from .analysis_contract import digest
 from .timing_layout import remap_timing
-from .separation_contract import file_hash
 from .music import project_timing
 from .documents import RevisionConflict
 

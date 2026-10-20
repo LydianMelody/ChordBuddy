@@ -1,0 +1,204 @@
+/* The tool rail and its note (there are no chart modes), the tools' handles on the chart, and the slow-hover tooltips.
+   Same Press Room look as everything else: thick ink outlines, flat colour, offset shadows. */
+
+/* ---------- the stage: the rail stands beside the paper desk, never on it ---------- */
+.stage{flex:1;min-height:0;display:flex;gap:10px}
+.stage>.desk{flex:1;min-width:0}
+.tool-rail{flex:none;align-self:flex-start;max-height:100%;overflow-y:auto;padding:2px 8px 10px 2px;scrollbar-width:none}
+.tool-rail::-webkit-scrollbar{display:none}
+.tool-tray{width:74px;display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:8px 6px;border:var(--bd) solid var(--ink);border-radius:20px;background:var(--page);box-shadow:3px 3px 0 var(--ink)}
+.tool-sep{height:0;margin:4px 10px;border-top:2.5px dotted var(--faint)}
+.tool-btn{position:relative;display:grid;justify-items:center;gap:3px;width:100%;padding:5px 2px 4px;border:2px solid transparent;border-radius:14px;color:var(--ink);transition:transform .12s,background .12s}
+.tool-btn small{font:800 10px/1 var(--g);font-stretch:82%;letter-spacing:.07em;text-transform:uppercase}
+.tool-btn kbd{position:absolute;top:3px;right:4px;font:700 8.5px/1 var(--m);color:var(--soft)}
+/* the tools are little enamel pins: cream with ink drawings and yellow, in every look (yellow with light lines is hard to read) */
+.tool-tile{color:#1A1C24;display:grid;place-items:center;width:40px;height:40px;border:2px solid var(--ink);border-radius:12px;background:#FBF7EE;box-shadow:2px 2px 0 var(--ink);transition:transform .12s,box-shadow .12s}
+.tool-ic{width:28px;height:28px;overflow:visible}
+.tool-btn:hover .tool-tile,.tool-btn:focus-visible .tool-tile{transform:translate(-1px,-2px) rotate(-3deg);box-shadow:3px 4px 0 var(--ink)}
+.tool-btn:focus-visible{outline:2.5px dashed var(--a2);outline-offset:2px}
+.tool-btn:active .tool-tile{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink)}
+.tool-btn.on{background:var(--a1);color:var(--onA1);border-color:var(--ink);box-shadow:3px 3px 0 var(--ink);transform:translate(-1px,-1px)}
+.tool-btn.on kbd{color:inherit}
+.tool-btn.on .tool-tile{transform:rotate(-4deg)}
+.tool-rail[data-fit="compact"] .tool-tray{padding:6px 5px}
+.tool-rail[data-fit="compact"] .tool-tile{width:34px;height:34px;border-radius:10px}
+.tool-rail[data-fit="compact"] .tool-ic{width:24px;height:24px}
+.tool-rail[data-fit="compact"] .tool-btn{padding:3px 2px}
+.tool-rail[data-fit="compact"] .tool-btn small{font-size:9px}
+.tool-rail[data-fit="tiny"] .tool-tray,.tool-rail[data-fit="wide"] .tool-tray{width:58px;padding:6px 5px}
+.tool-rail[data-fit="tiny"] .tool-tile,.tool-rail[data-fit="wide"] .tool-tile{width:36px;height:36px;border-radius:10px}
+.tool-rail[data-fit="tiny"] .tool-ic,.tool-rail[data-fit="wide"] .tool-ic{width:25px;height:25px}
+.tool-rail[data-fit="tiny"] .tool-btn,.tool-rail[data-fit="wide"] .tool-btn{padding:2px}
+.tool-rail[data-fit="tiny"] .tool-btn small,.tool-rail[data-fit="wide"] .tool-btn small{display:none}
+.tool-rail[data-fit="tiny"] .tool-btn kbd,.tool-rail[data-fit="wide"] .tool-btn kbd{top:0;right:1px}
+.tool-rail[data-fit="wide"] .tool-tray{width:auto;display:grid;grid-template-columns:repeat(2,auto);gap:2px 2px}
+.tool-rail[data-fit="wide"] .tool-sep{grid-column:1/-1;margin:2px 8px}
+
+/* ---------- the bar under the tabs: only a tool's controls, and only when it has some ---------- */
+.tool-options{order:3;flex:1 1 auto;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:0}
+.tool-options .opt{margin-left:auto}
+.tool-note{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:6px}
+.tool-note:empty{display:none}
+.tool-controls{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:5px 12px;border:2px solid var(--ink);border-radius:12px;background:var(--page);box-shadow:2px 2px 0 var(--ink)}
+.fix-choice{min-height:0;padding:5px 11px;border:2px solid var(--ink);border-radius:10px;background:var(--page);color:var(--ink);font:800 12.5px/1 var(--m);box-shadow:2px 2px 0 var(--ink);cursor:pointer}
+.fix-choice.plain{font-weight:600}
+.fix-choice:hover{background:var(--a1);color:var(--onA1);transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--ink)}
+.fix-choice:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink)}
+.fix-link{padding:0;font:700 11.5px var(--m);color:var(--ink);text-decoration:underline;text-underline-offset:3px;opacity:.75}
+.fix-link:hover{opacity:1}
+
+/* ---------- the one line under the page: what the tool does, a warning mark, the way out, and any refusal ---------- */
+.tool-status{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;min-height:24px;padding:3px 8px 0 4px;font:400 11.5px/1.4 var(--m);color:var(--soft)}
+.status-hint{flex:1 1 280px;min-width:0}
+.status-warn{padding:0 7px;border:1.5px solid var(--ink);border-radius:999px;background:var(--hl);color:#1A1C24;font:800 11px/1.5 var(--m);cursor:help}
+.tool-put-down{display:inline-flex;align-items:center;gap:6px;padding:0;font:700 11px var(--m);color:var(--soft);text-decoration:underline;text-underline-offset:3px}
+.tool-put-down:hover{color:var(--ink)}
+.tool-put-down kbd{font:700 10px var(--m);padding:0 5px;border:1.5px solid var(--ink);border-radius:5px;text-decoration:none;background:var(--page);color:var(--ink)}
+/* a refusal (a cut across a lyric, a save problem) is the one thing in the line that shouts */
+.tool-status .chart-message{flex-basis:100%;margin:2px 0 0;padding:4px 12px;border:2px solid var(--ink);border-radius:10px;background:#FFE1D8;color:#1A1C24;font:700 12px/1.4 var(--m);box-shadow:2px 2px 0 var(--ink)}
+.tool-status .chart-message:empty{display:none}
+[data-lock="full"] .tool-rail,[data-lock="full"] .tool-options,[data-lock="full"] .tool-status{display:none}
+
+/* ---------- the song title lives in the chart's own header (one place, not two) ---------- */
+.jhead .jt .jtitle{margin:0;padding:0 0 3px;border-bottom:3px dashed transparent;outline:none;overflow-wrap:anywhere;cursor:text}
+.jhead .jt .jtitle:hover{border-bottom-color:var(--line)}
+.jhead .jt .jtitle:focus{border-bottom-color:var(--a1)}
+.jhead .jt .jtitle:empty::before{content:attr(data-placeholder);color:var(--faint)}
+
+/* ---------- Write: other tools leave the chart's words and chords alone ---------- */
+[data-mode="edit"][data-tool]:not([data-tool="write"]) :is(.chord,.add-chord,.lyr,.lane-tag,.pass-pick,.sec-name,.add-lyrics){pointer-events:none}
+[data-mode="edit"][data-tool]:not([data-tool="write"]) .lane-edit{opacity:.55}
+[data-mode="timing"][data-tool="barlines"] :is(.wchip,.pinb){pointer-events:none}
+[data-mode="timing"][data-tool="barlines"] .wchip{opacity:.6}
+
+/* ---------- Cut ---------- */
+.cut-zone{position:absolute;inset:-4px -3px -2px -3px;display:flex;z-index:6}
+.cut-half{position:relative;flex:1;min-width:0;min-height:0;padding:0;border:0;background:none;cursor:var(--cur-cut,crosshair)}
+.cut-half.off{cursor:not-allowed;pointer-events:none}
+.cut-half::before{content:'';position:absolute;top:0;bottom:0;border-left:3.5px dashed var(--a1);opacity:0;transition:opacity .1s}
+.cut-half.left::before{left:-2px}
+.cut-half.right::before{right:-2px}
+.cut-half:not(.off):hover::before,.cut-half:focus-visible::before{opacity:1}
+.cut-half:not(.off):hover.left{background:linear-gradient(90deg,color-mix(in srgb,var(--a1) 22%,transparent),transparent 65%)}
+.cut-half:not(.off):hover.right{background:linear-gradient(270deg,color-mix(in srgb,var(--a1) 22%,transparent),transparent 65%)}
+.cut-half .snip{position:absolute;top:-17px;display:grid;place-items:center;width:26px;height:26px;border:2px solid var(--ink);border-radius:50%;background:var(--hl);color:var(--ink);box-shadow:2px 2px 0 var(--ink);opacity:0;transform:scale(.6) rotate(-30deg);transition:opacity .12s,transform .16s}
+.cut-half.left .snip{left:-14px}
+.cut-half.right .snip{right:-14px}
+.cut-half:not(.off):hover .snip,.cut-half:focus-visible .snip{opacity:1;transform:none}
+.cut-half .snip .tool-ic{width:17px;height:17px}
+
+/* ---------- Join ---------- */
+[data-tool="glue"] .sec-head.glue-able{position:relative;margin-left:-8px;padding:4px 8px;border:2px dashed transparent;border-radius:12px;cursor:var(--cur-glue,pointer);transition:background .12s,border-color .12s}
+[data-tool="glue"] .sec-head.glue-able:hover,[data-tool="glue"] .sec-head.glue-able:focus-visible{border-color:var(--a1);background:color-mix(in srgb,var(--hl) 55%,transparent);outline:none}
+.glue-badge{margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 6px;border:2px solid var(--ink);border-radius:999px;background:var(--page);color:var(--ink);font:700 11px var(--m);box-shadow:2px 2px 0 var(--ink);opacity:.55;transition:opacity .12s,transform .12s}
+.glue-badge .tool-ic{width:22px;height:22px;padding:2px;border-radius:50%;background:#FBF7EE;color:#1A1C24}
+.sec-head.glue-able:hover .glue-badge,.sec-head.glue-able:focus-visible .glue-badge{opacity:1;transform:translateY(-1px)}
+
+/* ---------- Repeat ---------- */
+[data-tool="repeat"] .bar-no.pickable{cursor:var(--cur-repeat,pointer)}
+
+/* ---------- Barlines ---------- */
+[data-tool="barlines"] :is(.beat-split,.bar-handle){cursor:var(--cur-barlines,pointer)}
+[data-tool="barlines"] .bar-handle{cursor:ew-resize}
+[data-tool="barlines"] .tbar .beat-split{opacity:.45}
+[data-tool="barlines"] .tbar:hover .beat-split{opacity:.8}
+[data-tool="barlines"] .tbar .bar-handle::after{content:'';position:absolute;left:7px;top:4px;bottom:4px;width:4px;border-radius:3px;background:var(--a2);opacity:.5}
+[data-tool="barlines"] .tbar .bar-handle:hover::after{opacity:1}
+
+/* ---------- tooltips ---------- */
+.tip{position:fixed;z-index:200;width:max-content;max-width:268px;padding:10px 13px 12px;border:var(--bd) solid var(--ink);border-radius:16px;background:var(--ink);color:var(--page);box-shadow:4px 4px 0 var(--a1);pointer-events:none;opacity:0;transform:translateY(5px) scale(.97);transition:opacity .15s,transform .15s}
+.tip[hidden]{display:none}
+.tip.show{opacity:1;transform:none}
+.tip[data-side="above"]{transform:translateY(-5px) scale(.97)}
+.tip[data-side="above"].show{transform:none}
+.tip::before{content:'';position:absolute;left:var(--nub,24px);width:13px;height:13px;margin-left:-7px;background:var(--ink);border:var(--bd) solid var(--ink);transform:rotate(45deg)}
+.tip[data-side="below"]::before{top:-9px;border-right:0;border-bottom:0}
+.tip[data-side="above"]::before{bottom:-9px;border-left:0;border-top:0}
+.tip[data-side="right"]{transform:translateX(-6px) scale(.97)}
+.tip[data-side="right"].show{transform:none}
+.tip[data-side="right"]::before{left:-9px;top:var(--nub,24px);margin:-7px 0 0 0;border-right:0;border-top:0;transform:rotate(45deg)}
+.tip-head{display:flex;align-items:center;gap:9px;margin-bottom:4px}
+.tip-head b{font:800 15px/1 var(--g);font-stretch:82%;letter-spacing:.05em;text-transform:uppercase}
+.tip-head kbd{font:700 10px/1 var(--m);padding:2px 6px;border:1.5px solid var(--page);border-radius:6px}
+.tip p{margin:0;font:12.5px/1.5 var(--m)}
+.tip-art-wrap{margin:-2px -4px 9px}
+.tip-art{display:block;width:100%;height:auto;border-radius:10px;background:color-mix(in srgb,var(--page) 9%,transparent)}
+.tip-art text{font-family:var(--g)}
+.tip-art .a-chord{font:800 13px var(--g);fill:var(--page)}
+.tip-art .a-word{font:10px var(--type);fill:var(--page)}
+.tip-art .a-ink{fill:#1A1C24}
+.tip-art .a-x{font:800 9px var(--g);fill:#1A1C24}
+.tip-art .a-box{fill:none;stroke:var(--page);stroke-width:1.6}
+.tip-art .a-pop{stroke:var(--hl);stroke-width:2}
+.tip-art .a-caret{stroke:var(--hl);stroke-width:1.8;stroke-linecap:round;animation:art-blink 1s steps(2,jump-none) infinite}
+.tip-art .a-line{stroke:var(--page);stroke-width:1.5;fill:none;opacity:.55;stroke-linecap:round}
+.tip-art .a-tick{stroke:var(--page);stroke-width:1.5;opacity:.6;stroke-linecap:round}
+.tip-art .a-bars rect,.tip-art .a-folded rect{fill:none;stroke:var(--page);stroke-width:1.5}
+.tip-art .a-faded rect{opacity:.7}
+.tip-art .a-tag{fill:var(--page);opacity:.9}
+.tip-art .a-tag.a-new{fill:var(--hl);opacity:1}
+.tip-art .a-tag.a-gone{opacity:.4}
+.tip-art .a-merged rect{fill:color-mix(in srgb,var(--hl) 22%,transparent);stroke:var(--hl);stroke-width:1.8}
+.tip-art .a-fill-hl{fill:var(--hl);stroke:#1A1C24;stroke-width:1.2}
+.tip-art .a-cutline{stroke:var(--a1);stroke-width:2.2;stroke-dasharray:3.5 3.5;stroke-linecap:round;animation:art-march 1.2s linear infinite}
+.tip-art .a-blades{stroke:#1A1C24;stroke-width:1.6;stroke-linecap:round}
+.tip-art .a-snip{transform-box:fill-box;transform-origin:50% 100%;animation:art-snip 1.8s ease-in-out infinite}
+.tip-art .a-arrow{stroke:var(--hl);stroke-width:2.4;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.tip-art .a-bracket{stroke:var(--hl);stroke-width:2;stroke-linecap:round;animation:art-pulse-line 1.8s ease-in-out infinite}
+.tip-art .a-dots-bar{stroke:var(--page);stroke-width:2.6;stroke-linecap:round}
+.tip-art .a-dot{fill:var(--page)}
+.tip-art .a-slide{animation:art-slide 2.6s ease-in-out infinite}
+.tip-art .a-pin{fill:var(--a1);stroke:var(--page);stroke-width:1.4;animation:art-pop 2.6s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+.tip-art .a-barline{stroke:var(--page);stroke-width:3.4;stroke-linecap:round}
+.tip-art .a-new-line{stroke:var(--hl);stroke-width:2.4;stroke-dasharray:3 3;animation:art-march 1.2s linear infinite}
+.tip-art .a-knob{transform-box:fill-box;transform-origin:center;animation:art-pulse 1.8s ease-in-out infinite}
+.tip-art .a-plus{stroke:#1A1C24;stroke-width:2.2;stroke-linecap:round}
+@keyframes art-blink{50%{opacity:0}}
+@keyframes art-march{to{stroke-dashoffset:-14}}
+@keyframes art-snip{0%,100%{transform:translateY(0) scale(1)}45%{transform:translateY(5px) scale(.9)}60%{transform:translateY(5px) scale(1.06)}}
+@keyframes art-slide{0%,15%{transform:translateX(0)}55%,80%{transform:translateX(56px)}100%{transform:translateX(0)}}
+@keyframes art-pop{0%,45%{transform:scale(0)}60%{transform:scale(1.3)}75%,100%{transform:scale(1)}}
+@keyframes art-pulse{50%{transform:scale(1.14)}}
+@keyframes art-pulse-line{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.tip-art *{animation:none!important}.tip,.tool-tile,.tool-btn{transition:none}}
+
+.tip-art .a-ripple{fill:none;stroke:var(--hl);stroke-width:2;transform-box:fill-box;transform-origin:center;animation:art-ripple 1.8s ease-out infinite}
+.tip-art .a-pointer{fill:var(--page);stroke:#1A1C24;stroke-width:1.2;stroke-linejoin:round;animation:art-press 1.8s ease-in-out infinite;transform-box:fill-box;transform-origin:0 0}
+.tip-art .a-playhead{stroke:var(--a1);stroke-width:2.4;stroke-linecap:round;animation:art-play 3.6s linear infinite}
+@keyframes art-ripple{0%{transform:scale(.4);opacity:1}100%{transform:scale(2.6);opacity:0}}
+@keyframes art-press{0%,100%{transform:translate(0,0)}15%{transform:translate(-1px,-1px) scale(.92)}}
+@keyframes art-play{0%{transform:translateX(0)}100%{transform:translateX(70px)}}
+
+/* ---------- the toolbar stays on one line: history is icons, the options wrap ---------- */
+.toolbar .hist{gap:5px;flex-wrap:nowrap}
+.toolbar .hist .secondary{width:34px;padding:0;justify-content:center}
+.toolbar .hist .secondary em{display:none}
+.toolbar .hist a.secondary{display:inline-grid;place-items:center;text-decoration:none;color:var(--ink)}
+.toolbar .hist a.secondary.disabled{opacity:.4;pointer-events:none}
+.tool-options .opt{flex-wrap:wrap;margin-left:0;row-gap:6px}
+.tool-options .opt .secondary{height:30px;padding:0 10px}
+/* tabs and history share the first line; the tool's note and options get the line under it */
+.toolbar>.document-tabs{order:1}
+.toolbar>.hist{order:2}
+.toolbar>.tool-options{order:3;flex:1 1 100%}
+.tool-note{flex:1 1 260px}
+
+/* the artist under the title: plain text that can be edited in place */
+.jartist{border-bottom:2px dashed transparent;outline:none;cursor:text;overflow-wrap:anywhere}
+.jartist:hover{border-bottom-color:var(--line)}
+.jartist:focus{border-bottom-color:var(--a1)}
+.jartist:empty::before{content:attr(data-placeholder);color:var(--faint)}
+.jartist+.jrest:not(:empty)::before{content:' \00b7  '}
+
+/* the key, in the banner beside the time signature */
+.key-box{display:grid;place-items:center;align-content:center;gap:3px;min-height:0;padding:0 14px;border:0;border-left:var(--bd) solid var(--ink);border-radius:0;background:var(--page);color:var(--ink);cursor:pointer;font:inherit;box-shadow:none}
+.key-box[hidden]{display:none}
+.key-box small{font:700 9px/1 var(--m);letter-spacing:.16em;text-transform:uppercase;color:var(--soft)}
+.key-box b{font:800 16px/1 var(--g);font-stretch:85%;white-space:nowrap}
+.key-box:hover{background:var(--hl);color:#1A1C24}
+.key-box:hover small{color:#1A1C24}
+
+/* page zoom indicator and the hand cursor while panning with the middle button */
+.zoom-pill{position:fixed;left:50%;bottom:150px;transform:translateX(-50%);padding:6px 14px;border:var(--bd) solid var(--ink);border-radius:999px;background:var(--hl);color:#1A1C24;font:800 13px var(--m);box-shadow:3px 3px 0 var(--ink);opacity:0;pointer-events:none;transition:opacity .2s;z-index:60}
+.zoom-pill.show{opacity:1;pointer-events:auto;cursor:pointer}
+body.panning,body.panning *{cursor:grabbing!important;user-select:none!important}

@@ -12,7 +12,10 @@ def test_application_has_shared_analysis_admission(tmp_path):
         assert hasattr(app,'rhythm'),'Optional rhythm proposal service missing'
         app.analysis.start=Mock(return_value={'kind':'analysis'})
         assert app.analyze('song',[])=={'kind':'analysis'}
-        app.analysis.start.assert_called_once_with('song',[])
+        app.analysis.start.assert_called_once_with('song',[],True,'keep')
+        app.analysis.start.reset_mock()
+        app.analyze('song',['transcription'],False,'replace')
+        app.analysis.start.assert_called_once_with('song',['transcription'],False,'replace')
     finally:app.close()
 
 def test_failed_admission_recovery_guidance_is_visible(tmp_path,monkeypatch):

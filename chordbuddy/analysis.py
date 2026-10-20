@@ -52,7 +52,9 @@ class AnalysisCoordinator:
         with self.lock:
             self.job.update(values);self.store.save_job(self.job)
 
-    def start(self,song_id,invalidate=()):
+    def start(self,song_id,invalidate=(),stems=True,edit_policy='keep'):
+        if type(stems) is not bool:raise ValueError('Invalid stems setting')
+        if edit_policy not in ('keep','replace'):raise ValueError('Invalid edit policy')
         if not isinstance(invalidate,(tuple,list)) or any(x not in {'source','separation','transcription','chart','rhythm'} for x in invalidate):raise ValueError('Invalid stage invalidation')
         validate_project(self.project)
         self.library.validate_song_paths(song_id)
@@ -61,10 +63,10 @@ class AnalysisCoordinator:
             self.owner=self.gate.try_acquire('analysis',song_id,'pending')
             self.job=None
             try:
-                self.source_hash=file_hash(self.library.source_path(song_id));self.invalidate=tuple(invalidate)
+                self.source_hash=file_hash(self.library.source_path(song_id));self.invalidate=tuple(invalidate);self.edit_policy=edit_policy
                 self.new_run_id=None
                 self.selected_transcription=None
-                self.job={'kind':'analysis','song_id':song_id,'status':'running','stage':'preparing','progress':None,'error':None,'stages':{}}
+                self.job={'kind':'analysis','song_id':song_id,'status':'running','stage':'preparing','progress':None,'error':None,'stages':{},'stems':stems}
                 self.cancelled.clear();self.terminal_error=None;self.store.create_job(self.job)
                 dependents={'source':('source','separation','transcription','chart','rhythm'),'separation':('separation','rhythm'),
                             'transcription':('transcription','chart','rhythm'),'chart':('chart',),'rhythm':('rhythm',)}
@@ -162,6 +164,9 @@ class AnalysisCoordinator:
         try:
             for kind in ('source','separation','transcription','chart'):
                 self.check_cancel();self._source_check()
+                if kind=='separation' and not self.job.get('stems',True):
+                    with self.lock:self.job['stages'][kind]={'status':'skipped'}
+                    continue
                 if kind=='chart' and 'transcription' not in completed:continue
                 self._state(stage=kind)
                 try:
@@ -271,7 +276,7 @@ class AnalysisCoordinator:
             manifest={'run_id':value['run_id'],'assets':[self._asset(root/'manifest.json')]+[self._asset(root/a['relative_path']) for a in value['assets']]}
         else:
             run=self.library.create_run(song_id);previous=self.library.song(song_id)['active_run']
-            (run/'run-options.json').write_text(json.dumps({'previous_run':previous,'edit_policy':'keep','metadata':self.library.song_metadata(song_id),'confidence':confidence_defaults()}))
+            (run/'run-options.json').write_text(json.dumps({'previous_run':previous,'edit_policy':getattr(self,'edit_policy','keep'),'metadata':self.library.song_metadata(song_id),'confidence':confidence_defaults()}))
             self.engine_result=None
             try:
                 self.engine.start(song_id,self.prepared,run,device);self.engine.wait();check_cancel();self._source_check()

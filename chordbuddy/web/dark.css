@@ -1,0 +1,53 @@
+/* The dark look. Each ink-colour theme keeps its own accents; paper, desk and ink swap places. Chosen with the sun/moon button
+   (or the computer's own setting until you choose). Printing is always the light paper look (see shell.js). */
+[data-theme="tomato"][data-scheme="dark"]{--desk:#16171C;--page:#21232A;--ink:#F3EEE1;--soft:#BDB8AC;--faint:#AAA7A1;--line:#F3EEE12B;--tint:#2F323B;
+  --a1:#FF6A45;--a2:#5E80FA;--a3:#3FCB9B;--hl:#FFD84A;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A;--a1t:var(--a1)}
+[data-theme="forest"][data-scheme="dark"]{--desk:#131915;--page:#1D2621;--ink:#EEEADB;--soft:#AFB8AE;--faint:#A5A59A;--line:#EEEADB2B;--tint:#29352F;
+  --a1:#F28A4E;--a2:#3D9170;--a3:#9DCC93;--hl:#F6C744;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A;--a1t:var(--a1)}
+[data-theme="plum"][data-scheme="dark"]{--desk:#16121A;--page:#221C28;--ink:#F3ECF0;--soft:#BCB0C0;--faint:#AAA3AA;--line:#F3ECF02B;--tint:#32293A;
+  --a1:#F05A7E;--a2:#8D68E2;--a3:#33C4B3;--hl:#FFCF5C;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A;--a1t:var(--a1)}
+
+[data-scheme="dark"]{color-scheme:dark}
+[data-scheme="dark"] ::selection{background:color-mix(in srgb,var(--a1) 55%,transparent);color:var(--ink)}
+
+/* things that had a fixed paper colour */
+[data-scheme="dark"] .settings-dialog{background:var(--page);color:var(--ink);border-color:var(--ink)}
+[data-scheme="dark"] .settings-dialog::backdrop,[data-scheme="dark"] dialog::backdrop{background:#000a}
+
+[data-scheme="dark"] .lead-run.editing{background:var(--page)}
+
+/* the lead sheet is drawn in the ink colour, so it follows the scheme by itself */
+
+/* the chart's tool art and tooltips use the ink as their paper, so they flip with it */
+[data-scheme="dark"] .tip{box-shadow:4px 4px 0 var(--a1)}
+
+
+/* highlight-yellow surfaces keep dark writing in the dark look (the ink there is light) */
+
+[data-scheme="dark"] :is(.song.active,.song-row.selected,.seg button.on,.fold:hover,.secondary:hover,.alert,.job-icon,.empty-state .big,.locked-panel .big,.lock-banner,.stem.soloed .solo,.rack .solo[aria-pressed="true"],.info-dot:hover,.info-dot[aria-expanded="true"],.rack .export-mix,button.chip.key:hover,.chart-notice,.bar-meter:not(.odd),.lane-tag.cur,.w.wnow,.wchip.ghost,.wchip.wnow,.beat-split:hover,.repeat-fold-option:hover:not(:disabled),.nowchord,.practice-position.outside,.tl-btn:hover,.ruler-toggle button:hover:not(.active),.speed button:hover:not(:disabled),.speed.slowed>span,.nav-lock>span,.cut-half .snip,.btn.hot:hover,.chunk.now .chord,.ending-chord.now){color:#1A1C24}
+[data-scheme="dark"] :is(.song.active,.song-row.selected,.seg button.on,.fold:hover,.secondary:hover,.alert,.job-icon,.empty-state .big,.locked-panel .big,.lock-banner,.stem.soloed .solo,.rack .solo[aria-pressed="true"],.info-dot:hover,.info-dot[aria-expanded="true"],.rack .export-mix,button.chip.key:hover,.chart-notice,.bar-meter:not(.odd),.lane-tag.cur,.w.wnow,.wchip.ghost,.wchip.wnow,.beat-split:hover,.repeat-fold-option:hover:not(:disabled),.nowchord,.practice-position.outside,.tl-btn:hover,.ruler-toggle button:hover:not(.active),.speed button:hover:not(:disabled),.speed.slowed>span,.nav-lock>span,.cut-half .snip,.btn.hot:hover,.chunk.now .chord,.ending-chord.now) *{color:#1A1C24}
+[data-scheme="dark"] .cut-half .snip .tool-ic{color:#1A1C24}
+
+/* older panels that painted themselves with fixed light colours (song search, MIDI editor, chord strip, drop overlay) */
+[data-scheme="dark"] #song-search{background:var(--page);color:var(--ink);border-color:var(--ink)}
+[data-scheme="dark"] .timeline{background:var(--desk)}
+
+
+
+
+
+[data-scheme="dark"] .drop-overlay{background:color-mix(in srgb,var(--desk) 94%,transparent)}
+[data-scheme="dark"] .document-empty>span{color:var(--faint)}
+[data-scheme="dark"] .progress-track{background:var(--tint)}
+[data-scheme="dark"] :is(.lock-banner,.alert) :is(button,.secondary){background:#FBF7EE;color:#1A1C24;border-color:#1A1C24}
+[data-scheme="dark"] .lock-banner .secondary:hover{background:var(--a1);color:#fff}
+[data-scheme="dark"] .lead-notation{background:var(--page)}
+
+
+/* dialogs (settings, models, attribution) */
+[data-scheme="dark"] .settings-dialog small,[data-scheme="dark"] .attribution-details dt,[data-scheme="dark"] .attribution-dialog>p:last-child{color:var(--soft)}
+[data-scheme="dark"] .previous-runs>div,[data-scheme="dark"] .attribution-details{border-color:var(--line)}
+
+[data-scheme="dark"] .settings-error{color:var(--a1)}
+[data-scheme="dark"] .attribution-details a{color:var(--hl)}
+
