@@ -7,7 +7,7 @@ Chord Buddy transcribes recordings with **SheetSage2** from the Music AI Project
 - Base model: [m-a-p/MERT-v2-FullSong](https://huggingface.co/m-a-p/MERT-v2-FullSong)
 - Weight license: [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)
 
-The included model license asks that attribution identify MERT2, the model name, and its source repository. Each new transcription stores this same model identity, revision, base model, license, and citation links in that run's `run-options.json`. This makes it possible to identify the engine used after the app is upgraded or files are exported.
+The included model license asks that attribution identify MERT2, the model name, and its source repository. Chord Buddy always uses these exact revisions. Each analysis records a fingerprint of the model files it used, so if the model ever changes, the next analysis of a song transcribes it again instead of mixing results from two versions.
 
 The SheetSage2 model card currently requests the YuE and MERT research citations for research use. The app's **Model & attribution** dialog links to those records and to the authoritative model cards. Chord Buddy uses the model to generate an editable draft from a recording; users remain responsible for reviewing the result and for any rights in the source recording or resulting materials.
 

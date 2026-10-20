@@ -416,7 +416,7 @@ function renderDocument(){
   $('download').classList.toggle('disabled',!record||record.dirty||record.saving||rawPending);if(record){$('download').href=mediaUrl(`/api/export/${encodeURIComponent(record.doc.id)}`);$('download').setAttribute('download','');}else $('download').removeAttribute('href');
   renderSaveStatus();renderTabs();renderPageHead();renderChips();syncModeUi();
   const confidence=record?.doc.music?.confidence;
-  const noteText=record?.doc.music?(confidence?.available?'Confidence indicators use model prediction certainty. Beat visibility updates when settings are saved; the raw beat grid is retained. '+(confidence.removed_beats?`${confidence.removed_beats} beat annotations were filtered during inference.`:''):'Confidence unavailable for this transcription. Reprocess the song to obtain beat and chord scores.'):'';
+  const noteText=record?.doc.music?(confidence?.available?'Fainter chord symbols on the lead sheet are ones the model was less sure of. A chord you type yourself is confirmed and drawn at full strength.'+(confidence.removed_beats?` ${confidence.removed_beats} uncertain beats were left out.`:''):'This analysis has no confidence scores. Choose Analyze again to get them.'):'';
   $('confidence-info').classList.toggle('hidden',!noteText);$('confidence-info').title=noteText;$('confidence-info').dataset.text=noteText;
   if(!record)return;
   if(record.doc.kind==='chart'){$('chart-editor').classList.remove('hidden');renderChart();}

@@ -46,7 +46,7 @@ Chord Buddy is a small Python 3.11 server (`chordbuddy/`) and a plain JavaScript
 - JavaScript tests: `node --test tests/*.test.mjs`
 - Python tests: `runtime\python.exe -m pytest -q tests`
 
-`docs/` describes the design and the musical layout rules.
+[docs/DESIGN.md](docs/DESIGN.md) explains how the app is put together, and [docs/MUSICAL-LAYOUT.md](docs/MUSICAL-LAYOUT.md) lists the musical rules the chart and lead sheet follow.
 
 ## Credits and licenses
 

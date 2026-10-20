@@ -1,25 +1,33 @@
-# Musical layout update
+# Musical layout rules
 
-Close and reopen Chord Buddy after installing this update.
+These are the rules the chord chart and the lead sheet follow. Any change to the chart, the lead sheet or playback should keep them true; the tests in `tests/` check most of them.
 
-## Chord charts
+## Bars and sections
 
-Charts now use the model's actual measures and beats. Sections start new systems, with four bars per line by default. Choose 2, 3, 4 or 8 bars and use the ↵ button on a bar for a custom system break. Narrow windows scroll whole systems rather than splitting measures.
+- Bars come from the beats and downbeats the model found in the recording, so tempo changes and short or long bars are kept. You can correct a bar line or the song's timing yourself; Chord Buddy does not invent bars where the recording gives it no rhythm.
+- Section blocks (Intro, Verse, Chorus…) show the song's real sections, with their names. A repeated chord progression inside a section is not a new section.
+- Sections that genuinely happen more than once, like two Choruses, stay as separate sections.
 
-Open **Place lyrics** under a section. Pick a line's start bar, end bar and starting beat, then click **Place line**. To refine it, select a word and click a beat or chord, or drag a word to a beat. The words following it stay together until you place another phrase. You can also select a chord and click a word, or drag the chord onto the word. No lyric timing is inferred.
+## Repeats
 
-Use **Unplace line** to start over. Editing a lyric line clears its placements; Undo restores the earlier text and placement. Section edits retain valid placements and unplace lines whose ranges no longer fit. Correcting a detected barline is separate from inserting a page break; corrections that invalidate a lyric placement ask you to unplace that line first.
+- Repeats are written inline, right after the last repeated chord: `G C D C (×2)`. They never appear in section headers, section blocks or the timeline.
+- If one pass ends differently, the chart shows the different ending.
+- While the music plays, the highlight and the playhead follow the actual pass through every repeat, including passes with uneven timing and changed endings.
+- Editing a folded chord edits the chord you clicked; the place you are editing does not move with playback.
 
-## Lead sheets
+## Silence
 
-The score defaults to vocal melody with chords, section headings and whole-bar systems. Toggle **Instrumental staff** to include accompaniment. Choose bars per system or a manual break.
+- Silence before the first chord and after the last one is hidden.
+- A break in the middle of the song (the model's "N", no chord) is shown as an empty space in the bar. Written rests and pickups before the first full bar are kept.
+- Hiding is only a matter of display: no chord data or history is deleted to hide it.
 
-Open the lyric controls, paste text and optionally separate syllables with hyphens. Select a word or syllable, then click its melody note, or choose a melody note and click **Place on selected note**. Click an already placed syllable to move it, or × to clear it. There is no automatic lyric placement. Melody source edits clear syllable placements that could refer to different notes; title and chord-label edits retain them.
+## Lyrics
 
-## Preservation and verification
+- The chart and the lead sheet share the same lyrics.
+- Words are timed to the beat, and timing never changes the order of the words.
+- Changing the text of a lyric line keeps the timing work already done on it.
 
-Chart, lead-sheet and MIDI edits remain independent, with persistent saves and Undo/Redo. Original model outputs, library and previous history are preserved. No dependencies were added. Measure timing must exist in the model output; the app does not invent bars when rhythm data is absent.
+## Playback
 
-Layout and lead-sheet syllables are saved in the app's document history. Chart JSON includes chart layout; ABC Download retains source notation and does not include the separate display engraving settings or manually placed syllables.
-
-Verified: 77 Python tests and 36 JavaScript tests; actual-song browser checks for manual word/phrase and note placement, system breaks, Undo/Redo, reopen persistence, independent documents, and wide/narrow systems. Verification used a copied library.
+- There is one clock and one scrubber for the chart, the lead sheet, the piano roll and the stems.
+- Panning and zooming never move the playback position. Seeking keeps playing if the music was playing, and stays paused if it was paused.
