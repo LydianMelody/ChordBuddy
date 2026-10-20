@@ -1,6 +1,6 @@
 import {effectiveMeasures,validatePlacements} from './chart-layout.js';
 import {secondsAtAddress} from './musical-grid.js';
-import {editChartChord,editChartSection,mergeAdjacentChartSections,reassignChartChords,validateChart} from './editor.js';
+import {deleteChartChord,editChartChord,editChartSection,mergeAdjacentChartSections,reassignChartChords,validateChart} from './editor.js';
 import {buildCompactChart,compactEditTargets} from './compact-chart.js';
 const clone=structuredClone;
 function losses(before,after){
@@ -37,6 +37,15 @@ export function planChartChordEdit(content,music,{chordId,label,startAddress=nul
   next=editChartChord(next,id,fields);
  }
  const conflicts=losses(content,next);return {candidate:conflicts.length?null:next,conflicts,affected:ids};
+}
+// Delete a chord (or the matching chords of every pass), the neighbours taking over its time. Same answer shape as planChartChordEdit.
+export function planChartChordDelete(content,music,{chordId,scope='occurrence',selection=null,view=null}){
+ const chartView=view||buildCompactChart(content,music);
+ if(!content.chords.some(c=>c.id===chordId))throw Error('Choose an existing chord.');
+ const ids=selection?compactEditTargets(chartView,{...selection,scope}).chordIds:[chordId];
+ let next=clone(content);for(const id of ids)next=deleteChartChord(next,id);
+ const conflicts=losses(content,next);if(!conflicts.length){const error=validateChart(next);if(error)throw Error(error);}
+ return {candidate:conflicts.length?null:next,conflicts,affected:ids};
 }
 export function planSectionEdit(content,music,{sectionId,operation,fields={}}){
  const measures=effectiveMeasures(music,content.layout),section=content.sections.find(s=>s.id===sectionId);if(!section)throw Error('Choose an existing section.');

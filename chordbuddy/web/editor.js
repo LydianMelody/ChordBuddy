@@ -171,6 +171,17 @@ export function editChartChord(content,id,fields) {
   Object.assign(chord,fields);return reassignChartChords(next);
 }
 
+// Deleting a chord hands its time to the chord beside it, so the chart shows no hole: the one before holds on, or, when nothing touches it
+// from before, the one after starts early. A chord with no neighbour touching it becomes a gap ("N").
+export function deleteChartChord(content,id) {
+  const next=structuredClone(content),index=next.chords.findIndex(chord=>chord.id===id),chord=next.chords[index];if(!chord)throw new Error('Chord not found.');
+  const previous=next.chords[index-1],following=next.chords[index+1],touching=(a,b)=>Math.abs(a-b)<1e-6;
+  if(previous&&touching(previous.end,chord.start)){previous.end=chord.end;next.chords.splice(index,1);}
+  else if(following&&touching(following.start,chord.end)){following.start=chord.start;next.chords.splice(index,1);}
+  else chord.label='N';
+  return reassignChartChords(next);
+}
+
 export function startChordAtMeasure(chords,id,measure) {
   const chord=(chords || []).find(item=>item.id===id),start=measure?.start,end=measure?.end;
   const noChord=label=>{const value=String(label??'').trim().toUpperCase().replace(/[\s.]/g,'');return !value||value==='N'||value==='NC'||value==='NOCHORD';};

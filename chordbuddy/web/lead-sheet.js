@@ -9,6 +9,7 @@ import {TOOLS,toolIcon} from './tool-icons.js';
 import {LEAD_GROUPS,LEAD_NAMES,LEAD_DEFAULT,LEAD_FOR_KEY,EXTERNAL} from './lead-tool-info.js';
 import {shiftSteps,toggleAccidental,toRest,editNoteInContent,noteName} from './lead-edit.js';
 import {tuneToMusicXml,exportFileName} from './musicxml.js';
+import {spellChord} from './spelling.js';
 import {usualBeats,meterOf} from './bar-lengths.js';
 
 // Link the score's source-order measures to recording time.  This is a
@@ -570,7 +571,7 @@ function createView(container){
         }catch{/* not drawn yet */}
       }
       analysis.notes.forEach((note,index)=>{const node=drawnNotes.get(note.startChar);if(node)node.dataset.scoreNoteIndex=String(index);});
-      for(const group of notation.querySelectorAll('.abcjs-chord')){const chord=content.chords?.find(c=>group.textContent.trim().startsWith(c.label));if(chord)group.style.opacity=String(chordOpacity(chord,options.music,options.settings));}
+      for(const group of notation.querySelectorAll('.abcjs-chord')){const chord=content.chords?.find(c=>{const shown=group.textContent.trim();return shown.startsWith(c.label)||shown.startsWith(spellChord(c.label));});if(chord)group.style.opacity=String(chordOpacity(chord,options.music,options.settings));}
       markSelection();paintLyricEditors();paintBreakChips();
       root.dataset.tool=tool;
     }catch(error){say(`The notation could not be rendered: ${error.message}`);options.onError?.(error);}
@@ -582,12 +583,12 @@ function createView(container){
     let list=root.querySelector('#lead-chord-list');
     if(!list){list=el('datalist');list.id='lead-chord-list';for(const name of CHORD_SUGGESTIONS){const o=el('option');o.value=name;list.append(o);}root.append(list);}
     const box=node.getBoundingClientRect(),frame=notation.getBoundingClientRect(),k=frame.width/(notation.offsetWidth||frame.width)||1;
-    const input=el('input','lead-chord-input');input.value=chord.label;input.setAttribute('list','lead-chord-list');input.setAttribute('aria-label','Chord');input.autocomplete='off';input.spellcheck=false;
+    const input=el('input','lead-chord-input');input.value=spellChord(chord.label);input.setAttribute('list','lead-chord-list');input.setAttribute('aria-label','Chord');input.autocomplete='off';input.spellcheck=false;
     input.style.left=Math.round((box.left-frame.left)/k-15)+'px';input.style.top=Math.round((box.top-frame.top)/k-5)+'px';input.style.width=Math.max(64,Math.round(box.width/k)+30)+'px';input.style.height=Math.round(box.height/k+10)+'px';
     let done=false;
     const finish=keep=>{
       if(done)return;done=true;input.remove();
-      if(!keep||input.value.trim()===chord.label)return;
+      if(!keep||input.value.trim()===chord.label||input.value.trim()===spellChord(chord.label))return;
       Promise.resolve(options.onChord?.(chord.id,input.value)).catch(error=>{say(error?.message||String(error));options.onError?.(error);});
     };
     input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();finish(true);}else if(event.key==='Escape'){event.preventDefault();event.stopPropagation();finish(false);}else event.stopPropagation();};

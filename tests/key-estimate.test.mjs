@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {estimateKey,parseChord,keyName,KEY_CHOICES} from '../chordbuddy/web/key-estimate.js';
+import {estimateKey,parseKeyLab,parseChord,keyName,KEY_CHOICES} from '../chordbuddy/web/key-estimate.js';
 
 const song=labels=>labels.map((label,i)=>({label,start:i*2,end:i*2+2}));
 
@@ -10,6 +10,9 @@ test('chord names are read as a root and major/minor/diminished', () => {
   assert.deepEqual(parseChord('Bb:maj7'),{pitch:10,quality:'maj'});
   assert.deepEqual(parseChord('G7/B'),{pitch:7,quality:'maj'});
   assert.deepEqual(parseChord('Bdim'),{pitch:11,quality:'dim'});
+  assert.deepEqual(parseChord('A#sus2'),{pitch:10,quality:'sus'});
+  assert.deepEqual(parseChord('Dsus4/A'),{pitch:2,quality:'sus'});
+  assert.deepEqual(parseChord('G7sus4'),{pitch:7,quality:'sus'});
   assert.equal(parseChord('N'),null);
 });
 
@@ -33,4 +36,27 @@ test('longer chords count for more, and nothing to go on gives no key', () => {
 test('keys are named the way players write them and every key can be chosen', () => {
   assert.equal(keyName(10,'major'),'Bb major');assert.equal(keyName(6,'major'),'F# major');assert.equal(keyName(0,'minor'),'C minor');
   assert.equal(KEY_CHOICES.length,24);assert.equal(new Set(KEY_CHOICES).size,24);
+});
+
+test("the analysis model's key.lab gives the key, and the key it holds longest wins", () => {
+  assert.equal(parseKeyLab('0.01\t23.85\tF:minor\n').label,'F minor');
+  assert.equal(parseKeyLab('0\t10\tBb:major\n').label,'Bb major');
+  assert.equal(parseKeyLab('0\t10\tF#:min\n').label,'F# minor');
+  assert.equal(parseKeyLab('0\t20\tC:major\n20\t30\tA:minor\n30\t50\tC:major\n').label,'C major');
+  assert.equal(parseKeyLab('0\t5\tN\n'),null);
+  assert.equal(parseKeyLab(''),null);
+});
+
+test('a song whose Bb chords are heard as Bb major (a Dorian-flavored F minor) is still F minor by the model, though a chart with plain Bb major chords says Eb major', () => {
+  const chords=[['Fm',.7],['A#sus2',.7],['D#',1.4],['Fm',.7],['A#sus2',.7],['C#',1.4],['Fm',.7],['A#sus2',.7],['D#',1.4],['G#',.7],['D#/F##',.4]];
+  let at=2;const heard=chords.map(([label,length])=>({label,start:at,end:at+=length}));
+  assert.equal(estimateKey(heard.map(c=>c.label==='A#sus2'?{...c,label:'A#'}:c)).label,'Eb major');
+  assert.equal(parseKeyLab('0.01\t23.85\tF:minor\n').label,'F minor');
+});
+
+test('a suspended chord counts by its root only: it has no third, so it cannot make a key major or minor', () => {
+  const chords=[['Fm',.7],['A#sus2',.7],['D#',1.4],['Fm',.7],['A#sus2',.7],['C#',1.4],['Fm',.7],['A#sus2',.7],['D#',1.4],['G#',.7],['D#/F##',.4]];
+  let at=2;const heard=chords.map(([label,length])=>({label,start:at,end:at+=length}));
+  assert.equal(estimateKey(heard).label,'F minor');
+  assert.equal(estimateKey(song(['Csus2','Gsus4','Asus2','Fsus2','Csus2','Gsus4'])).tonic,0);
 });

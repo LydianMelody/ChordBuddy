@@ -20,7 +20,8 @@ import {openSongTiming,openReprocess,openModelAttribution} from './settings-view
 import {effectiveMeasures, isNoChordLabel} from './chart-layout.js';
 import {icon} from './icons.js';
 import {prefs} from './prefs.js';
-import {estimateKey,KEY_CHOICES} from './key-estimate.js';
+import {estimateKey,parseKeyLab,KEY_CHOICES} from './key-estimate.js';
+import {setKeySpelling,spellChord,spellAbc} from './spelling.js';
 import {onsetsFromNotes} from './word-layout.js';
 import {mountModelsPanel,mountChordModelPanel} from './models-view.js';
 import {mountDeskBars,combinedZoom} from './desk-bars.js';
@@ -136,6 +137,14 @@ document.addEventListener('keydown',event=>{
  if(event.repeat)return;
  if(transport.getSnapshot().playIntent)transport.pause();else transport.play().catch(showError);
 },true);
+// Ctrl+Z undoes and Ctrl+Shift+Z (or Ctrl+Y) redoes, as the buttons do. Not while typing, where the text box has its own undo, nor under a dialog.
+document.addEventListener('keydown',event=>{
+ if(!(event.ctrlKey||event.metaKey)||event.altKey||event.defaultPrevented)return;
+ const key=String(event.key).toLowerCase(),redo=(key==='z'&&event.shiftKey)||(key==='y'&&!event.shiftKey);
+ if(!redo&&!(key==='z'&&!event.shiftKey))return;
+ if(typingTarget(event.target)||document.querySelector('dialog[open]'))return;
+ const button=$(redo?'redo':'undo');event.preventDefault();if(!button.disabled)button.click();
+});
 document.addEventListener('keyup',event=>{if(spaceHandled&&(event.key===' '||event.code==='Space')){event.preventDefault();spaceHandled=false;}},true);
 // Export PDF prints the Navigate page: the finished, readable chart.
 window.addEventListener('beforeprint',()=>{if(practiceView.getMode()!=='nav')practiceView.setMode('nav');});
@@ -266,7 +275,7 @@ function renderLock(){
 function renderChips(){renderKeyBoxes();}   // the song's details live in each page's banner now; there are no pills in the header
 // The key sits in each page's banner, beside the time signature. Click it to choose another.
 function renderKeyBoxes(){
-  const key=songKey();
+  const key=songKey();setKeySpelling(key.label);
   for(const head of document.querySelectorAll('.jhead')){
     let box=head.querySelector('.key-box');
     if(!box){
@@ -276,15 +285,26 @@ function renderKeyBoxes(){
     }
     box.hidden=!key.label;
     box.querySelector('b').textContent=key.label||'';
-    box.title=key.custom?'Key set by you. Click to change it.':'Estimated from the chords. Click to change it.';
+    box.title=key.custom?'Key set by you. Click to change it.':key.fromModel?'Found by the analysis. Click to change it.':'Estimated from the chords. Click to change it.';
     box.setAttribute('aria-label','Key of this song: '+(key.label||'unknown')+'. Click to change it.');
   }
 }
-// The key is guessed from the chords; the player's own choice is remembered with the library and wins.
+// The key is the analysis model's own (its key.lab); a song without one gets a guess from its chords. The player's own choice is remembered
+// with the library and wins.
 function songKey(){
-  const chords=(currentContent()?.chords||chartRecord()?.doc.content?.chords||[]).filter(chord=>!isNoChordLabel(chord.label)),estimate=estimateKey(chords);
+  const found=model.modelKey?.song===model.song?model.modelKey.key:null;
+  const chords=(currentContent()?.chords||chartRecord()?.doc.content?.chords||[]).filter(chord=>!isNoChordLabel(chord.label)),estimate=found||estimateKey(chords);
   const saved=prefs.get('cb-key:'+model.song,''),custom=KEY_CHOICES.includes(saved);
-  return {estimate,custom,label:custom?saved:estimate?.label||null};
+  return {estimate,custom,fromModel:!!found,label:custom?saved:estimate?.label||null};
+}
+async function loadModelKey(detail,songId){
+  const doc=detail.documents.find(item=>/(^|\/)key\.lab$/.test(item.name));
+  if(!doc){model.modelKey={song:songId,doc:null,key:null};return;}
+  if(model.modelKey?.song===songId&&model.modelKey.doc===doc.id)return;
+  try{
+    const full=await api('/api/document/'+encodeURIComponent(doc.id));if(model.song!==songId)return;
+    model.modelKey={song:songId,doc:doc.id,key:parseKeyLab(full.content?.text)};renderChips();renderChart();if(currentRecord()?.doc.kind==='abc')renderAbc();
+  }catch{model.modelKey={song:songId,doc:doc.id,key:null};}
 }
 function openKeyMenu(chip){
   const pop=$('key-pop'),key=songKey();closeInfo();
@@ -292,7 +312,7 @@ function openKeyMenu(chip){
   const auto=element('option','','Estimated'+(key.estimate?': '+key.estimate.label:''));auto.value='';select.append(auto);
   for(const name of KEY_CHOICES){const option=element('option','',name);option.value=name;select.append(option);}
   select.value=key.custom?key.label:'';
-  select.onchange=()=>{prefs.set('cb-key:'+model.song,select.value);closeInfo();renderChips();};
+  select.onchange=()=>{prefs.set('cb-key:'+model.song,select.value);closeInfo();renderChips();renderChart();if(currentRecord()?.doc.kind==='abc')renderAbc();};
   pop.replaceChildren(element('label','','Key of this song'),select);
   const box=chip.getBoundingClientRect();pop.style.top=(box.bottom+8)+'px';pop.style.left=Math.max(8,box.left)+'px';pop.classList.remove('hidden');select.focus();
 }
@@ -363,7 +383,7 @@ async function selectSong(id){
   playbackGate.block('Checking analysis.');player.setWaveformRun(null);practiceViewport=null;practiceData=null;player.setPractice({music:{measures:[]},projection:null,viewport:null});separationDetail=null;model.readinessChecked=false;model.song=id;model.detail=null;model.document=null;
   clearError();renderLibrary();renderControls();renderDocument();renderLock();
   await transport.loadSong({songId:id,originalUrl:mediaUrl('/api/audio/'+encodeURIComponent(id)),separation:null});player.setNow({chord:'—',next:''});await refreshSeparation();if(request!==model.loadingSong)return;
-  try{const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(request!==model.loadingSong)return;model.detail=detail;renderTabs();loadMelody(detail,id);if(shownDocs(detail).length)await selectDocument(shownDocs(detail)[0].id);else renderDocument();if(detail.song.error)showError(analysisErrorMessage(detail.song.error,!!detail.song.active_run));}catch(error){if(request===model.loadingSong)showError(error);}
+  try{const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(request!==model.loadingSong)return;model.detail=detail;renderTabs();loadMelody(detail,id);loadModelKey(detail,id);if(shownDocs(detail).length)await selectDocument(shownDocs(detail)[0].id);else renderDocument();if(detail.song.error)showError(analysisErrorMessage(detail.song.error,!!detail.song.active_run));}catch(error){if(request===model.loadingSong)showError(error);}
 }
 // The vocal melody (a MIDI output of the analysis): its notes are drawn faintly behind the Time tool's bars, and their starts are
 // the first guess for where words fall.
@@ -383,7 +403,7 @@ async function keepDeskPlace(fn){
   try{await fn();}finally{if(desk&&(top||left))desk.scrollTo({top,left,behavior:'instant'});}
 }
 async function refreshSongDetail(id,force=false){
-  const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(model.song!==id)return;model.detail=detail;renderTabs();loadMelody(detail,id);
+  const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(model.song!==id)return;model.detail=detail;renderTabs();loadMelody(detail,id);loadModelKey(detail,id);
   if(!model.document && shownDocs(detail).length)await selectDocument(shownDocs(detail)[0].id);
   else if(model.document && shownDocs(detail).length && !detail.documents.some(doc=>doc.id===model.document) && !currentRecord()?.dirty && !currentRecord()?.saving)await selectDocument(shownDocs(detail)[0].id);
   else if(force && model.document&&!practiceView.hasDraft()){const record=currentRecord();if(!record?.dirty&&!record?.saving){await keepDeskPlace(async()=>{model.documents.delete(model.document);await selectDocument(model.document);});}}
@@ -441,7 +461,8 @@ function renderAbc(){
   if(document.activeElement!==$('score-title'))$('score-title').textContent=song?.title||'';
   setSub($('score-sub'),[record.doc.music?.timing?.bpm?`♩ = ${Math.round(record.doc.music.timing.bpm)}`:null,'arranged in Chord Buddy']);
   const meter=record.doc.music?.measures?.[0]?.meter,box=$('score-meter');box.hidden=!meter;box.replaceChildren();if(meter)box.append(String(meter[0]),document.createElement('hr'),String(meter[1]));
-  leadView=renderLeadSheet($('score'),{key:model.document,content,music:record.doc.music,title:song?.title,artist:song?.artist,settings:model.state.settings,
+  setKeySpelling(songKey().label);
+  leadView=renderLeadSheet($('score'),{key:model.document,content:{...content,abc:spellAbc(content.abc,content.chords)},music:record.doc.music,title:song?.title,artist:song?.artist,settings:model.state.settings,
     dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),frozen:readFrozen(song?.id),
     onSeek:seconds=>transport.seek(seconds),onExternal:sendToExternalEditor,
     onFreeze:snapshot=>{writeFrozen(song.id,snapshot);renderAbc();},onUnfreeze:()=>{writeFrozen(song.id,null);renderAbc();},
@@ -508,7 +529,7 @@ function renderChart(){
  $('suggest').disabled=!hasMelody;$('suggest').checked=hasMelody&&prefs.get('cb-suggest','1')!=='0';
  $('suggest-wrap').classList.toggle('off',!hasMelody);$('suggest-wrap').title=hasMelody?'Shows the sung melody faintly behind the bars, and places words you have not pinned on its notes as a first guess. Drag a word to pin it.':'No vocal melody was found for this song.';
  practiceView.showTools();
- practiceView.update({documentId:r.doc.id,revision:r.doc.revision,songId:model.song,content,music,transport:transport.getSnapshot(),viewport:practiceViewport,onsets,suggest:$('suggest').checked,melody:$('suggest').checked&&model.melody?.song===model.song?model.melody.notes:null});
+ setKeySpelling(songKey().label);practiceView.update({key:songKey().label,documentId:r.doc.id,revision:r.doc.revision,songId:model.song,content,music,transport:transport.getSnapshot(),viewport:practiceViewport,onsets,suggest:$('suggest').checked,melody:$('suggest').checked&&model.melody?.song===model.song?model.melody.notes:null});
  updatePracticePlayer();
 }
 async function confirmChordOverride(chord,label,start,end){
@@ -518,7 +539,7 @@ async function confirmChordOverride(chord,label,start,end){
 }
 function refreshChartMusic(){try{renderChart();}catch(e){showError(e);}}
 function nowAndNext(chords,chord,time){
-  const label=c=>c&&!isNoChordLabel(c.label)?displayChordLabel(c.label):'';
+  const label=c=>c&&!isNoChordLabel(c.label)?spellChord(displayChordLabel(c.label)):'';
   const current=label(chord);
   const upcoming=[...chords].filter(c=>c.start>time&&label(c)&&label(c)!==current).sort((a,b)=>a.start-b.start)[0];
   return {chord:current||'—',next:label(upcoming)};

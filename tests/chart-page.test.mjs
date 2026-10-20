@@ -159,7 +159,13 @@ test('Edit: "All matching" applies the change to every pass of the progression',
 test('Edit: Esc and an unchanged chord write nothing', async () => {
   const m=editChordSetup();let input=openChord(m);input.value='D';press(input,'Escape');await tick();assert.equal(m.commits.length,0);assert.equal(m.view.hasDraft(),false);
   input=openChord(m);input.onblur();await tick();assert.equal(m.commits.length,0);               // blur without a change keeps the chord
-  input=openChord(m);input.value='   ';press(input,'Enter');await tick();assert.equal(m.commits.length,0);
+  input=openChord(m);input.value='';input.onblur();await tick();assert.equal(m.commits.length,0);    // an emptied box that is left, not confirmed, keeps the chord
+});
+
+test('Edit: Enter on an emptied chord box deletes the chord, and the chord next to it takes its time', async () => {
+  const m=editChordSetup(),before=m.commits.length,input=openChord(m);input.value='  ';press(input,'Enter');await tick();
+  assert.equal(m.commits.length,before+1);assert.equal(m.commits.at(-1).label,'Delete chord');
+  assert.equal(m.commits.at(-1).candidate.chords.length,fixture().content.chords.length-1);
 });
 
 test('Edit: an open edit is never lost to playback updates or a redraw of the same chart', () => {

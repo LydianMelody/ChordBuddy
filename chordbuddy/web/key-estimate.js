@@ -13,7 +13,8 @@ export function parseChord(label){
   const match=/^([A-G])([#b]{0,2})(.*)$/.exec(String(shown||''));if(!match)return null;
   let pitch=PITCH[match[1]];for(const c of match[2])pitch+=c==='#'?1:-1;
   const rest=match[3].split('/')[0];
-  const quality=/^dim|^m7b5|^hdim/.test(rest)?'dim':/^m(?!aj)|^min/.test(rest)?'min':'maj';
+  // a suspended chord has no third to say major or minor (its 2nd or 4th takes the third's place), so only its root is used
+  const quality=/^(?:\d+)?sus/.test(rest)?'sus':/^dim|^m7b5|^hdim/.test(rest)?'dim':/^m(?!aj)|^min/.test(rest)?'min':'maj';
   return {pitch:((pitch%12)+12)%12,quality};
 }
 
@@ -38,12 +39,12 @@ export function estimateKey(chords){
   for(let tonic=0;tonic<12;tonic++)for(const [mode,table] of [['major',MAJOR_KEY],['minor',MINOR_KEY]]){
     let score=0;
     for(const chord of heard){
-      const hit=table.find(([step,quality])=>(tonic+step)%12===chord.pitch&&quality===chord.quality);
+      const hit=table.filter(([step,quality])=>(tonic+step)%12===chord.pitch&&(chord.quality==='sus'||quality===chord.quality)).sort((a,b)=>b[2]-a[2])[0];
       score+=hit?chord.length*hit[2]:-chord.length*.35;
     }
     // the song usually begins and ends on its tonic
     const [first,last]=[heard[0],heard.at(-1)];
-    for(const edge of [first,last])if(edge.pitch===tonic&&edge.quality===(mode==='minor'?'min':'maj'))score+=heard.reduce((n,c)=>n+c.length,0)*.04;
+    for(const edge of [first,last])if(edge.pitch===tonic&&(edge.quality==='sus'||edge.quality===(mode==='minor'?'min':'maj')))score+=heard.reduce((n,c)=>n+c.length,0)*.04;
     if(!best||score>best.score+1e-9)best={score,tonic,mode};
   }
   return {tonic:best.tonic,mode:best.mode,label:keyName(best.tonic,best.mode)};
@@ -51,3 +52,17 @@ export function estimateKey(chords){
 
 // Every key a player can pick, for the chip's menu.
 export const KEY_CHOICES=[...Array(12).keys()].flatMap(tonic=>[keyName(tonic,'major'),keyName(tonic,'minor')]);
+
+// The analysis model's own key (key.lab: "start<TAB>end<TAB>F:minor" per line) -> {tonic,mode,label}, the key it holds longest, or null.
+export function parseKeyLab(text){
+  const spans=new Map();
+  for(const line of String(text||'').split(/\r?\n/)){
+    const [start,end,name]=line.trim().split(/\s+/);
+    const match=/^([A-G])([#b]{0,2}):(maj(?:or)?|min(?:or)?)/i.exec(name||'');if(!match)continue;
+    let tonic=PITCH[match[1]];for(const c of match[2])tonic+=c==='#'?1:-1;
+    tonic=((tonic%12)+12)%12;const mode=/^maj/i.test(match[3])?'major':'minor',id=tonic+mode;
+    spans.set(id,{tonic,mode,length:(spans.get(id)?.length||0)+Math.max(0,Number(end)-Number(start))||0});
+  }
+  const best=[...spans.values()].sort((a,b)=>b.length-a.length)[0];
+  return best?{tonic:best.tonic,mode:best.mode,label:keyName(best.tonic,best.mode)}:null;
+}

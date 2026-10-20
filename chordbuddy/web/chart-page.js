@@ -8,9 +8,10 @@
 import {buildChartModel,playbackTarget} from './chart-model.js';
 import {isNoChordLabel} from './chart-layout.js';
 import {currentWordIndex} from './word-layout.js';
-import {planChartChordEdit,planSectionEdit} from './practice-edit.js';
+import {planChartChordDelete,planChartChordEdit,planSectionEdit} from './practice-edit.js';
 import {addressAtSeconds} from './musical-grid.js';
 import {addChartChord} from './editor.js';
+import {spellChord} from './spelling.js';
 import {applyCompactFold,applyCompactRange,compactRangeChoices,compactEditTargets,compactFoldChoices,compactJumpTargets,hasCompactPreferences,resetCompactPreferences} from './compact-chart.js';
 import {planPageEdit} from './chart-edits.js';
 import {applyRows} from './row-layout.js';
@@ -65,7 +66,7 @@ export function mountChartPage(root,handlers={}){
 
   // ======================= rendering =======================
   // no chord (a break in the music) is simply a gap; in the Write tool the gap can still be clicked to type a chord there
-  function chordLabel(chunk){if(isNoChordLabel(chunk.label))return '';return chunk.continued?'('+chunk.label+')':chunk.label;}
+  function chordLabel(chunk){if(isNoChordLabel(chunk.label))return '';const shown=spellChord(chunk.label);return chunk.continued?'('+shown+')':shown;}
   function renderChord(g,bar,chunk){
     const holder=el('span','chord-line'),b=el('button','chord'+(isNoChordLabel(chunk.label)?' rest':''),chordLabel(chunk));b.type='button';b.dataset.chunk=chunk.key;
     b.title=mode==='edit'?'Type a new chord':'';
@@ -364,24 +365,26 @@ export function mountChartPage(root,handlers={}){
   function startChordEdit(g,chunk,button){
     if(blocked()||!chunk.chordId)return;
     if(handlers.canEdit?.()===false){message.textContent='Wait for the save, or reload the chart before editing again.';return;}
-    const input=el('input','chord-input');input.value=chunk.label==='?'||isNoChordLabel(chunk.label)?'':chunk.label;input.setAttribute('list','chord-list');input.setAttribute('aria-label','Chord');input.size=Math.max(3,input.value.length+1);
+    const input=el('input','chord-input');input.value=chunk.label==='?'||isNoChordLabel(chunk.label)?'':spellChord(chunk.label);input.setAttribute('list','chord-list');input.setAttribute('aria-label','Chord');input.defaultValue=input.value;input.size=Math.max(3,input.value.length+1);
     draft={kind:'chord',node:input,dirty:false,failed:false};
     button.replaceWith?.(input);if(!button.replaceWith){button.parent?.children.splice(button.parent.children.indexOf(button),1,input);}
     let done=false;
-    const finish=async(save)=>{
+    // Enter on an empty box deletes the chord; leaving an empty box any other way (Esc, a click elsewhere) changes nothing.
+    const finish=async(save,remove=false)=>{
       if(done)return;done=true;const value=input.value.trim();draft=null;
-      const same=value===(chunk.label==='?'?'':chunk.label);
-      if(!save||same||!value){render();notify();return;}
+      const same=value===(chunk.label==='?'?'':spellChord(chunk.label))||value===(chunk.label==='?'?'':chunk.label);
+      if(!save||(!remove&&(same||!value))){render();notify();return;}
       try{
         const pass=passForEdit(g),occ=occurrenceFor(g.id,chunk.slotId,pass)||chunk.occurrence;
-        const result=planChartChordEdit(data.content,data.music,{chordId:occ.chordId,label:value,scope,selection:{groupId:g.id,slotId:chunk.slotId,passNumber:occ.passNumber,chordId:occ.chordId},view:model.projection});
+        const target={chordId:occ.chordId,scope,selection:{groupId:g.id,slotId:chunk.slotId,passNumber:occ.passNumber,chordId:occ.chordId},view:model.projection};
+        const result=remove?planChartChordDelete(data.content,data.music,target):planChartChordEdit(data.content,data.music,{...target,label:value});
         if(result.conflicts.length){fail(Error(result.conflicts[0].message));render();return;}
-        await commitPlain(result.candidate,scope==='all-matching'?'Edit chords in matching passes':'Edit chord');
+        await commitPlain(result.candidate,remove?(scope==='all-matching'?'Delete chords in matching passes':'Delete chord'):scope==='all-matching'?'Edit chords in matching passes':'Edit chord');
       }catch(e){fail(e);}
       render();
     };
     input.oninput=()=>{draft.dirty=true;input.size=Math.max(3,input.value.length+1);};
-    input.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault?.();finish(true);}else if(e.key==='Escape'){e.preventDefault?.();finish(false);}};
+    input.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault?.();finish(true,!input.value.trim()&&!!input.defaultValue);}else if(e.key==='Escape'){e.preventDefault?.();finish(false);}};
     input.onblur=()=>finish(true);
     input.focus();input.select?.();notify();
   }
@@ -607,7 +610,7 @@ export function mountChartPage(root,handlers={}){
     hasDraft:()=>!!draft?.dirty,hasPendingSave:()=>saving||!!draft?.dirty,canNavigate:()=>!blocked(),
     updatePlayback,
     update(value){
-      const nextKey=JSON.stringify([value.documentId,value.revision,value.content,value.music,!!value.suggest,value.onsets?.length||0,value.onsets?.[0],value.melody?.length||0]);
+      const nextKey=JSON.stringify([value.documentId,value.revision,value.content,value.music,!!value.suggest,value.onsets?.length||0,value.onsets?.[0],value.melody?.length||0,value.key||null]);
       if(data?.documentId!==value.documentId){if(draft?.dirty)return;key=null;for(const k of Object.keys(targetPass))delete targetPass[k];for(const k of Object.keys(seekPass))delete seekPass[k];}
       data=value;
       if(nextKey!==key&&!draft&&!saving){key=nextKey;render();}else updatePlayback(value.transport);

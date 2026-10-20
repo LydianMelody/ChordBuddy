@@ -7,6 +7,7 @@ import {placeWord} from './chart-layout.js';
 import {isFixed,dragLimits,allowedTime,nearestAllowed,previewTimes,barWidthsAtZoom,staggerRows,barTargets,nearestTarget,beatToX,beatPx,SNAPS,autoSnap} from './timing-geometry.js';
 import {planPageEdit} from './chart-edits.js';
 import {icon} from './icons.js';
+import {spellChord} from './spelling.js';
 
 const el=(tag,cls='',text)=>{const n=document.createElement(tag);n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 const finite=Number.isFinite;
@@ -60,7 +61,7 @@ export function createTiming(env){
     // widths: chord labels and each lyric line are separate lanes of items
     const chordItems=[],wordLanes=placedLanes.map(()=>[]);
     for(const bar of g.bars)for(const chunk of bar.chunks){
-      const a=beatOfSeconds(measures,chunk.start);if(a&&a.measureId===bar.id)chordItems.push({barId:bar.id,beat:a.beat,width:textWidth(chunk.label,'800 25px "Bricolage Grotesque"',22)});
+      const a=beatOfSeconds(measures,chunk.start);if(a&&a.measureId===bar.id)chordItems.push({barId:bar.id,beat:a.beat,width:textWidth(spellChord(chunk.label),'800 25px "Bricolage Grotesque"',22)});
     }
     placedLanes.forEach((lane,i)=>{
       for(const t of lane.tokens){
@@ -82,7 +83,7 @@ export function createTiming(env){
       for(const chunk of bar.chunks){
         const a=beatOfSeconds(measures,chunk.start),cell=el('span','chunk tchord');cell.dataset.chunk=chunk.key;
         cell.style.left=(n&&a?beatToX(a.beat,width,n):0)+'px';
-        const chord=el('span','chord',chunk.continued?'('+chunk.label+')':chunk.label);cell.append(chord);
+        const chord=el('span','chord',chunk.continued?'('+spellChord(chunk.label)+')':spellChord(chunk.label));cell.append(chord);
         if(chunk.repeat>1)cell.append(el('span','repeat','(×'+chunk.repeat+')'));
         chords.append(cell);refs.chunks.push({node:cell,group:g,chunk});
       }
