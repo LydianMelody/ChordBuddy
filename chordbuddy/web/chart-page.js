@@ -16,7 +16,7 @@ import {planPageEdit} from './chart-edits.js';
 import {applyRows} from './row-layout.js';
 import {beatsLabel} from './bar-lengths.js';
 import {createTiming} from './chart-timing.js';
-import {DEFAULT_ZOOM,DEFAULT_SNAP,stepZoom,ZOOM_LEVELS} from './timing-geometry.js';
+import {DEFAULT_ZOOM,stepZoom,ZOOM_LEVELS,autoSnap} from './timing-geometry.js';
 import {TOOLS,TOOL_GROUPS,TOOL_NAMES,DEFAULT_TOOL,MODE_OF,TOOL_FOR_KEY,toolCursor,toolIcon} from './tool-icons.js';
 import {renderRail,watchRail} from './tool-rail.js';
 
@@ -31,7 +31,7 @@ const joinWords=tokens=>tokens.map((t,i)=>t.text+(i<tokens.length-1&&!t.text.end
 export function mountChartPage(root,handlers={}){
   const fixing={a:null,b:null};                      // the bars picked with the Repeat tool
   let fixSel={ids:new Set()},tool=DEFAULT_TOOL;
-  let data=null,model=null,key=null,mode='nav',scope='occurrence',snap=DEFAULT_SNAP,zoom=DEFAULT_ZOOM,draft=null,saving=false,last=null;
+  let data=null,model=null,key=null,mode='nav',scope='occurrence',snapping=true,zoom=DEFAULT_ZOOM,draft=null,saving=false,last=null;
   const targetPass={},seekPass={};let pendingName=null;
   let refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[]},occById=new Map();
   // The tool rail and the note beside it live outside the chart (the app hands in elements for them); on its own the page makes its own.
@@ -42,7 +42,7 @@ export function mountChartPage(root,handlers={}){
   const suggestions=el('datalist');suggestions.id='chord-list';for(const c of CHORD_SUGGESTIONS){const o=el('option');o.value=c;suggestions.append(o);}
 
   const timing=createTiming({
-    getData:()=>data,getModel:()=>model,getSnap:()=>snap,getZoom:()=>zoom,tool:()=>tool,get refs(){return refs;},
+    getData:()=>data,getModel:()=>model,getSnap:()=>snapping?autoSnap(zoom):'free',getZoom:()=>zoom,tool:()=>tool,get refs(){return refs;},
     editBars:handlers.onBarEdit?change=>Promise.resolve(handlers.onBarEdit(change)).catch(e=>fail(e)):null,commit:(candidate,label)=>commitPlain(candidate,label),fail:e=>fail(e),say:text=>{message.textContent=text;},blocked:()=>blocked(),rerender:()=>render(),
   });
   const notify=()=>handlers.onDraftChange?.({draft:!!draft?.dirty,saving,failed:!!draft?.failed});
@@ -550,7 +550,7 @@ export function mountChartPage(root,handlers={}){
 
   // ======================= public API =======================
   const api={
-    getMode:()=>mode,getScope:()=>scope,getSnap:()=>snap,getTool:()=>tool,
+    getMode:()=>mode,getScope:()=>scope,getSnap:()=>snapping?autoSnap(zoom):'free',isSnapping:()=>snapping,getTool:()=>tool,
     // The rail and its note are shared with the lead sheet: take them back when the chart is shown again.
     showTools(){if(data&&dock.dataset?.owner!=='chart')renderTools();},
     // Kept for callers that think in views: asks for the tool that draws that view.
@@ -569,16 +569,18 @@ export function mountChartPage(root,handlers={}){
       if(!name)return false;api.setTool(name);return true;
     },
     setScope(next){if(['occurrence','all-matching'].includes(next))scope=next;handlers.onScopeChange?.(scope);},
-    setSnap(next){snap=next;if(mode==='timing')keepPlace(render);handlers.onTimingChange?.({snap,zoom});},
+    // the magnet: on snaps to a grid that follows the zoom, off places words exactly where they are dropped
+    setSnapping(on){snapping=!!on;if(mode==='timing')keepPlace(render);handlers.onTimingChange?.({snap:api.getSnap(),zoom});},
     getZoom:()=>zoom,
-    setZoom(next){const z=ZOOM_LEVELS.includes(next)?next:stepZoom(next,0);if(z===zoom)return zoom;zoom=z;if(mode==='timing')keepPlace(render);handlers.onTimingChange?.({snap,zoom});return zoom;},
+    // any zoom between the smallest and largest level: the bar under the desk zooms smoothly, Ctrl+wheel steps through the levels
+    setZoom(next){const z=Number.isFinite(next)?Math.max(ZOOM_LEVELS[0],Math.min(ZOOM_LEVELS.at(-1),Math.round(next*100)/100)):zoom;if(z===zoom)return zoom;zoom=z;if(mode==='timing')keepPlace(render);handlers.onTimingChange?.({snap:api.getSnap(),zoom});return zoom;},
     zoomBy(direction){return api.setZoom(stepZoom(zoom,direction));},
     getProjection:()=>model?.projection||null,getModel:()=>model,
     getSelectedSeconds:()=>null,
     hasDraft:()=>!!draft?.dirty,hasPendingSave:()=>saving||!!draft?.dirty,canNavigate:()=>!blocked(),
     updatePlayback,
     update(value){
-      const nextKey=JSON.stringify([value.documentId,value.revision,value.content,value.music,!!value.suggest,value.onsets?.length||0,value.onsets?.[0]]);
+      const nextKey=JSON.stringify([value.documentId,value.revision,value.content,value.music,!!value.suggest,value.onsets?.length||0,value.onsets?.[0],value.melody?.length||0]);
       if(data?.documentId!==value.documentId){if(draft?.dirty)return;key=null;for(const k of Object.keys(targetPass))delete targetPass[k];for(const k of Object.keys(seekPass))delete seekPass[k];}
       data=value;
       if(nextKey!==key&&!draft&&!saving){key=nextKey;render();}else updatePlayback(value.transport);

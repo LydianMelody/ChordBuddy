@@ -4,7 +4,7 @@
 import {addressAtSeconds,secondsAtAddress,musicalPosition} from './musical-grid.js';
 import {mapToDisplay,sourceMeasureFor} from './chart-model.js';
 import {placeWord} from './chart-layout.js';
-import {isFixed,dragLimits,allowedTime,nearestAllowed,previewTimes,barWidthsAtZoom,staggerRows,barTargets,nearestTarget,beatToX,beatPx,SNAPS} from './timing-geometry.js';
+import {isFixed,dragLimits,allowedTime,nearestAllowed,previewTimes,barWidthsAtZoom,staggerRows,barTargets,nearestTarget,beatToX,beatPx,SNAPS,autoSnap} from './timing-geometry.js';
 import {planPageEdit} from './chart-edits.js';
 import {icon} from './icons.js';
 
@@ -38,9 +38,23 @@ export function createTiming(env){
   const sourcePassOf=(g,lane)=>g.passes.find(p=>p.number===lane.passNumber)||g.passes[0];
 
   // ---------------- rendering ----------------
+  // Overlay melody: the sung notes, faint, behind the chords and words of a bar, high notes higher, so a word can be dropped on its note.
+  function melodyOverlay(node,measure,width,n){
+    const notes=env.getData()?.melody;if(!notes?.length||!measure||!n)return;
+    const inside=notes.filter(note=>note.end>measure.start&&note.start<measure.end);if(!inside.length)return;
+    let low=Infinity,high=-Infinity;for(const note of notes){low=Math.min(low,note.pitch);high=Math.max(high,note.pitch);}
+    const layer=el('div','tmelody');layer.setAttribute('aria-hidden','true');
+    const beatAt=t=>{const a=addressAtSeconds([measure],Math.min(Math.max(t,measure.start),measure.end-1e-6));return a?a.beat:null;};
+    for(const note of inside){
+      const a=beatAt(note.start),b=note.end>=measure.end?n:beatAt(note.end);if(a===null||b===null)continue;
+      const bar=el('i');bar.style.left=beatToX(a,width,n)+'px';bar.style.width=Math.max(3,beatToX(b,width,n)-beatToX(a,width,n)-1)+'px';
+      bar.style.top=(high>low?(high-note.pitch)/(high-low)*100:50)+'%';layer.append(bar);
+    }
+    node.append(layer);
+  }
   function renderGroup(section,g){
-    const {measures}=env.getModel(),perBeat=beatPx(env.getZoom()),refs=env.refs;
-    const row=el('div','row trow'+(g.lanes.length?' has-lyrics':'')),bars=el('div','bars');row.dataset.group=g.id;
+    const {measures}=env.getModel(),perBeat=beatPx(env.getZoom()),refs=env.refs,perLine=Math.max(1,env.getData()?.content?.layout?.bars_per_line||4);
+    const row=el('div','row trow'+(g.lanes.length?' has-lyrics':''));let bars=el('div','bars');const lines=[bars];row.dataset.group=g.id;
     refs.groups.push({node:row,model:g});
     const placedLanes=g.lanes.filter(l=>!l.flow);
     // widths: chord labels and each lyric line are separate lanes of items
@@ -60,7 +74,7 @@ export function createTiming(env){
     g.bars.forEach((bar,index)=>{
       const n=bar.measure?.beats?.length||0,width=widths.get(bar.id)||perBeat*4,node=el('div','bar tbar'+(index===g.bars.length-1?' last':''));
       node.dataset.bar=bar.id;node.style.width=width+'px';
-      const bp=n?width/n:width/4;node.style.setProperty?.('--bp',bp+'px');node.style.setProperty?.('--sp',bp*stepBeats(env.getSnap())+'px');
+      const bp=n?width/n:width/4;node.style.setProperty?.('--bp',bp+'px');node.style.setProperty?.('--sp',bp*stepBeats(gridSnap())+'px');
       const offset=env.getModel().barOffset||0,numbers=g.passes.map(p=>measures.find(m=>m.id===p.measureIds[g.bars.indexOf(bar)])?.number).filter(v=>v!==undefined).map(v=>v-offset);
       node.append(el('span','tno',numbers.length>1?numbers.join(' · '):String(bar.number)));
       if(env.editBars&&env.tool?.()==='barlines'&&bar.measure&&bar.mapped&&n)addBarControls(node,bar,width,n,measures);
@@ -73,12 +87,16 @@ export function createTiming(env){
         chords.append(cell);refs.chunks.push({node:cell,group:g,chunk});
       }
       node.append(chords);
+      melodyOverlay(node,bar.measure,width,n);
       placedLanes.forEach((lane,i)=>{
         const laneEl=el('div','tlane');laneEl.dataset.lane=String(i);laneEl.dataset.pass=String(lane.passNumber);
         if(index===0&&g.passCount>1)laneEl.dataset.label=String(lane.passNumber);
         if(!laneEls.has(i))laneEls.set(i,new Map());laneEls.get(i).set(bar.id,laneEl);node.append(laneEl);
       });
       bars.append(node);barEls.push({node,bar,width,n,id:bar.id});
+      // a long row (a repeat folded over eight bars, say) wraps like the chart: bars-per-line to a line, so no row is wider than the rest
+      // (each line is its own box: a wrapping row would still count as one long line when the page measures its width)
+      if((index+1)%perLine===0&&index<g.bars.length-1){bars=el('div','bars');lines.push(bars);}
     });
     // word chips
     const chips=[];
@@ -104,7 +122,7 @@ export function createTiming(env){
     });
     const ctx={g,barEls,laneEls,placedLanes,chips,row};
     row._timing=ctx;
-    row.append(bars);
+    row.append(...lines);
     // lines that were never placed: plain text with a way to put them on this row
     for(const lane of g.lanes.filter(l=>l.flow)){
       const flow=el('div','flow-line'),text=el('span','flow-text',lane.tokens.map(t=>t.text).join(' ')||lane.text);flow.append(text);
@@ -156,6 +174,8 @@ export function createTiming(env){
     handle.onpointercancel=()=>{drag?.mark?.remove();drag=null;};
     node.append(handle);
   }
+  // the grid drawn in each bar follows the zoom, whether or not the magnet is on
+  const gridSnap=()=>env.getSnap()==='free'?autoSnap(env.getZoom()):env.getSnap();
   const stepBeats=snap=>({quarter:1,eighth:.5,sixteenth:.25,'thirty-second':.125}[snap]||.5);
 
   function makeChip(g,lane,laneIndex,token,tokenIndex){
@@ -204,7 +224,7 @@ export function createTiming(env){
     if(drag.targetsByBar.has(b.id))return drag.targetsByBar.get(b.id);
     const g=drag.g,onsets=b.bar.chunks.map(c=>c.start).filter(finite);
     const pins=drag.lane.tokens.filter(t=>t.pinned&&t.measureId===b.id&&finite(t.displaySeconds)).map(t=>beatOfSeconds(env.getModel().measures,t.displaySeconds)?.beat).filter(finite);
-    const list=barTargets(b.bar.measure,{snap:env.getSnap(),onsets,pins});drag.targetsByBar.set(b.id,list);return list;
+    const list=barTargets(b.bar.measure,{snap:gridSnap(),onsets,pins});drag.targetsByBar.set(b.id,list);return list;
   }
   // A displayed grid point -> the same point in the lane's own pass: its address and recording time.
   function actualFor(b,target){
@@ -229,7 +249,9 @@ export function createTiming(env){
     const zoom=drag.ctx.row?.offsetWidth&&drag.ctx.row.getBoundingClientRect?drag.ctx.row.getBoundingClientRect().width/drag.ctx.row.offsetWidth||1:1;     // the page may be zoomed on screen
     drag.ghost.style.left=((e.clientX+8)/zoom)+'px';drag.ghost.style.top=((e.clientY+8)/zoom)+'px';
     const hit=hitBar(drag.ctx,e);if(!hit)return;
-    const {b,rect}=hit,unit=b.node.offsetWidth?rect.width/b.node.offsetWidth:1,target=nearestTarget(targetsFor(b),(e.clientX-rect.left)/unit,b.width,b.n);if(!target)return;
+    const {b,rect}=hit,unit=b.node.offsetWidth?rect.width/b.node.offsetWidth:1,x=(e.clientX-rect.left)/unit;
+    // magnet off: the exact beat under the pointer; on: the nearest grid point, chord or pin
+    const target=env.getSnap()==='free'&&b.n?{beat:Math.max(0,Math.min(b.n,x/b.width*b.n))}:nearestTarget(targetsFor(b),x,b.width,b.n);if(!target)return;
     let actual=actualFor(b,target);if(!actual)return;
     // a word may never pass a pinned neighbour: if the pointer is past one, use the nearest grid point that is still between them
     if(!allowedTime(actual.seconds,drag.limits)){

@@ -12,18 +12,19 @@ const SVG='http://www.w3.org/2000/svg';
 const el=(tag,cls='',text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 
 /**
- * options: {vertical, slim, label, windowLabel, bounds():{lo,hi} (or lo and hi), minSpan (number or function), getRange():{start,end},
+ * options: {vertical, slim, zoom, label, windowLabel, bounds():{lo,hi} (or lo and hi), minSpan (number or function), getRange():{start,end},
  *           setRange({start,end}), onTouch()}
+ * zoom:false makes a plain scroll bar: no grips, and the wheel scrolls instead of zooming.
  * The picture is given with setPreview(segments): [{from, to, colour, opacity}] in the bar's own units.
  * Returns {el, track, overlay, refresh(), setPreview(segments), setValueText(text), gesture, dispose()}.
  * `overlay` is an empty layer over the picture (under the window) for things like a loop range or the playhead.
  * `gesture` is the drag itself without the mouse, so it can be driven (and tested) with plain numbers: start(mode, position, length), move(position), end().
  */
 export function createZoomBar(options){
-  const {vertical=false,slim=false,label='Scroll',windowLabel=''}=options;
+  const {vertical=false,slim=false,zoom=true,label='Scroll',windowLabel=''}=options;
   const bounds=()=>options.bounds?options.bounds():{lo:options.lo,hi:options.hi};
   const minimum=()=>typeof options.minSpan==='function'?options.minSpan():options.minSpan;
-  const root=el('div','cassette '+(vertical?'v':'h')+(slim?' slim':''));
+  const root=el('div','cassette '+(vertical?'v':'h')+(slim?' slim':'')+(zoom?'':' nozoom'));
   const track=el('div','cassette-track'),clip=el('div','cassette-clip'),wash=el('div','cassette-wash'),overlay=el('div','cassette-overlay');
   const less=el('button','cassette-cap less'),more=el('button','cassette-cap more');
   less.type=more.type='button';less.tabIndex=more.tabIndex=-1;                 // the window itself takes the keyboard; the caps are for the mouse
@@ -104,8 +105,8 @@ export function createZoomBar(options){
   const atPointer=event=>{const box=clip.getBoundingClientRect(),{lo,hi}=bounds();return lo+((vertical?event.clientY-box.top:event.clientX-box.left)/Math.max(1,vertical?box.height:box.width))*(hi-lo);};
   const step=direction=>{const {lo,hi}=bounds(),r=options.getRange();set(panRange(r,direction*(r.end-r.start)*.15,lo,hi));};
   if(typeof win.addEventListener==='function'){
-    win.addEventListener('pointerdown',event=>{if(event.target===gripA||event.target===gripB)return;begin('move')(event);});
-    gripA.addEventListener('pointerdown',begin('start'));gripB.addEventListener('pointerdown',begin('end'));
+    win.addEventListener('pointerdown',event=>{if(zoom&&(event.target===gripA||event.target===gripB))return;begin('move')(event);});
+    if(zoom){gripA.addEventListener('pointerdown',begin('start'));gripB.addEventListener('pointerdown',begin('end'));}
     clip.addEventListener('pointerdown',event=>{if(event.button!==0||event.target.closest?.('.cassette-window'))return;const {lo,hi}=bounds();set(centerRange(options.getRange(),atPointer(event),lo,hi));});
     for(const [cap,direction] of [[less,-1],[more,1]]){
       let timer=null,repeat=null;
@@ -116,14 +117,15 @@ export function createZoomBar(options){
     track.addEventListener('wheel',event=>{
       if(event.ctrlKey)return;
       event.preventDefault();event.stopPropagation();const {lo,hi}=bounds();
+      if(!zoom){const r=options.getRange();set(panRange(r,Math.sign(event.deltaY||event.deltaX)*(r.end-r.start)*.15,lo,hi));return;}
       set(zoomRange(options.getRange(),event.deltaY>0?1.25:.8,atPointer(event),lo,hi,minimum()));
     },{passive:false});
     win.addEventListener('keydown',event=>{
       const {lo,hi}=bounds(),r=options.getRange(),span=r.end-r.start,back=vertical?'ArrowUp':'ArrowLeft',forward=vertical?'ArrowDown':'ArrowRight',middle=(r.start+r.end)/2;
       if(event.key===back)set(panRange(r,-span*.1,lo,hi));
       else if(event.key===forward)set(panRange(r,span*.1,lo,hi));
-      else if(event.key==='+'||event.key==='=')set(zoomRange(r,.8,middle,lo,hi,minimum()));
-      else if(event.key==='-'||event.key==='_')set(zoomRange(r,1.25,middle,lo,hi,minimum()));
+      else if(zoom&&(event.key==='+'||event.key==='='))set(zoomRange(r,.8,middle,lo,hi,minimum()));
+      else if(zoom&&(event.key==='-'||event.key==='_'))set(zoomRange(r,1.25,middle,lo,hi,minimum()));
       else if(event.key==='Home')set(panRange(r,lo-r.start,lo,hi));
       else if(event.key==='End')set(panRange(r,hi-r.end,lo,hi));
       else return;

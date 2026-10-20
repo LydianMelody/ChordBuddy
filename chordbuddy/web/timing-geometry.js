@@ -14,6 +14,14 @@ export const DEFAULT_ZOOM=2,BEAT_PX=32;
 export const beatPx=zoom=>BEAT_PX*zoom;
 export const SNAPS=Object.freeze([['quarter','1/4'],['eighth','1/8'],['sixteenth','1/16'],['thirty-second','1/32']]);
 export const DEFAULT_SNAP='eighth';
+// With the magnet on, the grid follows the zoom: the finest of 1/4, 1/8, 1/16 and 1/32 whose lines are still at least 20px apart.
+// With it off, a word lands exactly where it is dropped ('free'); the grid is still drawn by the zoom.
+export const SNAP_MIN_PX=20;
+export function autoSnap(zoom){
+  const beat=beatPx(zoom);
+  for(const [name,parts] of [['thirty-second',8],['sixteenth',4],['eighth',2]])if(beat/parts>=SNAP_MIN_PX)return name;
+  return 'quarter';
+}
 
 export function stepZoom(zoom,direction){
   const i=ZOOM_LEVELS.reduce((best,z,n)=>Math.abs(z-zoom)<Math.abs(ZOOM_LEVELS[best]-zoom)?n:best,0);

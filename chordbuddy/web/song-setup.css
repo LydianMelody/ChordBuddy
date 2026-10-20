@@ -7,9 +7,10 @@
 .setup-field input:focus{outline:none;border-color:var(--ink);box-shadow:3px 3px 0 var(--a2)}
 .setup-stems{display:flex;align-items:flex-start;gap:12px;margin:8px 0 2px;padding:10px 12px;border:2px dashed var(--ink);border-radius:12px;cursor:pointer;background:color-mix(in srgb,var(--hl) 22%,transparent)}
 .setup-stems:hover{background:color-mix(in srgb,var(--hl) 40%,transparent)}
-.setup-stems input{appearance:none;flex:none;width:24px;height:24px;margin:1px 0 0;border:2.5px solid var(--ink);border-radius:7px;background:var(--page);display:grid;place-items:center;cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
+.setup-stems input{appearance:none;position:relative;flex:none;width:24px;height:24px;margin:1px 0 0;border:2.5px solid var(--ink);border-radius:7px;background:var(--page);cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
 .setup-stems input:checked{background:var(--a1)}
-.setup-stems input:checked::after{content:'';width:11px;height:6px;border:solid var(--onA1,#fff);border-width:0 0 3px 3px;transform:translateY(-1px) rotate(-45deg)}
+/* the tick is an L turned 45°; its strokes sit low in its own box, so it is lifted to look centred */
+.setup-stems input:checked::after{content:'';position:absolute;left:50%;top:50%;width:11px;height:6px;border:solid var(--onA1,#fff);border-width:0 0 3px 3px;transform:translate(-50%,-50%) translateY(-2.5px) rotate(-45deg)}
 .setup-stems input:focus-visible{outline:2.5px dashed var(--a2);outline-offset:2px}
 .setup-stems-text{display:flex;flex-direction:column;gap:2px}
 .setup-stems-text strong{font:800 15px/1.2 var(--g)}

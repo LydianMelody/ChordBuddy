@@ -201,3 +201,11 @@ test('Timing: the barline controls only show while the Barlines tool is picked',
   s.view.setTool('words');
   assert.equal(byClass(s.root,'beat-split').length+byClass(s.root,'bar-handle').length,0);
 });
+
+test('Timing: with the magnet off, a word lands exactly where it is dropped instead of on the grid', async () => {
+  const s=setup();s.view.setSnapping(false);
+  s.bars=byClass(s.root,'tbar');let x=0;for(const b of s.bars){const w=parseFloat(b.style.width),left=x;b.getBoundingClientRect=()=>({left,right:left+w,top:0,bottom:100,width:w,height:100});x+=w;}
+  await drag(s,'two',1,2.1);
+  const [offset,bar,beat]=wordsOf(s.commits[0].candidate).find(w=>w[0]===4);
+  assert.deepEqual([offset,bar],[4,'m1']);assert.ok(Math.abs(beat-2.1)<1e-6,'beat 2.1, not the nearest 1/8 (2)');
+});

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ZOOM_LEVELS,DEFAULT_ZOOM,stepZoom,beatPx,isFixed,dragLimits,allowedTime,nearestAllowed,previewTimes,releasedTimes,barWidths,barTargets,nearestTarget,beatToX,SNAPS} from '../chordbuddy/web/timing-geometry.js';
+import {autoSnap,ZOOM_LEVELS,DEFAULT_ZOOM,stepZoom,beatPx,isFixed,dragLimits,allowedTime,nearestAllowed,previewTimes,releasedTimes,barWidths,barTargets,nearestTarget,beatToX,SNAPS} from '../chordbuddy/web/timing-geometry.js';
 
 const bar=(id,start)=>({id,number:+id.slice(1)+1,start,end:start+2,beats:[0,.5,1,1.5].map(b=>start+b),meter:[4,4],quarter_positions:[0,1,2,3,4]});
 
@@ -171,4 +171,8 @@ test('a run of quick words stacks on extra rows instead of stretching the bar wi
 test('words that already fit share one row', () => {
   const {rows,count}=staggerRows([{x:0,width:50},{x:80,width:50},{x:160,width:50}],8);
   assert.deepEqual(rows,[0,0,0]);assert.equal(count,1);
+});
+
+test('with the magnet on, the snap grid follows the zoom: finer as you zoom in, never closer than 20px', () => {
+  assert.deepEqual([.75,1,1.5,2,3,4,6].map(autoSnap),['quarter','quarter','eighth','eighth','sixteenth','sixteenth','thirty-second']);
 });

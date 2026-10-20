@@ -3,7 +3,7 @@ import {retryDocumentExport} from './export-retry.js';
 import {reconcileCompactPreferences} from './compact-chart.js';
 import {installTooltips} from './tooltips.js';
 import {mountChartPage} from './chart-page.js';
-import {SNAPS} from './timing-geometry.js';
+import {ZOOM_LEVELS} from './timing-geometry.js';
 import {askChoice,askSongSetup,openTrash} from './dialogs.js';
 import {updateViewport} from './practice-timeline.js';
 import {PlaybackGate} from './playback-ready.js';
@@ -15,7 +15,7 @@ import {mountPlayer} from './player-view.js';
 import {activeChord, editChordContent, isJobActive, jobProgress, validateChart, displayChordLabel, settleHistoryResult} from './editor.js';
 import {renderLeadSheet,updateLeadSheetPlayback,markCurrentChord,followPlayback} from './lead-sheet.js';
 import {renderMidiRoll} from './midi-view.js';
-import {installPageNav} from './page-nav.js';
+import {installPageNav,MIN_ZOOM as MIN_PAGE_ZOOM} from './page-nav.js';
 import {openSongTiming,openReprocess,openModelAttribution} from './settings-view.js';
 import {effectiveMeasures, isNoChordLabel} from './chart-layout.js';
 import {icon} from './icons.js';
@@ -23,6 +23,7 @@ import {prefs} from './prefs.js';
 import {estimateKey,KEY_CHOICES} from './key-estimate.js';
 import {onsetsFromNotes} from './word-layout.js';
 import {mountModelsPanel,mountChordModelPanel} from './models-view.js';
+import {mountDeskBars,combinedZoom} from './desk-bars.js';
 
 const $ = id => document.getElementById(id);
 document.querySelector('.chart-intro h2')?.remove();
@@ -86,25 +87,28 @@ const practiceView=mountChartPage($('chart-sections'),{
 });
 // There are no chart modes: the tool you hold (Navigate, Write, Cut, Join, Repeat, Time, Barlines) decides what a click means and how the chart is drawn.
 // The page owns the tool; the rail and the N W S J R T B keys only ask it to change.
+// The Time tool draws the chart on a beat grid wider than the desk: it gets cassette bars (scroll and zoom) instead of scroll bars.
+// Pulling the bottom bar out past the smallest beat grid shrinks the page as well (to 50%), so a whole row can always be seen.
+let pageNav=null;
+const deskBars=mountDeskBars(document.querySelector('.stage'),$('desk'),combinedZoom(
+ {get:()=>practiceView.getZoom(),set:value=>practiceView.setZoom(value),limits:[ZOOM_LEVELS[0],ZOOM_LEVELS.at(-1)]},
+ {get:()=>pageNav?.getZoom()??1,set:value=>pageNav?.setZoom(value)},MIN_PAGE_ZOOM));
 function syncModeUi(){
  const mode=practiceView.getMode(),workspace=$('workspace');
  workspace.dataset.mode=mode;workspace.dataset.tool=practiceView.getTool();workspace.dataset.kind=currentRecord()?.doc.kind||'';
  for(const button of document.querySelectorAll('#scope button'))button.classList.toggle('on',button.dataset.scope===practiceView.getScope());
- for(const button of document.querySelectorAll('#snap button'))button.classList.toggle('on',button.dataset.snap===practiceView.getSnap());
- $('tz-label').textContent=practiceView.getZoom()+'×';
- if(typeof rhythmButton!=='undefined'){rhythmButton.hidden=currentRecord()?.doc.kind!=='chart';$('rhythm-tool').disabled=rhythmButton.disabled;}
+ const snapping=practiceView.isSnapping();$('snap-toggle').classList.toggle('on',snapping);$('snap-toggle').setAttribute('aria-pressed',String(snapping));
+ deskBars.show(mode==='timing'&&workspace.dataset.kind==='chart');deskBars.refresh();
+ const kind=currentRecord()?.doc.kind;$('song-timing').classList.toggle('hidden',kind!=='chart');
+ $('restore').textContent='Restore model-predicted '+(kind==='abc'?'lead sheet':kind==='midi'?'MIDI':'chart')+'…';
+ if(typeof rhythmButton!=='undefined')rhythmButton.hidden=kind!=='chart';
 }
-for(const [snap,label] of SNAPS){const button=element('button','',label);button.type='button';button.dataset.snap=snap;button.onclick=()=>practiceView.setSnap(snap);$('snap').append(button);}
 $('suggest').onchange=()=>{prefs.set('cb-suggest',$('suggest').checked?'1':'0');renderChart();};
-$('tz-in').onclick=()=>practiceView.zoomBy(1);$('tz-out').onclick=()=>practiceView.zoomBy(-1);
-$('timing-settings').onclick=()=>$('song-timing').click();
-$('rhythm-tool').onclick=()=>rhythmButton.click();
+$('snap-toggle').onclick=()=>{practiceView.setSnapping(!practiceView.isSnapping());prefs.set('cb-snap',practiceView.isSnapping()?'1':'0');};
 installTooltips();
 // Middle-button drag pans, Ctrl+wheel zooms the page (page-nav.js).
-installPageNav({desk:$('desk'),pages:[$('chart-editor'),$('abc-editor')],prefs,pill:$('zoom-pill')});
-// Small help that stays out of the way: the i explains the confidence colours.
+pageNav=installPageNav({desk:$('desk'),pages:[$('chart-editor'),$('abc-editor')],prefs,pill:$('zoom-pill')});
 function closeInfo(){$('key-pop').classList.add('hidden');$('info-pop').classList.add('hidden');}
-$('confidence-info').onclick=event=>{event.stopPropagation();const open=!$('info-pop').classList.contains('hidden');closeInfo();if(open)return;const box=$('confidence-info').getBoundingClientRect();$('info-pop').textContent=$('confidence-info').dataset.text||'';$('info-pop').style.top=(box.bottom+8)+'px';$('info-pop').style.right=Math.max(8,innerWidth-box.right-20)+'px';$('info-pop').classList.remove('hidden');};
 document.addEventListener('click',event=>{if(!event.target.closest?.('#info-pop,#key-pop'))closeInfo();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeInfo();});
 for(const button of document.querySelectorAll('#scope button'))button.onclick=()=>practiceView.setScope(button.dataset.scope);
@@ -179,7 +183,6 @@ function renderSections(){
  const song=!!model.song,full=lockMode()==='full';
  $('work').classList.toggle('hidden',!song||full);
  $('workspace').classList.toggle('hidden',!song||full);
- $('song-timing').classList.add('hidden');
 }
 async function refreshSeparation(){
  const id=model.song;if(!id)return;
@@ -224,7 +227,7 @@ function renderControls(){
   const busy=isJobActive(model.state.job);
   $('transcribe').disabled=!!busy || !model.state.engine.ready || model.importing;
   $('transcribe').querySelector('em').textContent=analysisUiState(song,model.state.job).label;renderChips();
-  if(typeof rhythmButton!=='undefined'){const job=model.state.job;rhythmButton.textContent=job?.kind==='rhythm'&&job.document_id===model.document&&job.status==='completed'?'Review rhythm proposal':'Drum-based rhythm correction';rhythmButton.disabled=isJobActive(job)||!separationDetail?.active;rhythmButton.title=separationDetail?.active?'':'Split the stems first: this listens to the drums.';}
+  if(typeof rhythmButton!=='undefined'){const job=model.state.job;rhythmButton.textContent=job?.kind==='rhythm'&&job.document_id===model.document&&job.status==='completed'?'Review rhythm proposal':'Attempt timing correction w/drum track';rhythmButton.disabled=isJobActive(job)||!separationDetail?.active;rhythmButton.title=separationDetail?.active?'':'Split the stems first: this listens to the drums.';}
   $('transcribe').title=!model.state.engine.ready?model.state.engine.message || 'Set up the transcription engine first.':'';
   const field=$('song-controls').querySelector('#setlist-add');if(field)field.remove();
   const available=model.state.setlists.filter(list=>list.name!=='Default'&&!list.song_ids.includes(song.id));
@@ -362,15 +365,17 @@ async function selectSong(id){
   await transport.loadSong({songId:id,originalUrl:mediaUrl('/api/audio/'+encodeURIComponent(id)),separation:null});player.setNow({chord:'—',next:''});await refreshSeparation();if(request!==model.loadingSong)return;
   try{const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(request!==model.loadingSong)return;model.detail=detail;renderTabs();loadMelody(detail,id);if(shownDocs(detail).length)await selectDocument(shownDocs(detail)[0].id);else renderDocument();if(detail.song.error)showError(analysisErrorMessage(detail.song.error,!!detail.song.active_run));}catch(error){if(request===model.loadingSong)showError(error);}
 }
-// The vocal melody (a MIDI output of the analysis) gives rough note starts for guessing where words fall.
+// The vocal melody (a MIDI output of the analysis): its notes are drawn faintly behind the Time tool's bars, and their starts are
+// the first guess for where words fall.
 async function loadMelody(detail,songId){
   const doc=detail.documents.find(item=>item.kind==='midi'&&/(^|\/)melody_vocal\.mid$/.test(item.name));
-  if(!doc){model.melody={song:songId,doc:null,onsets:[]};return;}
+  if(!doc){model.melody={song:songId,doc:null,onsets:[],notes:[]};return;}
   if(model.melody?.song===songId&&model.melody.doc===doc.id)return;
   try{
     const full=await api('/api/document/'+encodeURIComponent(doc.id));if(model.song!==songId)return;
-    model.melody={song:songId,doc:doc.id,onsets:onsetsFromNotes(full.content?.notes)};renderChart();
-  }catch{model.melody={song:songId,doc:doc.id,onsets:[]};}
+    const notes=(full.content?.notes||[]).filter(n=>Number.isFinite(n.start)&&Number.isFinite(n.end)&&Number.isFinite(n.pitch)).map(n=>({start:n.start,end:n.end,pitch:n.pitch}));
+    model.melody={song:songId,doc:doc.id,onsets:onsetsFromNotes(notes),notes};renderChart();
+  }catch{model.melody={song:songId,doc:doc.id,onsets:[],notes:[]};}
 }
 // Reloading a document empties the page for a moment, which would send the desk back to the top; put it back where it was.
 async function keepDeskPlace(fn){
@@ -406,7 +411,7 @@ async function selectDocument(id){
   if(!model.documents.has(id)){try{const doc=await api(`/api/document/${encodeURIComponent(id)}`);model.documents.set(id,{doc,draft:clone(doc.content),dirty:false,saving:false,error:null,version:0,timer:null});}catch(error){showError(error);}}
   if(model.document===id){renderDocument();if(currentRecord()?.doc.kind==='chart')renderChart();}
 }
-function renderSaveStatus(){const record=currentRecord();const status=$('save-status');const warning=record?.doc.export_warning;status.classList.toggle('error',!!record?.practiceSaveError || !!record?.error || !!warning);status.textContent=record?.practiceSaveError?'Chart Save failed — use Retry Save':record?.doc.kind==='chart'&&practiceView.hasDraft()&&!record.saving?'Line draft — Save or Cancel':record?.error?'Save failed · click to retry':model.pendingChord||model.pendingChart?'Unsaved fields':record?.saving?'Saving…':record?.dirty?'Unsaved changes':record?.exporting?'Saved - retrying export...':warning?'Saved - click to retry export':'Saved';status.title=record?.error?.message || warning || '';status.tabIndex=(record?.error||warning)&&!record?.exporting?0:-1;}
+function renderSaveStatus(){const record=currentRecord();const status=$('save-status');const warning=record?.doc.export_warning;status.classList.toggle('error',!!record?.practiceSaveError || !!record?.error || !!warning);status.textContent=record?.practiceSaveError?'Chart Save failed — use Retry Save':record?.doc.kind==='chart'&&practiceView.hasDraft()&&!record.saving?'Line draft — Save or Cancel':record?.error?'Save failed · click to retry':model.pendingChord||model.pendingChart?'Unsaved fields':record?.saving?'Saving…':record?.dirty?'Unsaved changes':record?.exporting?'Saved - retrying export...':warning?'Saved - click to retry export':'Saved';status.classList.toggle('quiet',['Saved','Saving…'].includes(status.textContent));status.title=record?.error?.message || warning || '';status.tabIndex=(record?.error||warning)&&!record?.exporting?0:-1;}
 function markRawDraft(key,value=true){model[key]=value;renderSaveStatus();$('undo').disabled=true;$('redo').disabled=true;$('restore').disabled=true;$('download').classList.add('disabled');}
 function renderDocument(){
   const record=currentRecord();for(const id of ['abc-editor','midi-editor','chart-editor'])$(id).classList.add('hidden');$('document-empty').classList.toggle('hidden',!!record);
@@ -415,9 +420,6 @@ function renderDocument(){
   $('undo').dataset.tip=record?.doc.undo_label?'Undo: '+record.doc.undo_label+'.':'Undo the last change.';$('redo').dataset.tip=record?.doc.redo_label?'Redo: '+record.doc.redo_label+'.':'Put back what you just undid.';
   $('download').classList.toggle('disabled',!record||record.dirty||record.saving||rawPending);if(record){$('download').href=mediaUrl(`/api/export/${encodeURIComponent(record.doc.id)}`);$('download').setAttribute('download','');}else $('download').removeAttribute('href');
   renderSaveStatus();renderTabs();renderPageHead();renderChips();syncModeUi();
-  const confidence=record?.doc.music?.confidence;
-  const noteText=record?.doc.music?(confidence?.available?'Fainter chord symbols on the lead sheet are ones the model was less sure of. A chord you type yourself is confirmed and drawn at full strength.'+(confidence.removed_beats?` ${confidence.removed_beats} uncertain beats were left out.`:''):'This analysis has no confidence scores. Choose Analyze again to get them.'):'';
-  $('confidence-info').classList.toggle('hidden',!noteText);$('confidence-info').title=noteText;$('confidence-info').dataset.text=noteText;
   if(!record)return;
   if(record.doc.kind==='chart'){$('chart-editor').classList.remove('hidden');renderChart();}
   else if(record.doc.kind==='abc'){$('abc-editor').classList.remove('hidden');renderAbc();}
@@ -502,9 +504,9 @@ function renderChart(){
  if(!practiceViewport)practiceViewport={start:0,end:content.duration,follow:true};      // the whole song, fully zoomed out
  const onsets=model.melody?.song===model.song?model.melody.onsets:null,hasMelody=!!onsets?.length;
  $('suggest').disabled=!hasMelody;$('suggest').checked=hasMelody&&prefs.get('cb-suggest','1')!=='0';
- $('suggest-wrap').classList.toggle('off',!hasMelody);$('suggest-wrap').title=hasMelody?'Unpinned words are placed on the vocal melody\'s notes as a rough guess. Drag a word to pin it.':'No vocal melody was found for this song, so words spread evenly.';
+ $('suggest-wrap').classList.toggle('off',!hasMelody);$('suggest-wrap').title=hasMelody?'Shows the sung melody faintly behind the bars, and places words you have not pinned on its notes as a first guess. Drag a word to pin it.':'No vocal melody was found for this song.';
  practiceView.showTools();
- practiceView.update({documentId:r.doc.id,revision:r.doc.revision,songId:model.song,content,music,transport:transport.getSnapshot(),viewport:practiceViewport,onsets,suggest:$('suggest').checked});
+ practiceView.update({documentId:r.doc.id,revision:r.doc.revision,songId:model.song,content,music,transport:transport.getSnapshot(),viewport:practiceViewport,onsets,suggest:$('suggest').checked,melody:$('suggest').checked&&model.melody?.song===model.song?model.melody.notes:null});
  updatePracticePlayer();
 }
 async function confirmChordOverride(chord,label,start,end){
@@ -583,7 +585,7 @@ for(const id of TITLE_NODES){
 }
 
 $('model-attribution').onclick=()=>openModelAttribution(model.state?.engine?.model,model.state?.models?.models||[]);
-$('song-timing').onclick=async()=>{try{await commitUiDrafts();const record=currentRecord();if(record?.doc.kind!=='chart')throw new Error('Choose a Song chart for timing controls.');const id=record.doc.id;openSongTiming({metadata:{timing:record.doc.timing_binding.overrides},onSave:async metadata=>{if(model.document!==id)throw new Error('Selected chart changed.');await window.chordBuddyFlush();const fresh=currentRecord().doc;await api('/api/documents/'+id+'/timing',{timing:metadata.timing,revision:fresh.revision});await refreshSongDetail(model.song,true);renderDocument();}});}catch(error){showError(error);}};
+$('song-timing').onclick=async()=>{$('more-menu').open=false;try{await commitUiDrafts();const record=currentRecord();if(record?.doc.kind!=='chart')throw new Error('Choose a Song chart for timing controls.');const id=record.doc.id;openSongTiming({metadata:{timing:record.doc.timing_binding.overrides},onSave:async metadata=>{if(model.document!==id)throw new Error('Selected chart changed.');await window.chordBuddyFlush();const fresh=currentRecord().doc;await api('/api/documents/'+id+'/timing',{timing:metadata.timing,revision:fresh.revision});await refreshSongDetail(model.song,true);renderDocument();}});}catch(error){showError(error);}};
 $('transcription-history').onclick=async()=>{
   const songId=model.song;
   try{const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving your edits before opening a previous transcription.');
@@ -689,7 +691,13 @@ $('trash-open').onclick=()=>openTrash({
 $('lock-cta').onclick=()=>{const job=analysisJobFor(currentSong());(job&&isJobActive(job)?$('cancel-job'):$('transcribe')).click();};
 $('cancel-job').onclick=async()=>{try{const job=model.state?.job;if(job&&!isJobActive(job)){model.dismissedJob=jobKey(job);renderJob();return;}const path=['analysis','rhythm'].includes(job?.kind)?'/api/analysis/'+job.id+'/cancel':job?.kind==='separation'?'/api/separation/cancel':'/api/cancel';await api(path,job?.kind==='separation'?{job_id:job.id}:{});await refreshState();}catch(error){showError(error);}};
 $('song-folder').onclick=()=>api('/api/open-folder',{song_id:model.song}).catch(showError);
-$('undo').onclick=()=>historyAction('undo');$('redo').onclick=()=>historyAction('redo');$('restore').onclick=()=>historyAction('restore');
+$('undo').onclick=()=>historyAction('undo');$('redo').onclick=()=>historyAction('redo');$('restore').onclick=async()=>{
+ $('more-menu').open=false;const record=currentRecord();if(!record)return;
+ const what=record.doc.kind==='abc'?'lead sheet':record.doc.kind==='midi'?'MIDI':'chart';
+ const answer=await askChoice({title:'Restore the model-predicted '+what+'?',message:['This puts the '+what+' back exactly as Chord Buddy first made it, without your edits. Undo can still bring your edits back.'],
+  choices:[{id:'restore',label:'Restore',kind:'primary'}]});
+ if(answer==='restore')historyAction('restore');
+};
 $('save-status').onclick=()=>{const r=currentRecord();if(r?.error)saveDocument(model.document);else if(r?.doc.export_warning)retryDocumentExport(r,api,()=>{if(currentRecord()===r){renderSaveStatus();if(!r.exporting&&!r.doc.export_warning&&$('alert').textContent.startsWith('Edit saved;'))clearError();}});};$('save-status').onkeydown=event=>{if(event.key==='Enter')$('save-status').click();};
 // Playback views subscribe to the transport; the audio element no longer owns chart time.
 let dragDepth=0;window.addEventListener('dragenter',event=>{if(event.dataTransfer.types.includes('Files')){event.preventDefault();dragDepth++;$('drop-overlay').classList.remove('hidden');}});window.addEventListener('dragover',event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();});window.addEventListener('dragleave',()=>{dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)$('drop-overlay').classList.add('hidden');});window.addEventListener('drop',event=>{event.preventDefault();dragDepth=0;$('drop-overlay').classList.add('hidden');importFile(event.dataTransfer.files[0]);});
@@ -710,14 +718,15 @@ window.chordBuddyFlush=async()=>{
   }
   return {ok:false,pending:[...model.documents.values()].filter(record=>record.dirty||record.saving||record.practiceSaveError).map(record=>({id:record.doc.id,error:record.practiceSaveError?.message || record.error?.message || 'An edit is still being saved.'}))};
 };
-async function boot(){try{await prefs.connect(values=>api('/api/prefs',values),()=>api('/api/prefs'));await refreshState();const song=model.state.songs[0];if(song)await selectSong(song.id);}catch(error){showError(error);$('engine-status').textContent='Could not connect to the local app';}}
+async function boot(){try{await prefs.connect(values=>api('/api/prefs',values),()=>api('/api/prefs'));practiceView.setSnapping(prefs.get('cb-snap','1')!=='0');await refreshState();const song=model.state.songs[0];if(song)await selectSong(song.id);}catch(error){showError(error);$('engine-status').textContent='Could not connect to the local app';}}
 boot();setInterval(async()=>{if(model.polling)return;model.polling=true;try{await refreshState();}catch(error){$('engine-status').textContent='Connection interrupted · reconnecting';}finally{model.polling=false;}},2500);
 export {transport};
 
 const proposalGuard=new ProposalGuard(()=>model.document);
-const rhythmButton=element('button','secondary','Drum-based rhythm correction');
+const rhythmButton=element('button','text-button','Attempt timing correction w/drum track');rhythmButton.type='button';
 const cleanupButton=element('button','secondary','Check empty end artifact');
-rhythmButton.hidden=true;cleanupButton.hidden=true;$('more-tools').append(rhythmButton,cleanupButton);
+rhythmButton.hidden=true;cleanupButton.hidden=true;$('song-timing').after(rhythmButton);$('more-tools').append(cleanupButton);
+rhythmButton.addEventListener('click',()=>{$('more-menu').open=false;});
 rhythmButton.onclick=async()=>{try{
  const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving edits first.');const doc=currentRecord()?.doc;if(doc?.kind!=='chart')throw new Error('Choose a Song chart.');const ticket=proposalGuard.begin();const job=model.state?.job;
  if(job?.kind!=='rhythm'||job.document_id!==doc.id||job.status!=='completed'||!job.proposal_id){await api('/api/documents/'+doc.id+'/rhythm/propose',{});await refreshState();return;}

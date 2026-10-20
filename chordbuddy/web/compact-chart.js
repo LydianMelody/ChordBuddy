@@ -22,14 +22,23 @@ function coordinate(m,t){
 // A chord held over from the bar before (the last chord of the previous pass) does not make a repeated bar different.
 // Chord changes within about a tenth of a beat of each other count as the same place when looking for repeats.
 const beat8=x=>Math.round(x*8)/8;
+// A chord change this close to a barline is drawn on the barline: 40 ms, and never more than an eighth of a beat. Without it, a beat grid
+// rebuilt at a steady tempo (whose lines sit a few ms off the model's chord changes) leaves a sliver of the previous chord at the start of a bar,
+// printed on top of the next chord, and a chord a hair early is squeezed into the end of the bar before. A real push (a sixteenth or more) is far
+// bigger than this and is kept. Only the drawing changes, never the chords.
+export const BARLINE_SLACK=.04;
+const slackFor=m=>{const n=m.beats?.length||0;return Math.min(BARLINE_SLACK,n?(m.end-m.start)/n/8:BARLINE_SLACK);};
 function fragment(content,section,m){
- const start=Math.max(section.start,m.start),end=Math.min(section.end,m.end),events=[];let cursor=start;
- for(const c of content.chords.filter(c=>c.start<end&&c.end>start)){
+ const start=Math.max(section.start,m.start),end=Math.min(section.end,m.end),events=[],slack=slackFor(m);let cursor=start;
+ for(const c of content.chords.filter(c=>c.start<end-slack&&c.end>start+slack)){
   const a=Math.max(start,c.start),b=Math.min(end,c.end);
   if(a>cursor)events.push({chordId:null,label:'?',start:cursor,end:a,kind:'unknown',continued:false});
-  events.push({chordId:c.id,label:c.label,start:a,end:b,kind:kind(c.label),continued:c.start<a,line:c.line,offset:c.offset,sourceSectionId:c.section_id});cursor=b;
+  events.push({chordId:c.id,label:c.label,start:a,end:b,kind:kind(c.label),continued:c.start<a-slack,line:c.line,offset:c.offset,sourceSectionId:c.section_id});cursor=b;
  }
  if(cursor<end)events.push({chordId:null,label:'?',start:cursor,end,kind:'unknown',continued:false});
+ // a gap left by a skipped sliver belongs to its neighbour, so the bar still starts and ends on the barline
+ if(events.length>1&&events[0].kind==='unknown'&&events[0].end-events[0].start<=slack){events[1].start=events[0].start;events.shift();}
+ if(events.length>1&&events.at(-1).kind==='unknown'&&events.at(-1).end-events.at(-1).start<=slack){events.at(-2).end=events.at(-1).end;events.pop();}
  const q=quarters(m),synthetic=q!==m.quarter_positions,units=synthetic?m.beats.length*4/m.meter[1]:m.meter?.[0]*4/m.meter?.[1],known=Array.isArray(q)&&q.length===m.beats.length+1&&q.every((v,i)=>Number.isFinite(v)&&(!i||v>q[i-1]));
  const partialStart=start>m.start||/pickup/i.test(m.warning||'')||known&&!same(q[0],0),partialEnd=end<m.end||known&&!same(q.at(-1),units);
  const grid=Array.isArray(m.beats)&&m.beats.length>0&&m.beats[0]===m.start&&m.beats.every((t,i)=>Number.isFinite(t)&&t<m.end&&(!i||t>m.beats[i-1]));
@@ -92,7 +101,7 @@ export function buildCompactChart(content,music){
    const valid=['repeat','expanded'].includes(p.mode)&&Array.isArray(p.passes)&&p.passes.length&&p.passes.every((pass,i)=>Number.isFinite(pass.start)&&Number.isFinite(pass.end)&&pass.start<pass.end&&pass.start>=section.start&&pass.end<=section.end&&(!i||p.passes[i-1].end===pass.start)&&Array.isArray(pass.measure_ids)&&Array.isArray(pass.chord_ids)&&same(pass.measure_ids,bars.filter(b=>b.start>=pass.start&&b.end<=pass.end).map(b=>b.measureId))&&same(pass.chord_ids,[...new Set(bars.filter(b=>b.start>=pass.start&&b.end<=pass.end).flatMap(b=>b.events.map(e=>e.chordId).filter(Boolean)))]));
    if(valid)preferences.push(p);else warnings.push('A saved grouping no longer matches this chart; affected material is expanded.');
   }
-  let lead=0;while(lead<bars.length-1&&bars[lead].end<=musicStart+1e-6)lead++;
+  let lead=0;while(lead<bars.length-1&&bars[lead].end<=musicStart+BARLINE_SLACK)lead++;
   let budget=150000;
   const blocked=bars.map(b=>invalidPref||((pref?.groups||[]).some(p=>p.section_id===section.id)&&preferences.length!==(pref?.groups||[]).filter(p=>p.section_id===section.id).length)||preferences.some(p=>p.mode==='expanded'&&b.start>=p.passes[0].start&&b.end<=p.passes.at(-1).end));
   function candidate(i){const preferred=preferences.filter(p=>p.mode==='repeat').flatMap(p=>p.passes).find(p=>p.start===bars[i].start);const fixed=preferred?bars.filter(b=>b.start>=preferred.start&&b.end<=preferred.end).length:0;let best={unit:fixed||1,count:1,fixed:!!fixed};if(blocked[i]||!bars[i].signature)return best;
@@ -126,7 +135,8 @@ export function buildCompactChart(content,music){
  // uncovered interval as an explicit, unfolded continuation in that section's card.
  for(const c of content.chords){
   const mapped=view.occurrences.filter(o=>o.chordId===c.id).sort((a,b)=>a.start-b.start);let cursor=c.start,index=0;
-  const add=end=>{if(end<=cursor)return;const own=view.sections.find(s=>s.id===c.section_id);if(!own)return;
+  // a sliver drawn on its barline is not a missing piece
+  const add=end=>{if(end<=cursor+BARLINE_SLACK){cursor=Math.max(cursor,end);return;}const own=view.sections.find(s=>s.id===c.section_id);if(!own)return;
    const id=own.id+':continuation:'+c.id+':'+index++,slotId=id+':slot0',oid=id+':p1:0';
    const o={id:oid,chordId:c.id,label:c.label,start:cursor,end,kind:kind(c.label),continued:cursor>c.start,line:c.line,offset:c.offset,sourceSectionId:c.section_id,sectionId:own.id,groupId:id,slotId,passNumber:1,measureId:null,partialStart:true,partialEnd:true};
    const g={id,sectionId:own.id,continuation:true,folded:false,start:cursor,end,bars:[],slots:[{...o,id:slotId,beatLabel:''}],passes:[{number:1,start:cursor,end,measureIds:[],occurrenceIds:[oid]}]};

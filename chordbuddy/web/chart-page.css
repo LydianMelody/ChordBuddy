@@ -167,3 +167,27 @@
 [data-tool="write"] .chord.rest{border:2px dashed var(--line);border-radius:6px}
 [data-tool="write"] .chord.rest:hover{border-color:var(--ink)}
 @media print{.chord.rest{border:0!important}}
+
+/* ---------- Timing: cassette bars around the desk instead of the browser's scroll bars (desk-bars.js) ---------- */
+.stage.with-bars{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-rows:minmax(0,1fr) auto;gap:0}
+.stage.with-bars>.tool-rail{grid-row:1/3;margin-right:10px;align-self:start}
+.stage.with-bars>.desk{grid-column:2;grid-row:1;scrollbar-width:none}
+.stage.with-bars>.desk::-webkit-scrollbar{display:none}
+.desk-bar.down{grid-column:3;grid-row:1;margin-left:6px}
+.desk-bar.down .cassette-track{width:30px}
+.desk-bar.across{grid-column:2;grid-row:2;margin-top:6px}
+
+/* the magnet: snapping on (lit) or off */
+#snap-toggle{width:32px;height:30px;min-height:0;padding:0}
+#snap-toggle.on{background:var(--hl);color:var(--ink)}
+#snap-toggle:not(.on){background:var(--page);box-shadow:none;opacity:.75}
+/* "Saved" only speaks up when something needs attention (a failed save, an unsaved draft) */
+#save-status.quiet{display:none}
+
+/* Overlay melody: the sung notes, faint, behind each bar's chords and words (high notes near the top) */
+.tbar{isolation:isolate}
+.tmelody{position:absolute;left:0;right:0;top:34px;bottom:10px;z-index:-1;pointer-events:none}
+.tmelody i{position:absolute;height:5px;margin-top:-2.5px;border-radius:3px;background:var(--a2);opacity:.3}
+
+/* Timing: a long row is split into lines of bars, each its own box */
+.trow .bars+.bars{margin-top:20px}

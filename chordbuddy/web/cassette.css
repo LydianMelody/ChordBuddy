@@ -66,3 +66,6 @@
 .cassette.v .cassette-grip::before{inset:4px 7px;border:0;border-top:2px solid var(--page);border-bottom:2px solid var(--page)}
 .cassette.slim.v .cassette-grip::before{inset:2px 3px}
 .window-label{position:relative;z-index:1;padding:1px 6px;border-radius:3px;background:var(--page);color:var(--ink);font:800 10px var(--m);letter-spacing:1px;pointer-events:none}
+
+/* a plain scroll bar (zoom:false): no grips to pull */
+.cassette.nozoom .cassette-grip{display:none}

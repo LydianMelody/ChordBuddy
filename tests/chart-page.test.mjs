@@ -254,9 +254,10 @@ test('mode and zoom changes are reported so the toolbar can follow', () => {
   installDom();const root=new Node(),events=[];
   const view=mountChartPage(root,{onModeChange:m=>events.push(['mode',m]),onTimingChange:s=>events.push(['timing',s.zoom,s.snap])});
   view.update({...fixture(),documentId:'d',revision:0,songId:'s',transport:{seconds:0}});
-  view.setMode('timing');view.zoomBy(1);view.setSnap('quarter');view.zoomBy(-1);view.zoomBy(-1);
-  assert.deepEqual(events,[['mode','timing'],['timing',3,'eighth'],['timing',3,'quarter'],['timing',2,'quarter'],['timing',1.5,'quarter']]);
-  assert.equal(view.getZoom(),1.5);
+  view.setMode('timing');view.zoomBy(1);view.setSnapping(false);view.zoomBy(-1);view.setSnapping(true);view.zoomBy(-1);view.zoomBy(-1);
+  // the grid follows the zoom; with the magnet off, words go exactly where they are dropped
+  assert.deepEqual(events,[['mode','timing'],['timing',3,'sixteenth'],['timing',3,'free'],['timing',2,'free'],['timing',2,'eighth'],['timing',1.5,'eighth'],['timing',1,'quarter']]);
+  assert.equal(view.getZoom(),1);
 });
 
 test('Edit: a repeated row has one line for every pass, and a new line belongs to its pass', async () => {

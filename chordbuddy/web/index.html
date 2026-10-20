@@ -48,7 +48,9 @@
         </section>
         <div class="top-right">
         <div id="song-actions" class="actions hidden">
-          <details class="more" id="more-menu"><summary class="btn sq" title="More tools" aria-label="More tools"><span data-icon="more"></span></summary><div class="more-pop" id="more-tools"><button id="transcription-history" class="text-button" disabled>Previous transcriptions</button><button id="delete-song" class="text-button" type="button">Delete song…</button><button id="song-timing" class="secondary hidden" title="Adjust this song's timing">Song timing</button></div></details>
+          <button id="undo" class="btn sq" type="button" disabled aria-label="Undo" data-tip-title="Undo" data-tip="Undo the last change."><span data-icon="undo"></span></button>
+          <button id="redo" class="btn sq" type="button" disabled aria-label="Redo" data-tip-title="Redo" data-tip="Put back what you just undid."><span data-icon="redo"></span></button>
+          <details class="more" id="more-menu"><summary class="btn sq" title="More options…" aria-label="More options"><span data-icon="more"></span></summary><div class="more-pop" id="more-tools"><button id="restore" class="text-button" type="button" disabled>Restore model-predicted chart…</button><button id="song-timing" class="text-button hidden" type="button" title="Tempo and beat grid for this song">Timing options…</button><button id="transcription-history" class="text-button" disabled>Previous transcriptions</button><button id="delete-song" class="text-button" type="button">Delete song…</button></div></details>
           <button id="song-folder" class="btn sq" title="Open song folder" aria-label="Open song folder"><span data-icon="folder"></span></button>
           <button id="transcribe" class="btn" title="Analyze this song"><span data-icon="sparkle"></span><em>Analyze song</em></button>
           <details class="more export-menu" id="export-menu"><summary class="btn blue" id="export-button" title="Save or export this song" aria-label="Export"><span data-icon="download"></span>Export</summary><div class="more-pop" id="export-pop">
@@ -57,6 +59,7 @@
             <button type="button" class="text-button" data-export="midi">MIDI · one file, all tracks</button>
             <button type="button" class="text-button" data-export="midi-tracks">MIDI · one file per track (zip)</button>
             <button type="button" class="text-button" data-export="outputs" title="Everything SheetSage wrote for this song: beats, chords, melody, tokens and more">All SheetSage outputs (zip)</button>
+            <a id="download" class="text-button disabled" title="This view's own file, as Chord Buddy saves it">This view's file</a>
           </div></details>
         </div>
         <div class="actions actions-global">
@@ -93,10 +96,10 @@
           <div id="document-tabs" class="document-tabs tabs" role="tablist" aria-label="Transcription outputs"></div>
             <div class="tool-options" id="tool-options">
             <div class="tool-note" id="tool-note" role="status"></div>
-            <div class="opt opt-timing"><span data-icon="magnet"></span>Snap <div class="seg" id="snap"></div> Zoom <div class="seg zoomseg"><button type="button" id="tz-out" title="Zoom out (−)">−</button><b id="tz-label">2×</b><button type="button" id="tz-in" title="Zoom in (+)">+</button></div> <label class="suggest-toggle" id="suggest-wrap" title="Unpinned words are placed on the vocal melody's notes as a rough guess. Drag a word to pin it."><input type="checkbox" id="suggest" checked> Guess from melody</label> <button type="button" id="timing-settings" class="secondary" title="Tempo and beat grid for this song">Timing settings</button> <button type="button" id="rhythm-tool" class="secondary" title="Use the drums to correct the beat grid">Rhythm</button></div>
+            <div class="opt opt-timing"><button type="button" id="snap-toggle" class="btn sq magnet on" aria-pressed="true" aria-label="Snap to the grid" data-tip-title="Snap" data-tip="On: words snap to the beat grid, which gets finer as you zoom in. Off: words land exactly where you drop them."><span data-icon="magnet"></span></button> <label class="suggest-toggle" id="suggest-wrap"><input type="checkbox" id="suggest" checked> Overlay melody</label></div>
             <div class="opt opt-edit">Apply to <div class="seg" id="scope"><button type="button" class="on" data-scope="occurrence">This pass</button><button type="button" data-scope="all-matching">All matching</button></div></div>
           </div>
-          <div class="hist history-actions"><button type="button" id="confidence-info" class="info-dot hidden" aria-label="About the confidence colors">i</button><span id="save-status" class="saved" role="status">Saved</span><button id="undo" class="secondary" disabled aria-label="Undo" data-tip-title="Undo" data-tip="Undo the last change."><span data-icon="undo"></span></button><button id="redo" class="secondary" disabled aria-label="Redo" data-tip-title="Redo" data-tip="Put back what you just undid."><span data-icon="redo"></span></button><button id="restore" class="secondary" disabled aria-label="Restore original" data-tip-title="Restore original" data-tip="Go back to the chart exactly as Chord Buddy first made it. Undo can still bring your edits back."><span data-icon="restore"></span></button><a id="download" class="secondary disabled" aria-label="Download this output" data-tip-title="Download" data-tip="Download this output as a file."><span data-icon="download"></span></a></div>
+          <div class="hist history-actions"><span id="save-status" class="saved quiet" role="status"></span></div>
         </div>
         <p id="confidence-notice" class="confidence-notice"></p>
         <div class="stage">

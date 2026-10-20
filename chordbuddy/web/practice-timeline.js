@@ -108,6 +108,12 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
 
  function positionAt(t){const p=musicalPosition(numbered(),t);return p?(p.bar<1?'Before bar 1':'Bar '+p.bar)+(Number.isFinite(p.beat)?' · Beat '+p.beat.toFixed(2):' · timing unavailable'):'Musical position unavailable';}
  const percentOf=(t,axis)=>100*(t-axis.start)/Math.max(.001,axis.end-axis.start);
+ // The bar-and-beat label rides above the playhead but always stays wholly inside the scrubber, however narrow the window is.
+ function placeLabel(percent){
+  const lane=position.parentElement?.clientWidth||0,width=position.offsetWidth||0;
+  if(!lane||!width){position.style.left=Math.max(12,Math.min(88,percent))+'%';return;}
+  const half=width/2+4;position.style.left=Math.max(half,Math.min(lane-half,lane*percent/100))+'px';
+ }
  const timeAt=(clientX,axis,element=seek)=>{const rect=element.getBoundingClientRect();return axis.start+Math.max(0,Math.min(1,(clientX-rect.left)/Math.max(1,rect.width)))*(axis.end-axis.start);};
  const grain=()=>snapGrain(duration(),visible());
  const currentLoop=()=>{const l=transport.getSnapshot().loop;return l&&l.start!==null&&l.end!==null?l:null;};
@@ -158,7 +164,7 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
   seek.min=v.start;seek.max=v.end;seek.disabled=!s.ready;if(!draggingSeek)seek.value=s.seconds;
   const outside=t<v.start||t>v.end;seek.classList.toggle('outside',outside);seek.setAttribute('aria-valuetext',positionAt(t)+(outside?' · outside the visible span':''));
   position.textContent=positionAt(t)+(outside?' · outside visible span':'');position.classList.toggle('outside',outside);playhead.hidden=outside;
-  const percent=percentOf(t,v);playhead.style.left=percent+'%';position.style.left=Math.max(12,Math.min(88,percent))+'%';
+  const percent=percentOf(t,v);playhead.style.left=percent+'%';placeLabel(percent);
   played.style.clipPath='inset(0 '+Math.max(0,Math.min(100,100-percent))+'% 0 0)';
   cassette.refresh();paintRuler();overviewHead.style.left=percentOf(t,b)+'%';
   cassette.setValueText(clock(v.start)+' – '+clock(v.end)+' · '+(v.end-v.start>=60?Math.round((v.end-v.start)/6)/10+' min':Math.round(v.end-v.start)+' s')+' visible');

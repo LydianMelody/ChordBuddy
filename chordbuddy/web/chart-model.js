@@ -2,6 +2,7 @@
 // falls within. Pure (no DOM). The grouping, bar clipping and pass mapping are the proven rules of the compact chart;
 // word times come from word-layout.js (pins, then even spacing between pins).
 import {chartPresentation} from './chart-presentation.js';
+import {BARLINE_SLACK} from './compact-chart.js';
 import {usualBeats,isOddBar} from './bar-lengths.js';
 import {buildCompactChart} from './compact-chart.js';
 import {effectiveMeasures} from './chart-layout.js';
@@ -16,10 +17,13 @@ export function buildChartModel(content,music,{onsets=null}={}){
   let measures=[];try{measures=effectiveMeasures(music,content.layout||{});}catch{measures=[];}
   const presentation=chartPresentation(content,measures);
   // Silence before the song starts is not a bar: bar 1 is the first bar with music in it. (Numbers stored with the bars never change; this is only what is shown.)
-  const barOffset=measures.filter(m=>m.end<=presentation.start+1e-6).length;
+  // A bar that only reaches a few ms into the music (the same wobble as compact-chart.js allows at barlines) is still silence.
+  const barOffset=measures.filter(m=>m.end<=presentation.start+BARLINE_SLACK).length;
   const usual=usualBeats(measures);
   const ctx={content,music,projection,measures,presentation,onsets,barOffset,usual};
-  const sections=projection.sections.map((section,index)=>({
+  // A section that lies wholly in the hidden silence before or after the music is not shown either (nor counted).
+  const audible=section=>section.end>presentation.start+BARLINE_SLACK&&section.start<presentation.end-BARLINE_SLACK;
+  const sections=projection.sections.filter(audible).map((section,index)=>({
     id:section.id,name:section.name,number:index+1,start:section.start,end:section.end,
     groups:section.groups.map(group=>buildGroup(ctx,section,group)).filter(Boolean),
   }));
@@ -34,7 +38,7 @@ function barsOf(ctx,section,group,rep){
   for(const o of unmapped)if(!bars.some(m=>o.start>=m.start&&o.end<=m.end))bars.push({id:'unmapped:'+o.id,start:o.start,end:o.end,viewStart:o.start,viewEnd:o.end,number:'',beats:[],meter:null});
   bars.sort((a,b)=>a.start-b.start);
   if(!bars.length)bars=[{id:'unmapped:'+group.id,start:rep.start,end:rep.end,viewStart:rep.start,viewEnd:rep.end,number:'',beats:[],meter:null}];
-  return bars.filter(m=>(m.viewEnd??m.end)>presentation.start&&(m.viewStart??m.start)<presentation.end);
+  return bars.filter(m=>(m.viewEnd??m.end)>presentation.start+BARLINE_SLACK&&(m.viewStart??m.start)<presentation.end-BARLINE_SLACK);
 }
 
 function buildGroup(ctx,section,group){

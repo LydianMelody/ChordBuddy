@@ -26,3 +26,12 @@ test('placing lyric lines inside a repeated progression never duplicates its har
  const f=fixture();f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[{section_id:'s',line:0,start_measure:'m1',end_measure:'m2',words:[{offset:0,measure_id:'m1',beat:1/3}]},{section_id:'s',line:1,start_measure:'m5',end_measure:'m6',words:[{offset:0,measure_id:'m5',beat:2}]}]};
  const v=buildCompactChart(f.content,f.music);assert.equal(v.groups.length,1);assert.equal(v.groups[0].passes.length,4);assert.equal(v.groups[0].slots.length,4);
 });
+test('a chord change a few milliseconds off its barline is drawn on the barline, with no sliver of the chord before',()=>{
+ const f=fixture();f.content.chords[3].end-=.03;f.content.chords[4].start-=.03;      // the second pass starts 30 ms early
+ const v=buildCompactChart(f.content,f.music);
+ assert.equal(v.groups.filter(g=>!g.continuation).length,1,'still one folded group: the wobble does not make the passes differ');
+ assert.equal(v.groups[0].passes.length,4);
+ assert.ok(!v.groups.some(g=>g.continuation),'no stray card for the 30 ms piece');
+ const second=v.occurrences.find(o=>o.chordId==='c4');assert.equal(second.continued,false,'drawn as a new chord, not a held-over one');
+ assert.equal(f.content.chords[4].start,7.97,'the chord itself is not moved');
+});
