@@ -4,19 +4,19 @@ A free practice app for Windows. Give it a song (an MP3) and it works out the ch
 
 - **Chord chart:** the song's chords bar by bar, with the lyrics under them, repeats folded (`G C D C ×2`) and the current chord lit as the music plays.
 - **Lead sheet:** the melody on a staff with chord symbols and lyrics, ready to print or save as a PDF.
-- **Piano roll:** every note of the vocal melody, the instruments and the chords, in their own colours.
+- **Piano roll:** every note of the vocal melody, the instruments and the chords, in their own colors.
 
-It can also split the recording into seven stems (bass, drums, vocals, piano, lead guitar, rhythm guitar and the rest), so you can turn parts up, down or off while you practise.
+It can also split the recording into seven stems (bass, drums, vocals, piano, lead guitar, rhythm guitar and the rest), so you can turn parts up, down or off while you practice.
 
 Everything runs on your own computer. Your music is never uploaded anywhere.
 
 ## What you can do
 
-- **Practise:** loop any stretch, slow the music down without changing the pitch, follow along on the chart, the lead sheet or the piano roll, and mute or solo stems in the mixer.
+- **Practice:** loop any stretch, slow the music down without changing the pitch, follow along on the chart, the lead sheet or the piano roll, and mute or solo stems in the mixer.
 - **Correct the chart:** retype chords and words, split and join sections, fold or unfold repeats, time the words to the beat, and fix bar lines for short or long bars. Every change can be undone, even after closing the app.
 - **Edit the lead sheet:** fix chord symbols, type lyrics (they are shared with the chart), choose where lines break, or open it in MuseScore or another notation program as a MusicXML file.
 - **Export:** PDF of the chart or the lead sheet, MIDI (one multichannel file or one file per track), a mix of the stems as an MP3, or a zip of everything the model produced.
-- **Make it yours:** three colour themes, each with a light and dark look.
+- **Make it yours:** three color themes, each with a light and dark look.
 
 ## Install
 

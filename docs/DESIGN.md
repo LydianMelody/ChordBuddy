@@ -1,6 +1,6 @@
 # How Chord Buddy works
 
-This is an overview for anyone reading or changing the code. The musical rules for the chart and the lead sheet are in [MUSICAL-LAYOUT.md](MUSICAL-LAYOUT.md); the models and their licences are in [MODEL-ATTRIBUTION.md](MODEL-ATTRIBUTION.md).
+This is an overview for anyone reading or changing the code. The musical rules for the chart and the lead sheet are in [MUSICAL-LAYOUT.md](MUSICAL-LAYOUT.md); the models and their licenses are in [MODEL-ATTRIBUTION.md](MODEL-ATTRIBUTION.md).
 
 ## The pieces
 
