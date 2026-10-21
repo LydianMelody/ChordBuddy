@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="/chart-tools.css">
   <link rel="stylesheet" href="/song-setup.css">
   <link rel="stylesheet" href="/midi-view.css">
+  <link rel="stylesheet" href="/visualizer.css">
   <script defer src="/vendor/abcjs-basic-min.js"></script>
   <script type="module" src="/shell.js"></script>
   <script type="module" src="/app.js"></script>
@@ -50,7 +51,7 @@
         <div id="song-actions" class="actions hidden">
           <button id="undo" class="btn sq" type="button" disabled aria-label="Undo" data-tip-title="Undo" data-tip="Undo the last change."><span data-icon="undo"></span></button>
           <button id="redo" class="btn sq" type="button" disabled aria-label="Redo" data-tip-title="Redo" data-tip="Put back what you just undid."><span data-icon="redo"></span></button>
-          <details class="more" id="more-menu"><summary class="btn sq" title="More options…" aria-label="More options"><span data-icon="more"></span></summary><div class="more-pop" id="more-tools"><button id="restore" class="text-button" type="button" disabled>Restore model-predicted chart…</button><button id="song-timing" class="text-button hidden" type="button" title="Tempo and beat grid for this song">Timing options…</button><button id="transcription-history" class="text-button" disabled>Previous transcriptions</button><button id="delete-song" class="text-button" type="button">Delete song…</button></div></details>
+          <details class="more" id="more-menu"><summary class="btn sq" title="More options…" aria-label="More options"><span data-icon="more"></span></summary><div class="more-pop" id="more-tools"><button id="restore" class="text-button" type="button" disabled>Restore model-predicted chart…</button><button id="song-timing" class="text-button hidden" type="button" title="Tempo and beat grid for this song">Timing options…</button><button id="transcription-history" class="text-button" disabled>Previous transcriptions</button><button id="visualizer-window" class="text-button" type="button" title="Open the visualizer in its own window (it can go full screen on any monitor)">Visualizer window</button><button id="visualizer-full" class="text-button" type="button" title="Show the visualizer full screen on this monitor (Esc to leave)">Visualizer full screen</button><button id="delete-song" class="text-button" type="button">Delete song…</button></div></details>
           <button id="song-folder" class="btn sq" title="Open song folder" aria-label="Open song folder"><span data-icon="folder"></span></button>
           <button id="transcribe" class="btn" title="Analyze this song"><span data-icon="sparkle"></span><em>Analyze song</em></button>
           <details class="more export-menu" id="export-menu"><summary class="btn blue" id="export-button" title="Save or export this song" aria-label="Export"><span data-icon="download"></span>Export</summary><div class="more-pop" id="export-pop">

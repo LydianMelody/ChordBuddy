@@ -26,6 +26,8 @@ import {setKeySpelling,spellChord,spellAbc} from './spelling.js';
 import {onsetsFromNotes} from './word-layout.js';
 import {mountModelsPanel,mountChordModelPanel} from './models-view.js';
 import {mountDeskBars,combinedZoom} from './desk-bars.js';
+import {createVisualPublisher} from './visual-bridge.js';
+import {mountVisualizer} from './visualizer-view.js';
 
 const $ = id => document.getElementById(id);
 document.querySelector('.chart-intro h2')?.remove();
@@ -192,6 +194,36 @@ async function reloadPracticeChart(){
 }
 
 transport.subscribe(()=>{if(model.detail)updatePlayback();renderLock();});
+// ---- Visualizer: a pop-out window or this page in full screen, following the player over the visual bridge (visual-bridge.js). ----
+const visuals=createVisualPublisher();
+function publishVisualScene(){
+  const song=currentSong(),record=chartRecord();
+  if(!song||!model.detail){visuals.scene(null);return;}
+  visuals.scene({songId:song.id,title:song.title,key:songKey().label,runId:separationDetail?.active?.run_id||null,token,
+    revision:record?`${record.doc.revision}:${record.version}`:null,content:record?.draft||record?.doc.content||null,music:record?.doc.music||null,
+    midiDocs:(model.detail.documents||[]).filter(doc=>doc.kind==='midi').map(doc=>({id:doc.id,name:doc.name}))});
+}
+transport.subscribe(snapshot=>{visuals.clock(snapshot);if(visuals.listening)publishVisualScene();});
+// Opening must happen straight from the click (browsers only allow pop-ups and full screen then); the song follows a moment later.
+function openVisualizer(fullScreen){
+  $('more-menu').open=false;
+  if(fullScreen){
+    const overlay=document.createElement('div');overlay.className='visualizer-overlay';document.body.append(overlay);
+    const view=mountVisualizer(overlay),button=document.createElement('button');
+    button.type='button';button.className='visualizer-button';button.textContent='Close';button.title='Close the visualizer (Esc)';overlay.append(button);
+    let entered=false;
+    // Esc leaves full screen first (the browser does that); leaving it, Esc or Close removes the view
+    const close=()=>{document.removeEventListener('fullscreenchange',changed);document.removeEventListener('keydown',key);view.dispose();overlay.remove();
+      if(document.fullscreenElement===overlay)document.exitFullscreen().catch(()=>{});};
+    const changed=()=>{if(document.fullscreenElement===overlay)entered=true;else if(entered)close();};
+    const key=event=>{if(event.key==='Escape'&&document.fullscreenElement!==overlay){event.preventDefault();close();}};
+    document.addEventListener('fullscreenchange',changed);document.addEventListener('keydown',key);button.onclick=close;
+    overlay.requestFullscreen().catch(()=>{});            // without full screen it still fills the window, with Close and Esc
+  }else window.open('/visualizer.html','chordbuddy-visualizer','popup,width=1280,height=720');
+  loadChartRecord().then(publishVisualScene).catch(showError);
+}
+$('visualizer-window').onclick=()=>openVisualizer(false);
+$('visualizer-full').onclick=()=>openVisualizer(true);
 function renderSections(){
  const song=!!model.song,full=lockMode()==='full';
  $('work').classList.toggle('hidden',!song||full);
