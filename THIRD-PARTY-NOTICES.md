@@ -15,7 +15,8 @@ Chord Buddy's own code is MIT licensed (see `LICENSE`). It uses the following. *
 |---|---|---|
 | Python 3.11 (embeddable build) | runs the app | Python Software Foundation License |
 | PyTorch, torchaudio | runs the models | BSD-3-Clause (PyTorch), BSD (torchaudio) |
-| transformers, huggingface-hub, safetensors, tokenizers, requests, numpy, scipy, PyYAML, tqdm | transcription engine | Apache-2.0 (transformers, huggingface-hub, safetensors, tokenizers, requests); BSD-3-Clause (numpy, scipy); MIT (PyYAML); MPL-2.0 and MIT (tqdm) |
+| transformers, huggingface-hub, hf-xet, safetensors, tokenizers, requests, numpy, scipy, PyYAML, tqdm | transcription engine | Apache-2.0 (transformers, huggingface-hub, hf-xet, safetensors, tokenizers, requests); BSD-3-Clause (numpy, scipy); MIT (PyYAML); MPL-2.0 and MIT (tqdm) |
+| httpx2, httpcore2, h11, anyio, typer, click, rich, pygments, markdown-it-py, mdurl, shellingham, truststore, annotated-doc | used by huggingface-hub and transformers (downloads, command line) | BSD-3-Clause (httpx2, httpcore2, click); BSD-2-Clause (pygments); ISC (shellingham); MIT (the rest) |
 | pywebview (and pythonnet) | the app window | BSD-3-Clause (pywebview), MIT (pythonnet) |
 | mido | MIDI files | MIT |
 | **mutagen** | reads MP3 tags | **GPL-2.0-or-later.** Chord Buddy imports it at run time and does not include it. Combining with MIT code is allowed, but consider this when choosing how to distribute a bundled build. *(check)* |

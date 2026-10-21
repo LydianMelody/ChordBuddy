@@ -11,6 +11,7 @@ import traceback
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from chordbuddy.engine import MODEL_ID, MODEL_REVISION, PROGRESS_PREFIX, discover_outputs, local_environment
 from chordbuddy.model_cache import configure_hub_copy_fallback
+from chordbuddy.transformers_compat import apply as adjust_transformers, load_dtype_kwargs
 from chordbuddy.confidence import confidence_defaults, validate_confidence_settings, install_capture
 
 
@@ -52,6 +53,7 @@ def main(argv=None):
         import torch
         import torchaudio
         from transformers import AutoModel
+        adjust_transformers()
         if not shutil.which("ffmpeg"):
             raise RuntimeError("FFmpeg executable is missing from PATH")
         if args.device == "cuda" and not torch.cuda.is_available():
@@ -70,7 +72,7 @@ def main(argv=None):
         emit({"stage": "loading", "device": device, "revision": MODEL_REVISION, "message": "Loading bundled model on " + (torch.cuda.get_device_name(0) if device == "cuda" else "CPU")})
         model = AutoModel.from_pretrained(MODEL_ID, revision=MODEL_REVISION, code_revision=MODEL_REVISION,
                                          trust_remote_code=True, cache_dir=os.environ["HF_HUB_CACHE"],
-                                         torch_dtype=torch.float32).eval().to(device)
+                                         **load_dtype_kwargs(torch.float32)).eval().to(device)
         with torch.inference_mode(), install_capture(model, args.output, thresholds):
             result = model.transcribe(str(args.audio.resolve()), output_dir=str(args.output.resolve()),
                                       progress=emit, dtype="bf16" if device == "cuda" else "fp32")
