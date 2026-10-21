@@ -23,6 +23,7 @@ from .inference_jobs import InferenceGate
 from .separation_audio import wire_chunk,read_frames
 from .separation_checks import waveform_peaks
 from .mix_export import parse_levels,encode_mix,export_stems
+from . import visual_features
 from .model_downloads import ModelManager
 from .analysis import AnalysisCoordinator,TERMINAL
 from .rhythm_apply import RhythmService
@@ -428,6 +429,9 @@ class Handler(BaseHTTPRequestHandler):
             for name,value in [('Run-Id',run_id),('Start-Frame',start),('Frame-Count',actual),('Sample-Rate',44100)]:
                 self.send_header('X-Stem-'+name,str(value))
             self.end_headers();self.wfile.write(payload);return
+        if path.startswith('/api/visual-features/'):
+            root,manifest=self.app.separation_store.get_published_run(path.removeprefix('/api/visual-features/'))
+            return self._json(visual_features.load_or_compute(root,manifest))
         if path.startswith('/api/playback/'):
             return self._json(self.app.playback_state(path.removeprefix('/api/playback/')))
         if path.startswith('/api/separation/'):
