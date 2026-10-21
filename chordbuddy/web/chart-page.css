@@ -87,8 +87,14 @@
 .tchord .chord{margin:0;transform:translateX(-2px);cursor:default}
 .tchord .repeat{margin-top:4px}
 .tlane{position:relative;height:32px;border-top:1px dashed var(--line)}
-.tbar:first-child .tlane::before{content:attr(data-label);position:absolute;left:-22px;top:7px;font:700 11px var(--m);color:var(--faint)}
-.wchip{position:absolute;top:4px;display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border:2px solid var(--ink);border-radius:7px;background:var(--page);font:400 14.5px/1.25 var(--type);white-space:nowrap;cursor:grab;user-select:none;touch-action:none;z-index:1}
+.tlane[data-slot="1"]{--pc:var(--a2);--pt:var(--onA2)}
+.tlane[data-slot="2"]{--pc:var(--a1);--pt:var(--onA1)}
+.tlane[data-slot="3"]{--pc:var(--a3);--pt:var(--onA3)}
+.tlane[data-slot="4"]{--pc:var(--hl);--pt:#1A1C24}
+.tlane[data-slot]{border-top:2px solid var(--pc);background:color-mix(in srgb,var(--pc) 9%,transparent)}
+.tlane[data-slot]::before{content:attr(data-label);position:absolute;left:4px;top:-8px;padding:0 5px;border-radius:5px;background:var(--pc);color:var(--pt);font:700 9px/14px var(--m);letter-spacing:.06em;text-transform:uppercase;pointer-events:none;z-index:1}
+.tlane[data-slot] .wchip{box-shadow:inset 4px 0 0 var(--pc)}
+.wchip{position:absolute;z-index:2;top:4px;display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border:2px solid var(--ink);border-radius:7px;background:var(--page);font:400 14.5px/1.25 var(--type);white-space:nowrap;cursor:grab;user-select:none;touch-action:none;z-index:1}
 .wchip::before{content:'';position:absolute;left:-2px;top:-6px;width:2px;height:6px;background:var(--ink);opacity:.5}
 .wchip:hover{box-shadow:2px 2px 0 var(--ink);z-index:2}
 .wchip .pinb{display:none;width:15px;height:15px;border-radius:50%;place-items:center;color:var(--onA2);background:var(--a2);margin-left:-3px;cursor:pointer}
@@ -185,8 +191,7 @@
 #save-status.quiet{display:none}
 
 /* Overlay melody: the sung notes, faint, behind each bar's chords and words (high notes near the top) */
-.tbar{isolation:isolate}
-.tmelody{position:absolute;left:0;right:0;top:34px;bottom:10px;z-index:-1;pointer-events:none}
+.tmelody{position:absolute;left:0;right:0;top:34px;bottom:10px;pointer-events:none}
 .tmelody i{position:absolute;height:5px;margin-top:-2.5px;border-radius:3px;background:var(--a2);opacity:.3}
 
 /* Timing: a long row is split into lines of bars, each its own box */
@@ -201,3 +206,8 @@
 .row.slotted .bars.measuring>.bar{flex:none}
 .row.slotted.natural{width:auto!important}
 .row.slotted.natural .bar{flex:none}
+
+/* Copy a section's lyrics and timing onto its repeat */
+.sec-copy{margin-left:auto;padding:3px 10px;border:2px solid var(--ink);border-radius:999px;background:var(--page);color:var(--ink);font:700 11px var(--m);cursor:pointer}
+.sec-copy:hover{background:var(--hl);color:#1A1C24}
+.sec-copy+.sec-copy{margin-left:8px}

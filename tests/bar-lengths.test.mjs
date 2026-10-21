@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {loadAbcjs} from './abcjs-node.mjs';
-import {usualBeats,isOddBar,beatsLabel,meterOf} from '../chordbuddy/web/bar-lengths.js';
+import {usualBeats,isOddBar,beatsLabel,meterOf,usualMeter,parseMeter} from '../chordbuddy/web/bar-lengths.js';
 import {analyzeScore,engravingSettings,applyEngraving} from '../chordbuddy/web/lead-sheet.js';
 import {effectiveMeasures} from '../chordbuddy/web/chart-layout.js';
 import {buildChartModel} from '../chordbuddy/web/chart-model.js';
@@ -37,4 +37,14 @@ test('the lead sheet gets a 2/4 for the short bar and goes back to 4/4 after it'
   for(const line of tune.lines)for(const staff of line.staff||[])for(const voice of staff.voices||[])for(const item of voice)if(item.el_type==='meter')meters.push(item.value[0].num+'/'+item.value[0].den);
   const vocal=meters.join(' ');
   assert.match(vocal,/2\/4 4\/4/);
+});
+
+test('the song\'s meter is the one most bars carry, so a stray 1/8 pickup tag never names it',()=>{
+  const m=(meter,n=1)=>Array.from({length:n},()=>({meter}));
+  assert.deepEqual(usualMeter([...m([1,8]),...m([4,4],40)]),[4,4]);
+  assert.deepEqual(usualMeter([...m([3,4],5),...m([4,4],5)]),[4,4]);   // a tie goes to the later one
+  assert.equal(usualMeter([{meter:null},{}]),null);assert.equal(usualMeter(undefined),null);
+});
+test('a saved time signature is read back only if it is one of the choices',()=>{
+  assert.deepEqual(parseMeter('6/8'),[6,8]);assert.equal(parseMeter('1/8'),null);assert.equal(parseMeter(''),null);assert.equal(parseMeter('x'),null);
 });

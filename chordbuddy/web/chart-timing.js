@@ -4,7 +4,7 @@
 import {addressAtSeconds,secondsAtAddress,musicalPosition} from './musical-grid.js';
 import {mapToDisplay,sourceMeasureFor} from './chart-model.js';
 import {placeWord} from './chart-layout.js';
-import {isFixed,dragLimits,allowedTime,nearestAllowed,previewTimes,barWidthsAtZoom,staggerRows,barTargets,nearestTarget,beatToX,beatPx,SNAPS,autoSnap} from './timing-geometry.js';
+import {isFixed,dragLimits,allowedTime,nearestAllowed,previewTimes,barWidthsAtZoom,barTargets,nearestTarget,beatToX,beatPx,SNAPS,autoSnap} from './timing-geometry.js';
 import {planPageEdit} from './chart-edits.js';
 import {icon} from './icons.js';
 import {spellChord} from './spelling.js';
@@ -12,7 +12,8 @@ import {spellChord} from './spelling.js';
 const el=(tag,cls='',text)=>{const n=document.createElement(tag);n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 const finite=Number.isFinite;
 const DRAG_PIXELS=4,GAP=8;
-const CAP_PER_BEAT=110,ROW_HEIGHT=28;   // the widest a bar may grow just to keep words apart (px per beat), and the height of one row of words
+const PASS_COLORS=4;   // passes of a repeated row each get one of four colors (chart-page.css), then start over
+const ROW_HEIGHT=28;   // the height of one line of words
 let canvas;
 function textWidth(text,font,padding){
   if(canvas===undefined)canvas=typeof document!=='undefined'&&document.createElement?.('canvas')?.getContext?.('2d')||null;
@@ -27,7 +28,14 @@ export function createTiming(env){
   function barSpec(g){
     return g.bars.map(bar=>({id:bar.id,beats:bar.measure?.beats?.length||0,bar}));
   }
-  const beatOfSeconds=(measures,seconds)=>{const a=addressAtSeconds(measures,seconds);return a?{measureId:a.measure_id,beat:a.beat}:null;};
+  // A moment on a barline (or within a few milliseconds of it) belongs to the bar that starts there. Drawn at the end of the bar before, a word would hang over the next
+  // bar, which sits on top of it and takes its clicks.
+  const beatOfSeconds=(measures,seconds,rowIds)=>{
+    const a=addressAtSeconds(measures,seconds);if(!a)return null;
+    const at=measures.findIndex(m=>m.id===a.measure_id),next=measures[at+1];
+    if(at>=0&&next&&(!rowIds||rowIds.has(next.id))&&a.beat>=measures[at].beats.length-.02)return {measureId:next.id,beat:0};
+    return {measureId:a.measure_id,beat:a.beat};
+  };
 
   // Display address (bar of the displayed pass + beat) of a moment in the lane's own pass.
   function displayAddress(g,lane,seconds){
@@ -51,25 +59,26 @@ export function createTiming(env){
       const bar=el('i');bar.style.left=beatToX(a,width,n)+'px';bar.style.width=Math.max(3,beatToX(b,width,n)-beatToX(a,width,n)-1)+'px';
       bar.style.top=(high>low?(high-note.pitch)/(high-low)*100:50)+'%';layer.append(bar);
     }
-    node.append(layer);
+    node.firstChild?node.insertBefore(layer,node.firstChild):node.append(layer);   // first, so it paints under the chords and words that follow
   }
   function renderGroup(section,g){
     const {measures}=env.getModel(),perBeat=beatPx(env.getZoom()),refs=env.refs,perLine=Math.max(1,env.getData()?.content?.layout?.bars_per_line||4);
     const row=el('div','row trow'+(g.lanes.length?' has-lyrics':''));let bars=el('div','bars');const lines=[bars];row.dataset.group=g.id;
+    const rowIds=new Set(g.bars.map(b=>b.id));
     refs.groups.push({node:row,model:g});
     const placedLanes=g.lanes.filter(l=>!l.flow);
     // widths: chord labels and each lyric line are separate lanes of items
     const chordItems=[],wordLanes=placedLanes.map(()=>[]);
     for(const bar of g.bars)for(const chunk of bar.chunks){
-      const a=beatOfSeconds(measures,chunk.start);if(a&&a.measureId===bar.id)chordItems.push({barId:bar.id,beat:a.beat,width:textWidth(spellChord(chunk.label),'800 25px "Bricolage Grotesque"',22)});
+      const a=beatOfSeconds(measures,chunk.start,rowIds);if(a&&a.measureId===bar.id)chordItems.push({barId:bar.id,beat:a.beat,width:textWidth(spellChord(chunk.label),'800 25px "Bricolage Grotesque"',22)});
     }
     placedLanes.forEach((lane,i)=>{
       for(const t of lane.tokens){
-        if(!finite(t.displaySeconds))continue;const a=beatOfSeconds(measures,t.displaySeconds);
+        if(!finite(t.displaySeconds))continue;const a=beatOfSeconds(measures,t.displaySeconds,rowIds);
         if(a)wordLanes[i].push({barId:a.measureId,beat:a.beat,width:textWidth(t.text,'15px "Courier Prime"',30)});
       }
     });
-    const specs=barSpec(g),widths=barWidthsAtZoom(specs.map(s=>({id:s.id,beats:s.beats||4})),[chordItems,...wordLanes],env.getZoom(),{gap:GAP,capPerBeat:CAP_PER_BEAT});
+    const specs=barSpec(g),widths=barWidthsAtZoom(specs.map(s=>({id:s.id,beats:s.beats||4})),[chordItems,...wordLanes],env.getZoom(),{gap:GAP});
     const laneEls=new Map();   // lane index -> Map(barId -> lane element)
     const barEls=[];
     g.bars.forEach((bar,index)=>{
@@ -81,7 +90,7 @@ export function createTiming(env){
       if(env.editBars&&env.tool?.()==='barlines'&&bar.measure&&bar.mapped&&n)addBarControls(node,bar,width,n,measures);
       const chords=el('div','tchords');
       for(const chunk of bar.chunks){
-        const a=beatOfSeconds(measures,chunk.start),cell=el('span','chunk tchord');cell.dataset.chunk=chunk.key;
+        const a=beatOfSeconds(measures,chunk.start,rowIds),cell=el('span','chunk tchord');cell.dataset.chunk=chunk.key;
         cell.style.left=(n&&a?beatToX(a.beat,width,n):0)+'px';
         const chord=el('span','chord',chunk.continued?'('+spellChord(chunk.label)+')':spellChord(chunk.label));cell.append(chord);
         if(chunk.repeat>1)cell.append(el('span','repeat','(×'+chunk.repeat+')'));
@@ -91,7 +100,9 @@ export function createTiming(env){
       melodyOverlay(node,bar.measure,width,n);
       placedLanes.forEach((lane,i)=>{
         const laneEl=el('div','tlane');laneEl.dataset.lane=String(i);laneEl.dataset.pass=String(lane.passNumber);
-        if(index===0&&g.passCount>1)laneEl.dataset.label=String(lane.passNumber);
+        // A repeated row holds one lane per pass. Each pass has its own color and every bar of its lane carries its name, so the words can be told
+        // apart wherever the row is scrolled to.
+        if(g.passCount>1){laneEl.dataset.label='Pass '+lane.passNumber;laneEl.dataset.slot=String((lane.passNumber-1)%PASS_COLORS+1);}
         if(!laneEls.has(i))laneEls.set(i,new Map());laneEls.get(i).set(bar.id,laneEl);node.append(laneEl);
       });
       bars.append(node);barEls.push({node,bar,width,n,id:bar.id});
@@ -104,23 +115,16 @@ export function createTiming(env){
     placedLanes.forEach((lane,laneIndex)=>{
       lane.tokens.forEach((token,tokenIndex)=>{
         if(!finite(token.displaySeconds))return;
-        const a=beatOfSeconds(measures,token.displaySeconds),entry=barEls.find(b=>b.id===a?.measureId),laneEl=laneEls.get(laneIndex)?.get(a?.measureId);
+        const a=beatOfSeconds(measures,token.displaySeconds,rowIds),entry=barEls.find(b=>b.id===a?.measureId),laneEl=laneEls.get(laneIndex)?.get(a?.measureId);
         if(!a||!entry||!laneEl||!entry.n)return;
         const chip=makeChip(g,lane,laneIndex,token,tokenIndex);chip.style.left=beatToX(a.beat,entry.width,entry.n)+'px';
         laneEl.append(chip);chips.push({node:chip,token,tokenIndex,laneIndex,lane});refs.words.push({node:chip,token,group:g,lane});
       });
     });
-    // crowded words (a run of quick syllables) go on a second row instead of stretching the bar
-    const barStart=new Map();let across=0;for(const b of barEls){barStart.set(b.id,across);across+=b.width;}
-    placedLanes.forEach((lane,laneIndex)=>{
-      const mine=chips.filter(c=>c.laneIndex===laneIndex).map(c=>{
-        const a=beatOfSeconds(measures,c.token.displaySeconds),entry=barEls.find(b=>b.id===a.measureId);
-        return {chip:c,x:barStart.get(entry.id)+beatToX(a.beat,entry.width,entry.n),width:textWidth(c.token.text,'15px "Courier Prime"',30)};
-      }).sort((p,q)=>p.x-q.x);
-      const {rows,count}=staggerRows(mine,GAP);
-      mine.forEach((item,k)=>{item.chip.row=rows[k];item.chip.node.style.top=(4+rows[k]*ROW_HEIGHT)+'px';});
-      for(const laneEl of laneEls.get(laneIndex)?.values()||[])laneEl.style.height=(count*ROW_HEIGHT+6)+'px';
-    });
+    // The words of one pass always share one line: a run of quick syllables widens its bar instead of dropping words onto a second row, so a
+    // lower line can only ever mean another pass.
+    for(const item of chips){item.node.style.top='4px';item.node.row=0;}
+    for(const lanes of laneEls.values())for(const laneEl of lanes.values())laneEl.style.height=(ROW_HEIGHT+6)+'px';
     const ctx={g,barEls,laneEls,placedLanes,chips,row};
     row._timing=ctx;
     row.append(...lines);

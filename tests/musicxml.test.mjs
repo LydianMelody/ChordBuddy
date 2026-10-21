@@ -62,3 +62,12 @@ test('chord names are read into root, kind and bass, and unreadable ones are kep
 test('the file name is safe for any computer',()=>{
   assert.equal(exportFileName('AC/DC: "Back" in Black?'),'AC DC Back in Black.musicxml');assert.equal(exportFileName(''),'Lead sheet.musicxml');
 });
+
+test('chord names in the file are spelled as the chart spells them, and a chosen time signature of the same bar length is used',()=>{
+  const flats=abcjs.parseOnly('X:1\nM:4/4\nL:1/16\nK:Fm\n"A#sus2"c4c4c4c4|\n')[0];
+  const a=analyzeScore('X:1\nM:4/4\nL:1/16\nK:Fm\n"A#sus2"c4c4c4c4|\n',abcjs);
+  const xml=tuneToMusicXml(flats,{staffIndex:a.staffIndex,voiceIndex:a.voiceIndex,chordsFor:()=>['Bbsus2'],meter:{num:2,den:2}});
+  assert.match(xml,/<root-step>B<\/root-step><root-alter>-1<\/root-alter>/);assert.match(xml,/<beats>2<\/beats><beat-type>2<\/beat-type>/);
+  const other=tuneToMusicXml(flats,{staffIndex:a.staffIndex,voiceIndex:a.voiceIndex,meter:{num:3,den:4}});   // not as long as the score's bar: ignored
+  assert.match(other,/<beats>4<\/beats><beat-type>4<\/beat-type>/);
+});

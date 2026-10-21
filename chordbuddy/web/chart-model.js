@@ -58,7 +58,7 @@ function buildGroup(ctx,section,group){
     const previous=rawBars[index-1],previousMeasure=measures[measures.findIndex(v=>v.id===m.id)-1];
     return {
       id:m.id,measure:m,number:m.number-ctx.barOffset,meter:m.meter||null,beatCount:m.beats.length,odd:isOddBar(m,ctx.usual),
-      meterChange:!!(m.meter&&previousMeasure&&JSON.stringify(m.meter)!==JSON.stringify(previousMeasure.meter)),
+      meterChange:!!(m.meter&&previousMeasure&&!(previousMeasure===measures[0]&&previousMeasure.beats.length<ctx.usual)&&JSON.stringify(m.meter)!==JSON.stringify(previousMeasure.meter)),   // a short first bar (a pickup) is not a meter the song changed from
       start,end,mapped:!String(m.id).startsWith('unmapped:'),chunks,previous:previous?.id??null,
     };
   });

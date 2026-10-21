@@ -622,9 +622,10 @@ function createView(container){
       const tune=abcjs.parseOnly(content.abc)[0];
       const chordsFor=item=>{
         const own=(content.chords||[]).filter(c=>Number.isInteger(c.abc_index)&&c.abc_index>=item.startChar&&c.abc_index<item.endChar).map(c=>c.label);
-        return (own.length?own:(item.chord||[]).map(c=>c.name)).filter(name=>name&&!isNoChordLabel(name));
+        return (own.length?own:(item.chord||[]).map(c=>c.name)).filter(name=>name&&!isNoChordLabel(name)).map(spellChord);   // as the chart spells them for the key
       };
-      const xml=tuneToMusicXml(tune,{title:options.title,artist:options.artist,staffIndex:analysis.staffIndex,voiceIndex:analysis.voiceIndex,lyrics:synced||new Map(),chordsFor,tempo:options.music?.timing?.bpm});
+      const chosen=options.getMeter?.(),meter=Array.isArray(chosen)?{num:chosen[0],den:chosen[1]}:null;
+      const xml=tuneToMusicXml(tune,{title:options.title,artist:options.artist,staffIndex:analysis.staffIndex,voiceIndex:analysis.voiceIndex,lyrics:synced||new Map(),chordsFor,meter,tempo:options.music?.timing?.bpm});
       const result=await options.onExternal?.({xml,filename:exportFileName(options.title)});
       // From now on the lead sheet is a frozen copy: what the chord chart said when it was sent.
       if(!frozen())options.onFreeze?.({at:new Date().toISOString(),lyrics:[...(synced||new Map())].map(([index,w])=>[index,w.syllable,w.divider])});

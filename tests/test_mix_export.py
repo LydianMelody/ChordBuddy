@@ -37,3 +37,15 @@ def test_export_route_streams_an_mp3_and_rejects_bad_requests(service):
     assert err.value.code==403
     with pytest.raises(urllib.error.HTTPError) as err:request(service,f'/api/mix-export/nope?{query}')
     assert err.value.code in (400,404)
+
+def test_stems_export_is_a_zip_with_one_named_mp3_per_stem(service):
+    import io,zipfile
+    run_id=publish(service.app)
+    response=request(service,f'/api/stems-export/{run_id}?name=My%20Song')
+    assert response.headers['Content-Type']=='application/zip' and 'My%20Song%20-%20stems.zip' in response.headers['Content-Disposition']
+    archive=zipfile.ZipFile(io.BytesIO(response.read()))
+    assert archive.testzip() is None
+    assert sorted(archive.namelist())==sorted(f'My Song_{name}.mp3' for name in ('Vocals','LeadGtr','RhythmGtr','Bass','Drums','Piano','Other'))
+    assert all(archive.read(name)[:3]==b'ID3' or archive.read(name)[0]==0xFF for name in archive.namelist())
+    with pytest.raises(urllib.error.HTTPError) as err:request(service,f'/api/stems-export/{run_id}?name=x',headers={'X-ChordBuddy-Token':'bad'})
+    assert err.value.code==403

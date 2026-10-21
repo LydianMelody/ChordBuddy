@@ -82,7 +82,7 @@ export function appendLyricLine(content,sectionId,text,measureId,beat,measures){
   target.lyrics=target.lyrics?`${target.lyrics}\n${value}`:value;
   return placeWord(next,sectionId,lineIndex,lyricTokens(value)[0].offset,measureId,beat,measures);
 }
-function anchorInside(measure,beat,section){
+export function anchorInside(measure,beat,section){
   if(!measure||!section||!Number.isFinite(beat)||beat<0||beat>=measure.beats.length)return false;
   const index=Math.floor(beat),points=[...measure.beats,measure.end],time=points[index]+(beat-index)*(points[index+1]-points[index]);
   return time>=section.start-1e-7&&time<section.end-1e-7;

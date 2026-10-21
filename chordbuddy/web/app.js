@@ -20,6 +20,7 @@ import {openSongTiming,openReprocess,openModelAttribution} from './settings-view
 import {effectiveMeasures, isNoChordLabel} from './chart-layout.js';
 import {icon} from './icons.js';
 import {prefs} from './prefs.js';
+import {usualMeter,parseMeter,METER_CHOICES} from './bar-lengths.js';
 import {estimateKey,parseKeyLab,KEY_CHOICES} from './key-estimate.js';
 import {setKeySpelling,spellChord,spellAbc} from './spelling.js';
 import {onsetsFromNotes} from './word-layout.js';
@@ -75,12 +76,12 @@ async function splitStems(){
  if(model.state?.models&&!model.state.models.ready){modelsPanel.want();throw Error('Splitting stems needs the stem models first. Download them below, then press Split stems again.');}
  await api('/api/separate',{song_id:songId});await refreshState();
 }
-const mixer=mountMixer($('rack'),{transport,onError:showError,onSplit:()=>splitStems().catch(showError),exportTarget:()=>{const runId=separationDetail?.active?.run_id,song=currentSong();return runId&&song?{title:song.title||'Chord Buddy',url:(query,name)=>mediaUrl(`/api/mix-export/${encodeURIComponent(runId)}`)+`&${query}&name=${encodeURIComponent(name)}`}:null;}});
+const mixer=mountMixer($('rack'),{transport,onError:showError,onSplit:()=>splitStems().catch(showError),exportTarget:()=>{const runId=separationDetail?.active?.run_id,song=currentSong();return runId&&song?{title:song.title||'Chord Buddy',stemsUrl:name=>mediaUrl(`/api/stems-export/${encodeURIComponent(runId)}`)+`&name=${encodeURIComponent(name)}`,url:(query,name)=>mediaUrl(`/api/mix-export/${encodeURIComponent(runId)}`)+`&${query}&name=${encodeURIComponent(name)}`}:null;}});
 
 let practiceViewport=null,practiceData=null;
 const player=mountPlayer($('player'),transport,showError,{onViewportChange:updatePracticeViewport,loadWaveform:run=>api('/api/waveform/'+encodeURIComponent(run))});
 const practiceView=mountChartPage($('chart-sections'),{
- onSeek:seconds=>transport.seek(seconds),onCommit:commitPracticeEdit,onBarEdit:editBars,onError:showError,onReload:reloadPracticeChart,canEdit:()=>!currentRecord()?.practiceConflict&&!currentRecord()?.saving,
+ onSeek:seconds=>transport.seek(seconds),onCommit:commitPracticeEdit,onBarEdit:editBars,onError:showChartError,onReload:reloadPracticeChart,canEdit:()=>!currentRecord()?.practiceConflict&&!currentRecord()?.saving,
  onViewportChange:updatePracticeViewport,onRhythm:()=>rhythmButton.click(),onTimingSettings:()=>$('song-timing').click(),
  onDraftChange:info=>{const r=currentRecord();if(r&&!info.failed&&!info.saving)r.practiceSaveError=null;renderDocument();},
  onModeChange:()=>syncModeUi(),onToolChange:()=>syncModeUi(),onScopeChange:()=>syncModeUi(),onTimingChange:()=>syncModeUi(),
@@ -157,11 +158,14 @@ function updatePracticeViewport(action){
 function updatePracticePlayer(){
  if(practiceData)player.setPractice({music:{...practiceData.music,measures:effectiveMeasures(practiceData.music,practiceData.content.layout)},viewport:practiceViewport,projection:practiceView.getProjection(),barOffset:practiceView.getModel()?.barOffset||0});
 }
+// A complaint about a chart edit ("move that pin first") goes away as soon as an edit goes through; other messages are left for the user to dismiss.
+let chartEditAlert=null;
+function showChartError(error){chartEditAlert=error?.message||String(error);showError(error);}
 async function commitPracticeEdit(next,label,expected){
  const r=currentRecord();if(!r)throw Error('Choose a chart.');
  next=reconcileCompactPreferences(next,r.doc.music).content;const invalid=validateChart(next);if(invalid)throw Error(invalid);
  const pending=commitPracticeDocument(r,next,label,expected,api);renderSaveStatus();
- try{await pending;if(r.doc.export_warning)showError(r.doc.export_warning);}
+ try{await pending;if(chartEditAlert!==null&&$('alert').textContent===chartEditAlert)clearError();chartEditAlert=null;if(r.doc.export_warning)showError(r.doc.export_warning);}
  finally{if(currentRecord()===r)renderDocument();}
 }
 // Moving, adding or removing a barline is a correction to the song's beat grid: it is saved with the chart's timing, so the bars,
@@ -272,6 +276,29 @@ function renderLock(){
   }
   if(lockedMode!==mode){lockedMode=mode;renderSections();}
 }
+// The time signature beside the key: the one most bars carry (the model's first, pickup bar is not trusted), unless you have set your own.
+// Click it to choose another; the choice is remembered with the library and used when the lead sheet is exported.
+function songMeter(){
+  const detected=usualMeter(currentRecord()?.doc.music?.measures||chartRecord()?.doc.music?.measures),saved=parseMeter(prefs.get('cb-meter:'+model.song,''));
+  return {detected,custom:!!saved,meter:saved||detected};
+}
+function paintMeter(box){
+  const {meter,custom}=songMeter();box.hidden=!meter;box.replaceChildren();if(!meter)return;
+  box.append(String(meter[0]),document.createElement('hr'),String(meter[1]));
+  box.title=custom?'Time signature set by you. Click to change it.':'Found by the analysis. Click to change it.';
+  box.setAttribute('aria-label','Time signature: '+meter.join('/')+'. Click to change it.');
+  box.onclick=event=>{event.stopPropagation();openMeterMenu(box);};
+}
+function openMeterMenu(chip){
+  const pop=$('key-pop'),found=songMeter();closeInfo();
+  const select=element('select');select.setAttribute('aria-label','Time signature of this song');
+  const auto=element('option','','Detected'+(found.detected?': '+found.detected.join('/'):''));auto.value='';select.append(auto);
+  for(const name of METER_CHOICES){const option=element('option','',name);option.value=name;select.append(option);}
+  select.value=found.custom?found.meter.join('/'):'';
+  select.onchange=()=>{prefs.set('cb-meter:'+model.song,select.value);closeInfo();paintMeter($('meter-box'));paintMeter($('score-meter'));};
+  pop.replaceChildren(element('label','','Time signature'),select);
+  placePop(pop,chip);select.focus();
+}
 function renderChips(){renderKeyBoxes();}   // the song's details live in each page's banner now; there are no pills in the header
 // The key sits in each page's banner, beside the time signature. Click it to choose another.
 function renderKeyBoxes(){
@@ -306,6 +333,11 @@ async function loadModelKey(detail,songId){
     model.modelKey={song:songId,doc:doc.id,key:parseKeyLab(full.content?.text)};renderChips();renderChart();if(currentRecord()?.doc.kind==='abc')renderAbc();
   }catch{model.modelKey={song:songId,doc:doc.id,key:null};}
 }
+// Under the chip, kept inside the window (the time signature sits at the far right of the page).
+function placePop(pop,chip){
+  const box=chip.getBoundingClientRect();pop.style.top=(box.bottom+8)+'px';pop.classList.remove('hidden');
+  pop.style.left=Math.max(8,Math.min(box.left,window.innerWidth-pop.offsetWidth-8))+'px';
+}
 function openKeyMenu(chip){
   const pop=$('key-pop'),key=songKey();closeInfo();
   const select=element('select');select.setAttribute('aria-label','Key of this song');
@@ -314,7 +346,7 @@ function openKeyMenu(chip){
   select.value=key.custom?key.label:'';
   select.onchange=()=>{prefs.set('cb-key:'+model.song,select.value);closeInfo();renderChips();renderChart();if(currentRecord()?.doc.kind==='abc')renderAbc();};
   pop.replaceChildren(element('label','','Key of this song'),select);
-  const box=chip.getBoundingClientRect();pop.style.top=(box.bottom+8)+'px';pop.style.left=Math.max(8,box.left)+'px';pop.classList.remove('hidden');select.focus();
+  placePop(pop,chip);select.focus();
 }
 // The line under a song's name: the artist (read from the MP3's tags when the song was imported, and yours to change) then the details.
 function setSub(node,details){
@@ -339,9 +371,9 @@ async function commitArtist(node){
   if(model.song===song.id)for(const id of ['page-sub','score-sub','midi-sub']){const other=$(id).querySelector('.jartist');if(other&&other!==node)other.textContent=changed.artist||'';}
 }
 function renderPageHead(){
-  const song=currentSong(),music=currentRecord()?.doc.music,meter=music?.measures?.[0]?.meter,bpm=music?.timing?.bpm;
+  const song=currentSong(),music=currentRecord()?.doc.music,bpm=music?.timing?.bpm;
   setSub($('page-sub'),[bpm?`♩ = ${Math.round(bpm)}`:null,song?.duration?timeLabel(song.duration):null,'arranged in Chord Buddy']);
-  const box=$('meter-box');box.hidden=!meter;box.replaceChildren();if(meter)box.append(String(meter[0]),document.createElement('hr'),String(meter[1]));
+  paintMeter($('meter-box'));
 }
 const jobKey=job=>JSON.stringify([job?.id,job?.kind,job?.status,job?.stage]);
 function renderJob(){
@@ -460,9 +492,9 @@ function renderAbc(){
   const song=currentSong(),record=currentRecord();
   if(document.activeElement!==$('score-title'))$('score-title').textContent=song?.title||'';
   setSub($('score-sub'),[record.doc.music?.timing?.bpm?`♩ = ${Math.round(record.doc.music.timing.bpm)}`:null,'arranged in Chord Buddy']);
-  const meter=record.doc.music?.measures?.[0]?.meter,box=$('score-meter');box.hidden=!meter;box.replaceChildren();if(meter)box.append(String(meter[0]),document.createElement('hr'),String(meter[1]));
+  paintMeter($('score-meter'));
   setKeySpelling(songKey().label);
-  leadView=renderLeadSheet($('score'),{key:model.document,content:{...content,abc:spellAbc(content.abc,content.chords)},music:record.doc.music,title:song?.title,artist:song?.artist,settings:model.state.settings,
+  leadView=renderLeadSheet($('score'),{key:model.document,content:{...content,abc:spellAbc(content.abc,content.chords)},music:record.doc.music,getMeter:()=>songMeter().meter,title:song?.title,artist:song?.artist,settings:model.state.settings,
     dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),frozen:readFrozen(song?.id),
     onSeek:seconds=>transport.seek(seconds),onExternal:sendToExternalEditor,
     onFreeze:snapshot=>{writeFrozen(song.id,snapshot);renderAbc();},onUnfreeze:()=>{writeFrozen(song.id,null);renderAbc();},

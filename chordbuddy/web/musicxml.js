@@ -48,7 +48,9 @@ const stepName=(letter)=>letter.toUpperCase();
 export function tuneToMusicXml(tune,options={}){
   const {staffIndex=0,voiceIndex=0,lyrics=new Map(),chordLabel=name=>name}=options;
   const firstLine=tune.lines.find(l=>l.staff)?.staff?.[staffIndex];
-  const meter=tune.getMeterFraction?.()||{num:4,den:4};
+  // The time signature you chose for the song, when it fills a bar as long as the score's own (a relabel such as 6/8 for 3/4); otherwise the score's.
+  const found=tune.getMeterFraction?.()||{num:4,den:4},chosen=options.meter;
+  const meter=chosen&&Math.abs(chosen.num/chosen.den-found.num/found.den)<1e-9?chosen:found;
   const barLength=meter.num/meter.den;
   let beats=meter.num,beatType=meter.den,fifths=fifthsOf(firstLine?.key);
   const tempo=options.tempo||tune.metaText?.tempo?.bpm||null,tempoUnit=tune.metaText?.tempo?.duration?.[0]||0.25;

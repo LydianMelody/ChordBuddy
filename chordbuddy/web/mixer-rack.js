@@ -64,7 +64,7 @@ const make=(tag,className,text)=>{const node=document.createElement(tag);if(clas
 
 export function mountMixer(root,{transport,onError=()=>{},exportTarget=()=>null,onSplit=()=>{}}){
   const presetsRoot=root.querySelector('#rack-presets'),stripsRoot=root.querySelector('#rack-strips');
-  const master=root.querySelector('#rack-master'),masterOut=root.querySelector('#rack-master-out'),exportLink=root.querySelector('#rack-export');
+  const master=root.querySelector('#rack-master'),masterOut=root.querySelector('#rack-master-out'),exportLink=root.querySelector('#rack-export'),stemsLink=root.querySelector('#rack-export-stems');
   const update=change=>{
     const mix=transport.getSnapshot().mix;change(mix);
     try{transport.setMix(mix);}catch(error){onError(error);}
@@ -121,6 +121,11 @@ export function mountMixer(root,{transport,onError=()=>{},exportTarget=()=>null,
       exportLink.classList.toggle('disabled',!target);
       if(target){exportLink.href=target.url(mixExportQuery(mix),`${target.title} - ${mixLabel(mix)}`);exportLink.title=`Save this mix (${mixLabel(mix)}) as an MP3`;}
       else{exportLink.removeAttribute('href');exportLink.title='Available when the stems are ready';}
+    }
+    if(stemsLink){
+      stemsLink.classList.toggle('disabled',!target);
+      if(target){stemsLink.href=target.stemsUrl(target.title);stemsLink.title='Save every stem as its own MP3, each at full level (the faders are not used)';}
+      else{stemsLink.removeAttribute('href');stemsLink.title='Available when the stems are ready';}
     }
   }
   const unsubscribe=transport.subscribe(render);

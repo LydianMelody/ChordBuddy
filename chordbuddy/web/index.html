@@ -108,13 +108,13 @@
           <div id="document-empty" class="document-empty"><span>♩</span><h2>Your transcription will live here.</h2><p>Review the song title and press Analyze.<br>First-time model setup may take a little longer.</p></div>
           <div id="chart-editor" class="hidden">
             <article class="page" id="page">
-              <div class="jhead"><div class="spine" id="page-spine">Chart</div><div class="jt"><h2 id="page-song" class="jtitle" contenteditable="plaintext-only" spellcheck="false" role="textbox" aria-label="Song title" data-placeholder="Song title" data-tip-title="Rename the song" data-tip="Click the title to rename the song."></h2><input id="song-title" maxlength="200" hidden tabindex="-1"><p id="page-sub"></p></div><div class="meter-box" id="meter-box" hidden></div></div>
+              <div class="jhead"><div class="spine" id="page-spine">Chart</div><div class="jt"><h2 id="page-song" class="jtitle" contenteditable="plaintext-only" spellcheck="false" role="textbox" aria-label="Song title" data-placeholder="Song title" data-tip-title="Rename the song" data-tip="Click the title to rename the song."></h2><input id="song-title" maxlength="200" hidden tabindex="-1"><p id="page-sub"></p></div><button type="button" class="meter-box" id="meter-box" hidden></button></div>
               <div class="chartbody"><div id="chart-sections" class="practice-chart"></div></div>
             </article>
           </div>
           <div id="abc-editor" class="hidden">
             <article class="page score-page" id="score-page">
-              <div class="jhead"><div class="spine">Lead</div><div class="jt"><h2 id="score-title" class="jtitle" contenteditable="plaintext-only" spellcheck="false" role="textbox" aria-label="Song title" data-placeholder="Song title"></h2><p id="score-sub"></p></div><div class="meter-box" id="score-meter" hidden></div></div>
+              <div class="jhead"><div class="spine">Lead</div><div class="jt"><h2 id="score-title" class="jtitle" contenteditable="plaintext-only" spellcheck="false" role="textbox" aria-label="Song title" data-placeholder="Song title"></h2><p id="score-sub"></p></div><button type="button" class="meter-box" id="score-meter" hidden></button></div>
               <div class="scorebody"><div id="score" class="score"></div></div>
             </article>
             <div id="chord-strip" hidden></div>
@@ -137,6 +137,7 @@
         <div class="strips" id="rack-strips"></div>
         <div class="master"><span data-icon="volume"></span><b>Master</b><input type="range" id="rack-master" min="0" max="100" step="1" aria-label="Master volume"><output id="rack-master-out">100</output></div>
         <a id="rack-export" class="export-mix disabled" download role="button"><span data-icon="download"></span>Export this mix<small>MP3 · uses the faders above</small></a>
+        <a id="rack-export-stems" class="export-mix disabled" download role="button"><span data-icon="download"></span>Export stems<small>One MP3 per stem · zipped</small></a>
       </aside>
       </div>
       <footer id="player" class="player"><div id="nav-lock" class="nav-lock hidden"><span><span data-icon="lock"></span>Playback unlocks after analysis</span></div><audio id="audio" controls preload="metadata"></audio></footer>

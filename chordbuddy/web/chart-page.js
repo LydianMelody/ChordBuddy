@@ -14,6 +14,7 @@ import {addChartChord} from './editor.js';
 import {spellChord} from './spelling.js';
 import {applyCompactFold,applyCompactRange,compactRangeChoices,compactEditTargets,compactFoldChoices,compactJumpTargets,hasCompactPreferences,resetCompactPreferences} from './compact-chart.js';
 import {planPageEdit} from './chart-edits.js';
+import {copyTargets,copyGroup,copySectionLyrics} from './chart-copy.js';
 import {applyRows} from './row-layout.js';
 import {beatsLabel} from './bar-lengths.js';
 import {createTiming} from './chart-timing.js';
@@ -252,6 +253,7 @@ export function mountChartPage(root,handlers={}){
         else if(tool==='glue'&&refs.sections.length>0)glueHead(head,section);
       }
       else head.onclick=()=>{if(mode==='nav')seek(section.start);};
+      if(mode==='edit'&&tool==='write'||mode==='timing')copyButtons(head,section);
       sec.append(head);refs.sections.push({node:sec,section});
       // Short rows share a line: a one-bar repeat and its neighbours sit side by side while together they fit in a line's worth of bars
       // (bars-per-line). Rows with lyrics keep a line of their own, and the Time tool draws every row on its own.
@@ -559,6 +561,32 @@ export function mountChartPage(root,handlers={}){
       if(result.conflicts?.length)return fail(Error(result.conflicts[0].message));
       await commitPlain(result.candidate,'Join sections');
     }catch(e){fail(e);}
+  }
+
+  // ======================= Copy a section's lyrics and timing onto its repeat =======================
+  // A section with words, and another with the same name (Chorus / Chorus 2), offers to copy its lyrics and where every pinned word sits.
+  // How a section is named in the button: by where it sits among the sections of that name, never by an internal number.
+  function copyName(from,target){
+    const same=copyGroup(data.content,from),order=same.findIndex(s=>s.id===target.id),here=same.findIndex(s=>s.id===from.id),total=same.length;
+    const ordinal=n=>n+(['th','st','nd','rd'][(n%100>>3^1&&n%10<4)?n%10:0]||'th');
+    const which=total===2?(order>here?'the next ':'the previous '):'the '+ordinal(order+1)+' ';
+    return which+target.name;
+  }
+  function copyButtons(head,section){
+    for(const target of copyTargets(data.content,section.id)){
+      const label=copyName(section,target);
+      const b=el('button','sec-copy','Copy lyrics to '+label+(String(target.lyrics||'').trim()?' (replaces)':''));b.type='button';
+      b.title='Copies these words and their timing onto '+target.name+', bar for bar. '+(String(target.lyrics||'').trim()?'The words already there are replaced. ':'')+'Undo puts it back.';
+      b.onclick=async event=>{
+        event.stopPropagation?.();
+        try{
+          const {candidate,dropped}=copySectionLyrics(data.content,data.music,section.id,target.id);
+          await commitPlain(candidate,'Copy lyrics to '+target.name);
+          if(dropped)message.textContent=dropped+(dropped===1?' timed word was':' timed words were')+' left unpinned: '+target.name+' has no matching place for '+(dropped===1?'it':'them')+'.';
+        }catch(e){fail(e);}
+      };
+      head.append(b);
+    }
   }
 
   // ======================= Edit: section names =======================

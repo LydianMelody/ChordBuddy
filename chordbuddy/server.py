@@ -22,7 +22,7 @@ from .separation import SeparationManager
 from .inference_jobs import InferenceGate
 from .separation_audio import wire_chunk,read_frames
 from .separation_checks import waveform_peaks
-from .mix_export import parse_levels,encode_mix
+from .mix_export import parse_levels,encode_mix,export_stems
 from .model_downloads import ModelManager
 from .analysis import AnalysisCoordinator,TERMINAL
 from .rhythm_apply import RhythmService
@@ -289,7 +289,7 @@ class Handler(BaseHTTPRequestHandler):
             return False
         if path.startswith('/api/'):
             token=self.headers.get('X-ChordBuddy-Token','')
-            if path.startswith(('/api/audio/','/api/export/','/api/mix-export/','/api/export-midi/','/api/export-outputs/')):
+            if path.startswith(('/api/audio/','/api/export/','/api/mix-export/','/api/stems-export/','/api/export-midi/','/api/export-outputs/')):
                 token=token or query.get('token',[''])[0]
             return secrets.compare_digest(token,self.app.token)
         return True
@@ -402,6 +402,16 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Connection','close');self.close_connection=True
             self.end_headers()
             encode_mix(PROJECT,root,manifest,levels,master,self.wfile.write);return
+        if path.startswith('/api/stems-export/'):
+            run_id=path.removeprefix('/api/stems-export/');query=parse_qs(urlparse(self.path).query)
+            root,manifest=self.app.separation_store.get_published_run(run_id)
+            name=re.sub(r'[\\/:*?"<>|\x00-\x1f]+',' ',query.get('name',['Chord Buddy'])[0]).strip()[:100] or 'Chord Buddy'
+            self.send_response(200)
+            self.send_header('Content-Type','application/zip')
+            self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote(name+' - stems.zip'))
+            self.send_header('Connection','close');self.close_connection=True
+            self.end_headers()
+            export_stems(PROJECT,root,manifest,name,self.wfile.write);return
         if path.startswith('/api/separation-audio/'):
             run_id=path.removeprefix('/api/separation-audio/')
             query=parse_qs(urlparse(self.path).query)

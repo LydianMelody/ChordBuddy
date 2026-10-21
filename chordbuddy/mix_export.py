@@ -81,3 +81,38 @@ def encode_mix(project, root, manifest, levels, master, write, bitrate='192k'):
         raise OSError(f'Could not read the stems: {failure[0]}')
     if proc.returncode:
         raise OSError('The audio encoder failed')
+
+
+# How each stem is named in an "Export stems" file: <song title>_Vocals, <song title>_LeadGtr and so on.
+STEM_FILE_NAMES = {'vocals': 'Vocals', 'lead': 'LeadGtr', 'rhythm': 'RhythmGtr', 'bass': 'Bass', 'drums': 'Drums', 'piano': 'Piano', 'other': 'Other'}
+assert set(STEM_FILE_NAMES) == set(STEMS)
+
+
+def stem_levels(role):
+    """Mixer levels that play one stem alone, untouched by the faders."""
+    return [1.0 if name == role else 0.0 for name in MIX_ORDER]
+
+
+def export_stems(project, root, manifest, title, write):
+    """Stream a zip holding one MP3 per stem (full length, at its own level). The MP3s are already compressed, so the zip only stores them."""
+    import zipfile
+    roles = {asset['role'] for asset in manifest['assets']}
+    with zipfile.ZipFile(_Sink(write), 'w', zipfile.ZIP_STORED) as archive:
+        for role in STEM_FILE_NAMES:
+            if role not in roles:
+                continue
+            with archive.open(f'{title}_{STEM_FILE_NAMES[role]}.mp3', 'w', force_zip64=True) as member:
+                encode_mix(project, root, manifest, stem_levels(role), 1.0, member.write)
+
+
+class _Sink:
+    """A write-only stream for zipfile, so the archive can leave while it is still being made."""
+    def __init__(self, write):
+        self.write_bytes = write
+
+    def write(self, data):
+        self.write_bytes(data)
+        return len(data)
+
+    def flush(self):
+        pass
