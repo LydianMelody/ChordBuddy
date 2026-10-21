@@ -184,7 +184,14 @@ dialog{border:var(--bd) solid var(--ink);border-radius:16px;background:var(--pag
   .lead-notation .lead-tag-picture{break-after:avoid;page-break-after:avoid;margin-top:10px}
   #chart-editor .page{box-shadow:none;border:0;max-width:none;min-height:0;background:#fff}
   .chartbody{padding-left:44px}
-  .sec{break-inside:avoid}
+  /* a section may run over a page break between rows, never inside a row or right after its own heading; the type is shrunk so more bars fit across and down */
+  .sec{break-inside:auto}
+  .sec-head{break-after:avoid;page-break-after:avoid}
+  .row,.row-pack{break-inside:avoid;page-break-inside:avoid}
+  #chart-editor .page{zoom:.62}
+  /* the line breaks chosen for the screen do not suit the printed width: let the bars of a row fill each line */
+  .row-break{display:none!important}
+  .bar.row-end:not(.last){border-right:0}
   /* pure white paper: the page, its header and everything that borrows the paper colour */
   html[data-theme],html[data-theme][data-scheme]{--page:#fff;--desk:#fff}
   /* the playhead is not part of the printed chart: no highlighted or underlined chord, no lit word, dimmed lyric or marked section */
