@@ -256,6 +256,7 @@ function renderLock(){
   $('app').dataset.lock=mode;
   $('nav-lock').classList.toggle('hidden',!song||snap.ready);
   $('lock-banner').classList.toggle('hidden',mode!=='banner');
+  $('banner-reanalyze').classList.toggle('hidden',running);               // the analysis is already running: its panel above has Cancel
   if(mode==='banner')$('lock-banner-text').textContent=(running?'Analyzing again. ':'')+(snap.readiness||'Playback is locked.')+(running?'':' Your chart is still here to view and edit.');
   $('locked-panel').classList.toggle('hidden',mode!=='full');
   if(mode==='full'){

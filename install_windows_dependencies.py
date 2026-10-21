@@ -225,17 +225,16 @@ def step_app(ctx):
     ctx['state']['app'] = key
 
 
-def clear_engine_packages():
+def clear_packages(folder, what):
     """Start from an empty folder: pip leaves the old version's metadata next to the new one when it upgrades into --target, and transformers
     then refuses to start ("tokenizers>=0.23.1 is required, but found 0.20.3")."""
-    folder = RUNTIME / 'engine-packages'
     if not folder.exists():
         return
-    say('  Removing the previous engine libraries first, so no old versions are left behind.')
+    say(f'  Removing the previous {what} first, so no old versions are left behind.')
     try:
         shutil.rmtree(folder)
     except OSError as error:
-        raise Failure(f'The old engine libraries could not be removed ({error}). Close Chord Buddy and run this again.')
+        raise Failure(f'The old {what} could not be removed ({error}). Close Chord Buddy (and pause Dropbox if this folder is in it), then run this again.')
 
 
 def step_engine(ctx):
@@ -244,7 +243,7 @@ def step_engine(ctx):
     if ctx['state'].get('engine') == key and (RUNTIME / 'engine-packages' / 'torch').exists():
         say('  already installed.')
         return
-    clear_engine_packages()
+    clear_packages(RUNTIME / 'engine-packages', 'engine libraries')
     say(f'  PyTorch for {"an NVIDIA graphics card" if device == "cuda" else "the processor (CPU only)"}. This is a large download (a few GB).')
     run_pip(['install', '--target', str(RUNTIME / 'engine-packages'), '--upgrade', '--only-binary=:all:',
              '--find-links', str(build_pure_wheels()), '-r', str(ROOT / 'requirements-engine.txt'), '-c', str(ROOT / 'constraints-engine.txt'),
@@ -265,6 +264,7 @@ def step_separation(ctx):
     key = inputs_key(ROOT / 'requirements-separation.txt')
     packages = SEPARATION / 'packages'
     if ctx['state'].get('separation') != key or not (packages / 'einops').exists():
+        clear_packages(packages, 'stem engine libraries')
         run_pip(['install', '--target', str(packages), '--upgrade', '--no-deps', '--only-binary=:all:', '-r', str(ROOT / 'requirements-separation.txt')])
         ctx['state']['separation'] = key
     runtime = SEPARATION / 'runtime'
