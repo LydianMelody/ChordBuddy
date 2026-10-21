@@ -17,6 +17,7 @@ MP3 import and metadata titles; Default and ordered set lists; real SheetSage2 i
 - Dragging section boundaries on the navigation bar (the old Section dialog was dropped).
 - Listening tests and tuning of the time-stretch on drums.
 - Restyling the Lead sheet and MIDI screens in the Press Room look.
+- Compress the stored stems. They are uncompressed WAV today, about 0.8 GB per song. Lossless FLAC (roughly half the size, exact seeking, no encoder delay) is the likely choice: lossy MP3 would add artifacts that the time-stretch makes easier to hear, and its start-of-file offset would have to be corrected for the shared clock. MP3 stays an export format only.
 
 ## Later possibilities
 

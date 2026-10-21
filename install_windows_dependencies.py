@@ -225,12 +225,26 @@ def step_app(ctx):
     ctx['state']['app'] = key
 
 
+def clear_engine_packages():
+    """Start from an empty folder: pip leaves the old version's metadata next to the new one when it upgrades into --target, and transformers
+    then refuses to start ("tokenizers>=0.23.1 is required, but found 0.20.3")."""
+    folder = RUNTIME / 'engine-packages'
+    if not folder.exists():
+        return
+    say('  Removing the previous engine libraries first, so no old versions are left behind.')
+    try:
+        shutil.rmtree(folder)
+    except OSError as error:
+        raise Failure(f'The old engine libraries could not be removed ({error}). Close Chord Buddy and run this again.')
+
+
 def step_engine(ctx):
     device = ctx['device']
     key = inputs_key(ROOT / 'requirements-engine.txt', ROOT / 'constraints-engine.txt', extra=device)
     if ctx['state'].get('engine') == key and (RUNTIME / 'engine-packages' / 'torch').exists():
         say('  already installed.')
         return
+    clear_engine_packages()
     say(f'  PyTorch for {"an NVIDIA graphics card" if device == "cuda" else "the processor (CPU only)"}. This is a large download (a few GB).')
     run_pip(['install', '--target', str(RUNTIME / 'engine-packages'), '--upgrade', '--only-binary=:all:',
              '--find-links', str(build_pure_wheels()), '-r', str(ROOT / 'requirements-engine.txt'), '-c', str(ROOT / 'constraints-engine.txt'),
