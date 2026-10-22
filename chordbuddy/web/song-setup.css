@@ -15,6 +15,8 @@
 .setup-stems-text{display:flex;flex-direction:column;gap:2px}
 .setup-stems-text strong{font:800 15px/1.2 var(--g)}
 .setup-stems-text small{font:400 11.5px/1.45 var(--m);color:var(--soft)}
+.setup-stems-text small.setup-stems-warn{margin-top:4px;font-weight:700;color:var(--a1t)}
+.setup-stems-warn[hidden]{display:none}
 .setup-dialog .choice-actions .btn:disabled{opacity:.45;cursor:default}
 
 /* the mixer, switched off until the stems exist */

@@ -55,31 +55,41 @@ function radioGroup({label,value,options,onChange}){
   return group;
 }
 
-// A labelled tick box with a line of explanation: {label, hint, checked, onChange(value)}.
-function checkRow({label,hint,checked,onChange,id}){
+// A labelled tick box with a line of explanation: {label, hint, checked, onChange(value), warning}. warning: text (or a function giving
+// text, '' for none) shown only while the box is ticked; row.update() shows it again after something it depends on changes.
+function checkRow({label,hint,checked,onChange,id,warning=''}){
   const box=el('input');box.type='checkbox';box.checked=!!checked;if(id)box.id=id;
-  const row=el('label','setup-stems'),text=el('span','setup-stems-text');
-  text.append(el('strong','',label));if(hint)text.append(el('small','',hint));
+  const row=el('label','setup-stems'),text=el('span','setup-stems-text'),warn=el('small','setup-stems-warn');
+  text.append(el('strong','',label));if(hint)text.append(el('small','',hint));text.append(warn);
   row.append(box,text);
-  box.onchange=()=>onChange?.(box.checked);
-  row.input=box;return row;
+  row.update=()=>{const message=box.checked?(typeof warning==='function'?warning():warning)||'':'';warn.textContent=message;warn.hidden=!message;};
+  box.onchange=()=>{row.update();onChange?.(box.checked);};
+  row.update();row.input=box;return row;
 }
+
+// Shown when stems would be split on the processor: there is no working NVIDIA GPU, or "CPU only" was chosen.
+export const CPU_STEMS_SLOW='Without an NVIDIA graphics card, splitting stems runs on the processor and can take up to an hour per song on older computers.';
+export const CPU_STEMS_WARNING=CPU_STEMS_SLOW+' The chart, lead sheet and visualizer don’t need stems, and you can split them later from the mixer.';
 
 // After a recording is added: its name, its artist, and whether to split the stems too. Resolves with {title, artist, stems}, or null
 // for "Not now" (the song is kept, just not analyzed yet).
 export const DEVICES=[['auto','Automatic'],['cuda','NVIDIA GPU only'],['cpu','CPU only']];
-export function askSongSetup({title='',artist='',stems=false,stemsHint='',device='auto',host=document.body}){
+// gpu: whether this computer has a working NVIDIA GPU (the stems warning shows without one, or when "CPU only" is picked).
+export function askSongSetup({title='',artist='',stems=false,stemsHint='',device='auto',gpu=true,host=document.body}){
   return new Promise(resolve=>{
     const {dialog,actions,close}=shell(host,'Set up this song',['Check the name, then Chord Buddy works out the chords. You can change any of this later.']);
     dialog.classList.add('setup-dialog');
     const form=el('div','setup-form');
     const field=(label,value,id)=>{const wrap=el('label','setup-field'),input=el('input');input.value=value||'';input.maxLength=200;input.id=id;input.autocomplete='off';wrap.append(el('span','',label),input);form.append(wrap);return input;};
     const titleInput=field('Song title',title,'setup-title'),artistInput=field('Artist',artist,'setup-artist');
-    const stemsRow=checkRow({label:'Also split the stems',hint:stemsHint,checked:stems,id:'setup-stems'});form.append(stemsRow);
+    const deviceSelect=el('select');deviceSelect.id='setup-device';
+    const stemsRow=checkRow({label:'Also split the stems',hint:stemsHint,checked:stems,id:'setup-stems',
+      warning:()=>!gpu||deviceSelect.value==='cpu'?CPU_STEMS_WARNING:''});form.append(stemsRow);
     // where the work is done: the graphics card is much faster when there is a suitable (NVIDIA) one; the choice is kept for next time
-    const deviceWrap=el('label','setup-field setup-device'),deviceSelect=el('select');deviceSelect.id='setup-device';
+    const deviceWrap=el('label','setup-field setup-device');
     for(const [value,text] of DEVICES){const option=el('option','',text);option.value=value;deviceSelect.append(option);}
     deviceSelect.value=DEVICES.some(([value])=>value===device)?device:'auto';
+    deviceSelect.onchange=()=>stemsRow.update();stemsRow.update();
     deviceWrap.append(el('span','','Process with'),deviceSelect,el('small','','Automatic uses an NVIDIA graphics card when there is one, and the processor otherwise.'));form.append(deviceWrap);
     dialog.append(form);
     let done=false;

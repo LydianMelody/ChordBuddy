@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Node,all,installDom} from './compact-dom.mjs';
-import {askChoice,askSongSetup,openTrash} from '../chordbuddy/web/dialogs.js';
+import {askChoice,askSongSetup,openTrash,CPU_STEMS_WARNING} from '../chordbuddy/web/dialogs.js';
 
 const has=(n,c)=>n.className.split(' ').includes(c);
 const byClass=(root,c)=>all(root).filter(n=>has(n,c));
@@ -75,6 +75,25 @@ test('the song setup dialog starts from the tags and the last choice, and answer
   all(host).find(n=>n.id==='setup-go').onclick();
   assert.deepEqual(await promise,{title:'My song',artist:'',stems:false,device:'auto'});
   assert.equal(byClass(host,'setup-dialog').length,0);
+});
+
+test('without a working NVIDIA GPU, or with "CPU only" picked, ticking the stems shows how slow splitting is', async () => {
+  const warned=host=>host.textContent.includes(CPU_STEMS_WARNING);
+  const host=setup();
+  const promise=askSongSetup({title:'x',stems:false,gpu:false,host});
+  const stems=inputs(host).find(n=>n.id==='setup-stems'),device=all(host).find(n=>n.id==='setup-device');
+  assert.equal(warned(host),false);                                      // nothing until it is ticked
+  stems.checked=true;stems.onchange();assert.equal(warned(host),true);
+  stems.checked=false;stems.onchange();assert.equal(warned(host),false);
+  byClass(host,'choice-cancel')[0].onclick();await promise;
+  const gpuHost=setup();
+  const second=askSongSetup({title:'x',stems:true,gpu:true,host:gpuHost});
+  const device2=all(gpuHost).find(n=>n.id==='setup-device');
+  assert.equal(warned(gpuHost),false);                                   // a GPU splits quickly: no warning
+  device2.value='cpu';device2.onchange();assert.equal(warned(gpuHost),true);
+  device2.value='auto';device2.onchange();assert.equal(warned(gpuHost),false);
+  byClass(gpuHost,'choice-cancel')[0].onclick();await second;
+  assert.ok(device);
 });
 
 test('the song setup dialog cannot analyze without a name, and "Not now" keeps the song without analyzing', async () => {

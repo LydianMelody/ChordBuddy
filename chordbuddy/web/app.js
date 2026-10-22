@@ -4,7 +4,7 @@ import {reconcileCompactPreferences} from './compact-chart.js';
 import {installTooltips} from './tooltips.js';
 import {mountChartPage} from './chart-page.js';
 import {ZOOM_LEVELS} from './timing-geometry.js';
-import {askChoice,askSongSetup,openTrash} from './dialogs.js';
+import {askChoice,askSongSetup,openTrash,CPU_STEMS_SLOW,CPU_STEMS_WARNING} from './dialogs.js';
 import {updateViewport} from './practice-timeline.js';
 import {PlaybackGate} from './playback-ready.js';
 import {analysisUiState,songStatusLabel,analysisErrorMessage,lockStepStates,lockJobFailed} from './analysis-view.js';
@@ -64,7 +64,9 @@ let separationDetail=null;
 let lockSig='',lockedMode='none';
 const playbackGate=new PlaybackGate(transport,id=>api('/api/playback/'+encodeURIComponent(id)));
 // Whether to split the stems is remembered from the last time (off until chosen). The chart and lead sheet never wait for the stems.
-const wantsStems=()=>prefs.get('cb-stems','0')==='1';
+// Without a working NVIDIA GPU (or with "CPU only" chosen) splitting can take up to an hour, so there it starts unticked every time.
+const fastStems=()=>!!model.state?.engine?.gpu&&model.state?.settings?.device!=='cpu';
+const wantsStems=()=>fastStems()&&prefs.get('cb-stems','0')==='1';
 const stemsHint=()=>'Separates vocals, guitars, bass, drums and piano so you can mix them. It takes much longer'+(model.state?.models?.ready?'.':' and needs a one-time download of the stem models.');
 async function startAnalysis(songId,invalidate=[],stems=wantsStems(),editPolicy='keep'){
  if(model.state?.chord_model&&!model.state.chord_model.ready){chordModelPanel.show();throw Error('Chord Buddy needs the chord model first. Download it in the panel above, then choose Analyze.');}
@@ -76,6 +78,8 @@ async function startAnalysis(songId,invalidate=[],stems=wantsStems(),editPolicy=
 async function splitStems(){
  const songId=model.song;if(!songId)return;
  if(model.state?.models&&!model.state.models.ready){modelsPanel.want();throw Error('Splitting stems needs the stem models first. Download them below, then press Split stems again.');}
+ if(!fastStems()&&await askChoice({title:'Split the stems on the processor?',message:[CPU_STEMS_SLOW,'The chart, lead sheet and visualizer keep working while it runs.'],choices:[{id:'split',label:'Split stems',kind:'primary'}]})!=='split')return;
+ if(model.song!==songId)return;
  await api('/api/separate',{song_id:songId});await refreshState();
 }
 const mixer=mountMixer($('rack'),{transport,onError:showError,onSplit:()=>splitStems().catch(showError),exportTarget:()=>{const runId=separationDetail?.active?.run_id,song=currentSong();return runId&&song?{title:song.title||'Chord Buddy',stemsUrl:name=>mediaUrl(`/api/stems-export/${encodeURIComponent(runId)}`)+`&name=${encodeURIComponent(name)}`,url:(query,name)=>mediaUrl(`/api/mix-export/${encodeURIComponent(runId)}`)+`&${query}&name=${encodeURIComponent(name)}`}:null;}});
@@ -648,7 +652,7 @@ async function updateTitle(){
 async function commitUiDrafts(){if(model.pendingTitle||model.titleSave)await updateTitle();}
 // Straight after an import: the song's name and artist (read from the file's tags, so usually right already) and whether to split the stems.
 async function setupImportedSong(song){
- const setup=await askSongSetup({title:song.title,artist:song.artist,stems:wantsStems(),stemsHint:stemsHint(),device:model.state?.settings?.device||'auto'});
+ const setup=await askSongSetup({title:song.title,artist:song.artist,stems:wantsStems(),stemsHint:stemsHint(),device:model.state?.settings?.device||'auto',gpu:!!model.state?.engine?.gpu});
  if(!setup)return;
  prefs.set('cb-stems',setup.stems?'1':'0');
  await api('/api/song',{id:song.id,title:setup.title,artist:setup.artist});
@@ -740,8 +744,8 @@ async function confirmReanalyze(song){
   radios:edited?{label:'Your edits',value:'keep',onChange:value=>{policy=value;},options:[
    {id:'keep',label:'Keep my edits',hint:'Your edited chart and lead sheet stay as they are. The new analysis is used for everything else.'},
    {id:'replace',label:'Start over',hint:'Show the new chart and lead sheet instead. Your edited versions are kept under Previous transcriptions in the ⋯ menu, so you can bring them back.'}]}:null,
-  checkbox:hasStems?{label:'Split the stems again',hint:'Only needed if the stems sound wrong. It takes several minutes.',checked:false,onChange:value=>{resplit=value;}}
-   :{label:'Also split the stems',hint:stemsHint(),checked:resplit,onChange:value=>{resplit=value;prefs.set('cb-stems',value?'1':'0');}},
+  checkbox:hasStems?{label:'Split the stems again',hint:'Only needed if the stems sound wrong. It takes several minutes.',checked:false,onChange:value=>{resplit=value;},warning:fastStems()?'':CPU_STEMS_WARNING}
+   :{label:'Also split the stems',hint:stemsHint(),checked:resplit,onChange:value=>{resplit=value;prefs.set('cb-stems',value?'1':'0');},warning:fastStems()?'':CPU_STEMS_WARNING},
   choices:[{id:'export',label:'Export current chart as PDF',keepOpen:true},{id:'analyze',label:'Analyze again',kind:'primary'}],onPick:()=>exportChartPdf()});
  if(answer!=='analyze')return null;
  return {editPolicy:policy,stems:hasStems||resplit,invalidate:['transcription',...(hasStems&&resplit?['separation']:[])]};

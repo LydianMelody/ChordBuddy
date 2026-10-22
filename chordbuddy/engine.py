@@ -100,9 +100,11 @@ class Engine:
             return {"ready": False, "message": "Engine setup is incomplete or outdated. Run setup_engine.py again."}
         if not shutil.which("ffmpeg") and not (self.project_dir/'tools'/'ffmpeg.exe').is_file():
             return {"ready": False, "message": "Install FFmpeg and add its bin folder to PATH, then restart Chord Buddy."}
+        # gpu: the installer found a working NVIDIA GPU (it tests one before keeping the CUDA engine), so splitting stems is fast
+        gpu = info.get("device") == "cuda"
         if (self.project_dir/'portable.json').is_file():
-            return {"ready": True, "message": "Portable engine ready (CUDA-enabled runtime). Automatic uses an available NVIDIA GPU." if info.get("device")=="cuda" else "Portable CPU engine ready. GPU support is not installed; Automatic uses CPU."}
-        return {"ready": True, "message": "Engine installed."}
+            return {"ready": True, "gpu": gpu, "message": "Portable engine ready (CUDA-enabled runtime). Automatic uses an available NVIDIA GPU." if gpu else "Portable CPU engine ready. GPU support is not installed; Automatic uses CPU."}
+        return {"ready": True, "gpu": gpu, "message": "Engine installed."}
 
     def attribution(self):
         return model_attribution()

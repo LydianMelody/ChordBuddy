@@ -57,6 +57,20 @@ class EngineTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "setup_engine.py"):
             self.engine.start("s1", self.audio, self.run)
 
+    def test_readiness_says_whether_the_installer_kept_a_working_gpu(self):
+        from chordbuddy.engine import MODEL_REVISION
+        (self.root / "portable.json").write_text("{}", encoding="utf8")
+        (self.root / "runtime").mkdir()
+        (self.root / "runtime" / "python.exe").write_bytes(b"")
+        (self.root / "tools").mkdir()
+        (self.root / "tools" / "ffmpeg.exe").write_bytes(b"")
+        marker = self.root / "runtime" / "chordbuddy-ready.json"
+        for device, gpu in (("cuda", True), ("cpu", False)):
+            marker.write_text(json.dumps({"python": "3.11", "revision": MODEL_REVISION, "device": device}), encoding="utf8")
+            status = self.engine.readiness()
+            self.assertTrue(status["ready"])
+            self.assertIs(status["gpu"], gpu)
+
     def test_real_shaped_progress_and_discovered_outputs(self):
         body = (
             f"print({PROGRESS_PREFIX!r} + json.dumps(dict(stage='decoding',window=2,windows=3,tokens=64)),flush=True)\n"
