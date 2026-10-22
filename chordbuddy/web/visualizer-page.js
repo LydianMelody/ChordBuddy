@@ -3,6 +3,11 @@
 import {mountVisualizer} from './visualizer-view.js';
 import {desktopWindow} from './visual-bridge.js';
 
+// The main window's theme and light/dark look, so the mixer and controls match it (the main window keeps them in this origin's
+// storage, and the storage event follows a change made there while this window is open).
+const theme=()=>{try{const root=document.documentElement;root.dataset.theme=localStorage.getItem('cb-theme')||'plum';root.dataset.scheme=localStorage.getItem('cb-scheme')||'light';}catch{/* blocked storage: the defaults */}};
+theme();window.addEventListener('storage',event=>{if(event.key==='cb-theme'||event.key==='cb-scheme')theme();});
+
 const stage=document.getElementById('visualizer'),view=mountVisualizer(stage);
 const button=document.createElement('button');button.type='button';button.title='Full screen (F)';button.textContent='Full screen';view.toolbar.append(button);
 const label=on=>{button.textContent=on?'Exit full screen':'Full screen';};

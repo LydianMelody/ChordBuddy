@@ -4,42 +4,25 @@
 .visualizer-canvas{display:block;width:100%;height:100%}
 .visualizer-stage.idle,.visualizer-overlay.idle{cursor:none}
 /* the controls: scenes, lyrics, calm (and full screen or close); they fade when the mouse rests */
-/* a slim column at the top left, clear of the chord (top centre) and the lyrics (bottom) */
+/* a slim column at the top left, clear of the chord (top centre) and the lyrics (bottom), in the app's own look like the mixer */
 .visualizer-toolbar{position:absolute;top:12px;left:12px;z-index:2;display:flex;flex-direction:column;gap:4px;align-items:stretch;padding:6px;
-  border-radius:14px;background:rgba(18,20,28,.72);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(6px);transition:opacity .4s}
+  border-radius:14px;background:var(--page);border:var(--bd) solid var(--ink);box-shadow:var(--sh) var(--sh) 0 var(--ink);color:var(--ink);transition:opacity .4s}
 .visualizer-toolbar.idle{opacity:0;pointer-events:none}
-.visualizer-toolbar button,.visualizer-scenes button{padding:6px 12px;border:0;border-radius:999px;background:transparent;color:#d8d5cc;font:600 12px system-ui;cursor:pointer}
-.visualizer-toolbar button:hover{background:rgba(255,255,255,.1)}
-.visualizer-toolbar button[aria-pressed="true"]{background:#f4f1e8;color:#14151c}
-.visualizer-scenes{display:flex;flex-direction:column;gap:2px;padding-bottom:6px;margin-bottom:2px;border-bottom:1px solid rgba(255,255,255,.14)}
-.visualizer-toolbar button{text-align:left}
+.visualizer-toolbar button,.visualizer-scenes button{padding:5px 12px;border:2px solid transparent;border-radius:999px;background:transparent;color:var(--ink);font:700 12px var(--g);cursor:pointer;text-align:left}
+.visualizer-toolbar button:hover{border-color:var(--ink)}
+.visualizer-toolbar button[aria-pressed="true"]{background:var(--ink);color:var(--page)}
+.visualizer-scenes{display:flex;flex-direction:column;gap:2px;padding-bottom:6px;margin-bottom:2px;border-bottom:2px solid var(--ink)}
 /* the main page's full-screen view */
 .visualizer-overlay{position:fixed;inset:0;z-index:1000;background:#0d0e14}
-/* the slide-out mixer, from the right edge */
-.visualizer-mixer{position:absolute;top:12px;right:12px;bottom:12px;z-index:3;width:min(330px,calc(100% - 24px));display:flex;flex-direction:column;gap:10px;
-  padding:12px 14px;border-radius:14px;background:rgba(18,20,28,.86);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(8px);color:#e9e6dc;
-  font:600 12px system-ui;overflow:auto;transform:translateX(calc(100% + 24px));transition:transform .25s ease;cursor:auto}
+/* the slide-out mixer: the main window's mixer rack (mixer-rack.css) on a darkened panel down the whole right side */
+.visualizer-mixer{position:absolute;top:0;right:0;bottom:0;z-index:3;width:min(420px,100%);display:flex;justify-content:center;align-items:flex-start;
+  padding:24px 24px;overflow:auto;cursor:auto;background:linear-gradient(90deg,rgba(6,6,10,0),rgba(6,6,10,.74) 40px);
+  transform:translateX(100%);transition:transform .25s ease}
 .visualizer-mixer.open{transform:none}
-.vm-head{display:flex;align-items:center;justify-content:space-between;font-size:14px}
-.vm-close{width:28px;height:28px;border:0;border-radius:999px;background:rgba(255,255,255,.08);color:inherit;font-size:18px;line-height:1;cursor:pointer}
-.vm-presets{display:flex;flex-wrap:wrap;gap:6px}
-.vm-presets button,.vm-mute,.vm-solo{border:0;border-radius:999px;background:rgba(255,255,255,.08);color:inherit;font:600 12px system-ui;cursor:pointer}
-.vm-presets button{padding:5px 10px}
-.vm-presets button[aria-pressed="true"]{background:#f4f1e8;color:#14151c}
-.vm-rows{display:flex;flex-direction:column;gap:8px}
-.vm-row{display:grid;grid-template-columns:70px 26px 26px 1fr;grid-template-rows:auto 3px;column-gap:6px;align-items:center}
-.vm-row.quiet{opacity:.45}
-.vm-mute,.vm-solo{width:26px;height:24px;padding:0}
-.vm-mute[aria-pressed="true"]{background:#ff6b6b;color:#14151c}
-.vm-solo[aria-pressed="true"]{background:#ffd43b;color:#14151c}
-.vm-fader{width:100%;accent-color:#f4f1e8}
-.vm-meter{grid-column:4;height:3px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden}
-.vm-meter i{display:block;height:100%;width:0;background:#7ee2a8;transition:width .1s linear}
-.vm-master{display:grid;grid-template-columns:70px 1fr;align-items:center;column-gap:6px;padding-top:8px;border-top:1px solid rgba(255,255,255,.12)}
-.vm-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.vm-note{margin:0;color:#9aa0b4;font-weight:500}
-.visualizer-mixer button:focus-visible,.vm-fader:focus-visible{outline:2px solid #ffe27a;outline-offset:2px}
+.visualizer-mixer .rack{flex:none;width:372px;max-width:100%;max-height:none;font:15px/1.4 var(--g);color:var(--ink)}
+.visualizer-mixer-note{margin:0;font:400 12px/1.5 var(--m);color:var(--soft)}
+.visualizer-mixer-note[hidden]{display:none}
 /* a visualization that threw while drawing, and a file that could not be loaded at all */
-.visualizer-scenes button.broken{color:#ffb4a8}
+.visualizer-scenes button.broken{color:var(--a1t)}
 .visualizer-scenes button.broken::after{content:' \26A0'}
-.visualizer-scenes .visualizer-failed{color:#ffb4a8;opacity:.75;cursor:help}
+.visualizer-scenes .visualizer-failed{color:var(--a1t);opacity:.75;cursor:help}

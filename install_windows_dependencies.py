@@ -237,8 +237,7 @@ def clear_packages(folder, what):
         raise Failure(f'The old {what} could not be removed ({error}). Close Chord Buddy (and pause Dropbox if this folder is in it), then run this again.')
 
 
-def step_engine(ctx):
-    device = ctx['device']
+def install_engine(ctx, device):
     key = inputs_key(ROOT / 'requirements-engine.txt', ROOT / 'constraints-engine.txt', extra=device)
     if ctx['state'].get('engine') == key and (RUNTIME / 'engine-packages' / 'torch').exists():
         say('  already installed.')
@@ -249,6 +248,36 @@ def step_engine(ctx):
              '--find-links', str(build_pure_wheels()), '-r', str(ROOT / 'requirements-engine.txt'), '-c', str(ROOT / 'constraints-engine.txt'),
              '--extra-index-url', PINS['torch_index'][device]])
     ctx['state']['engine'] = key
+
+
+def gpu_works():
+    """Run one small calculation on the graphics card. Older cards (before about 2017) are detected but no longer supported by PyTorch."""
+    code = 'import torch; assert torch.cuda.is_available(); print(float((torch.ones(4, device="cuda") * 2).sum().cpu()))'
+    result = subprocess.run([str(PY), '-c', code], cwd=ROOT, env=local_env(), capture_output=True, text=True)
+    return result.returncode == 0 and result.stdout.strip() == '8.0'
+
+
+def use_cpu_instead(ctx, why):
+    say(f'  {why} Installing the CPU-only engine instead: Chord Buddy works the same, analyzing just takes longer.')
+    ctx['notes'].append(why + ' The CPU-only engine was installed instead, so analyzing is slower but everything works.')
+    ctx['device'] = 'cpu'
+    ctx['state']['device_fallback'] = 'cpu'
+    install_engine(ctx, 'cpu')
+
+
+def step_engine(ctx):
+    if ctx['device'] != 'cuda':
+        install_engine(ctx, ctx['device'])
+        return
+    try:
+        install_engine(ctx, 'cuda')
+    except Failure:
+        use_cpu_instead(ctx, 'The graphics card (CUDA) version of PyTorch could not be installed.')
+        return
+    if not gpu_works():
+        use_cpu_instead(ctx, 'This NVIDIA graphics card cannot run the current PyTorch (it is probably too old).')
+        return
+    ctx['state'].pop('device_fallback', None)
 
 
 def separation_pth_lines():
@@ -374,7 +403,14 @@ def main(argv=None):
         return 1
     if len(str(ROOT)) > 100:
         say(f'Note: this folder\'s path is {len(str(ROOT))} characters long. Windows limits paths to 260, so keep it under about 100 (for example C:\\ChordBuddy).')
-    device = args.device if args.device != 'auto' else ('cuda' if has_nvidia() else 'cpu')
+    state = load_state()
+    if args.device != 'auto':
+        device = args.device
+    elif state.get('device_fallback') == 'cpu':
+        device = 'cpu'
+        say('Using the CPU: the graphics card did not work last time. Run with --device cuda to try it again.')
+    else:
+        device = 'cuda' if has_nvidia() else 'cpu'
     say(f'Installing into {ROOT}')
     say(f'Processing: {"NVIDIA graphics card (CUDA)" if device == "cuda" else "CPU only"}')
     chosen = [s.strip() for s in args.only.split(',')] if args.only else list(STEPS)
@@ -384,27 +420,58 @@ def main(argv=None):
     if unknown:
         say('Unknown step: ' + ', '.join(unknown))
         return 2
-    ctx = {'device': device, 'state': load_state()}
-    functions = {'python': step_python, 'pip': step_pip, 'app': step_app, 'engine': step_engine, 'separation': step_separation,
-                 'ffmpeg': step_ffmpeg, 'models': step_models, 'check': step_check, 'sheetsage': step_sheetsage}
+    ctx = {'device': device, 'state': state, 'notes': []}
     started = time.time()
     try:
-        for name in [s for s in STEPS + OPTIONAL if s in chosen]:
-            say(f'\n== {name}')
-            functions[name](ctx)
-            save_state(ctx['state'])
-    except Failure as exc:
-        save_state(ctx['state'])
-        say('\nStopped: ' + str(exc))
-        return 1
+        failed, skipped = run_steps([s for s in STEPS + OPTIONAL if s in chosen], ctx)
     except KeyboardInterrupt:
+        save_state(ctx['state'])
         say('\nStopped by you. Run it again to carry on.')
         return 1
     if not check_webview2():
         say('\nThe Microsoft WebView2 runtime was not found. Chord Buddy\'s window needs it (it is built into Windows 11 and most updated Windows 10).')
         say('Install the "Evergreen Standalone" runtime from https://developer.microsoft.com/microsoft-edge/webview2/ or use "Start in browser.cmd" instead.')
+    for note in ctx['notes']:
+        say('\nNote: ' + note)
+    if failed:
+        say(f'\nFinished in {time.time() - started:.0f} s, but some parts did not install:')
+        for name, reason in failed.items():
+            say(f'  - {name} ({WHAT[name]}): {reason}')
+        for name, cause in skipped.items():
+            say(f'  - {name} ({WHAT[name]}): skipped, because {cause} did not install.')
+        say('Everything else is in place. Fix what the messages say if you can, then run this again: it only redoes the missing parts.')
+        return 1
     say(f'\nDone in {time.time() - started:.0f} s. Start Chord Buddy with "Start Chord Buddy.cmd".')
     return 0
+
+
+# What each step needs first, and what it is for (shown in the summary when it fails).
+NEEDS = {'pip': ['python'], 'app': ['pip'], 'engine': ['pip'], 'separation': ['pip', 'engine'], 'ffmpeg': ['python'],
+         'models': ['python'], 'sheetsage': ['engine'], 'check': ['engine', 'ffmpeg']}
+WHAT = {'python': 'the app\'s Python', 'pip': 'the package installer', 'app': 'the app window', 'engine': 'chord and melody transcription',
+        'separation': 'stem splitting', 'ffmpeg': 'reading audio files', 'models': 'stem splitting models', 'sheetsage': 'the chord model',
+        'check': 'final engine check'}
+
+
+def run_steps(names, ctx):
+    """Run each step; one that fails is reported at the end instead of stopping the rest. Steps that need it are skipped."""
+    functions = {'python': step_python, 'pip': step_pip, 'app': step_app, 'engine': step_engine, 'separation': step_separation,
+                 'ffmpeg': step_ffmpeg, 'models': step_models, 'check': step_check, 'sheetsage': step_sheetsage}
+    failed, skipped = {}, {}
+    for name in names:
+        say(f'\n== {name}')
+        blocker = next((need for need in NEEDS.get(name, []) if need in failed or need in skipped), None)
+        if blocker:
+            skipped[name] = blocker
+            say(f'  skipped: it needs {blocker}, which did not install.')
+            continue
+        try:
+            functions[name](ctx)
+        except Exception as exc:          # Failure, or anything unexpected: report it and keep going
+            failed[name] = str(exc) if isinstance(exc, Failure) else f'{type(exc).__name__}: {exc}'
+            say('  Did not install: ' + str(exc) + ' Carrying on with the rest.')
+        save_state(ctx['state'])
+    return failed, skipped
 
 
 if __name__ == '__main__':

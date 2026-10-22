@@ -17,7 +17,7 @@ echo  All done.
 goto end
 :failed
 echo.
-echo  The install did not finish. Read the message above, fix it if you can, and run this file again.
+echo  Not everything installed. The list above says which parts and why. Run this file again after fixing them.
 :end
 echo.
 if /i not "%~1"=="--no-pause" pause

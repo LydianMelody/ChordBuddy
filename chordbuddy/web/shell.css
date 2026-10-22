@@ -239,51 +239,6 @@ dialog{border:var(--bd) solid var(--ink);border-radius:16px;background:var(--pag
 .app[data-rack="closed"] .fold-open-right{display:grid}
 .app[data-rack="closed"] .toolbar{padding-right:40px}
 
-/* ---------- Mixer rack (ported from the mockup) ---------- */
-.rack{width:318px;display:flex;flex-direction:column;gap:10px;padding:12px;border:var(--bd) solid var(--ink);border-radius:16px;background:var(--page);box-shadow:var(--sh) var(--sh) 0 var(--ink);min-height:0}
-.rack-head{display:flex;align-items:center;justify-content:space-between}
-.rack-head b{font:800 17px var(--g);font-stretch:85%;text-transform:uppercase;display:flex;gap:6px;align-items:center}
-.presets{display:flex;gap:5px;flex-wrap:wrap}
-.presets button{padding:3px 9px;border:2px solid var(--ink);border-radius:999px;font:700 11px var(--g)}
-.presets button.on{background:var(--ink);color:var(--page)}
-.strips{flex:1;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-template-rows:minmax(0,1fr);gap:5px;min-height:0}
-.stem{display:grid;grid-template-rows:auto minmax(0,1fr) auto auto auto;justify-items:center;gap:6px;padding:0 0 7px;border:2px solid var(--ink);border-radius:10px;background:var(--desk);overflow:hidden;min-height:0}
-.stem-icon{width:100%;display:grid;place-items:center;padding:6px 0;background:var(--cap,var(--tint));border-bottom:2px solid var(--ink)}
-.stem:nth-child(1){--cap:var(--a1)}.stem:nth-child(2){--cap:var(--hl)}.stem:nth-child(3){--cap:color-mix(in srgb,var(--hl) 50%,var(--a1))}.stem:nth-child(4){--cap:var(--a2)}.stem:nth-child(5){--cap:var(--a3)}.stem:nth-child(6){--cap:color-mix(in srgb,var(--a3) 40%,var(--page))}.stem:nth-child(7){--cap:var(--tint)}
-.stem:nth-child(1) .stem-icon,.stem:nth-child(4) .stem-icon{color:#fff}
-.stem-icon .ic{width:17px;height:17px}
-
-.track{display:flex;gap:4px;height:100%;min-height:0;overflow:hidden;padding-top:4px}
-.meter{width:7px;border:1.5px solid var(--ink);border-radius:3px;background:var(--page);position:relative;overflow:hidden}
-.meter i{position:absolute;left:0;right:0;bottom:0;height:calc(var(--lvl,0)*100%);background:linear-gradient(0deg,var(--a3) 0 60%,var(--hl) 60% 84%,var(--a1) 84%);background-size:100% 150px;background-position:bottom;-webkit-mask:repeating-linear-gradient(0deg,#000 0 4px,#0000 4px 6px);mask:repeating-linear-gradient(0deg,#000 0 4px,#0000 4px 6px)}
-.fader{writing-mode:vertical-lr;direction:rtl;width:20px;height:100%;appearance:none;-webkit-appearance:none;background:transparent;margin:0;cursor:pointer}
-.fader::-webkit-slider-runnable-track{width:4px;background:var(--ink);border-radius:2px}
-.fader::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:14px;border:2px solid var(--ink);border-radius:4px;background:var(--page);box-shadow:2px 2px 0 var(--ink);margin-left:-8px}
-.mute,.solo{width:calc(100% - 8px);height:22px;border:2px solid var(--ink);border-radius:6px;font:800 11px var(--g);background:var(--page)}
-.stem.muted{opacity:.55}.stem.muted .mute{background:var(--ink);color:var(--page)}
-.stem.soloed{box-shadow:0 0 0 2px var(--hl),0 0 0 4px var(--ink)}.stem.soloed .solo{background:var(--hl)}
-.strip-label{font:800 10px/1.05 var(--g);font-stretch:85%;text-transform:uppercase;text-align:center;min-height:21px;padding:0 2px}
-.master{display:flex;align-items:center;gap:10px;padding:8px 10px;border:2px solid var(--ink);border-radius:12px;background:var(--desk)}
-.master b{font:700 11px var(--m);text-transform:uppercase}
-.master input{flex:1;accent-color:var(--ink)}
-.master output{font:700 11px var(--m);width:30px;text-align:right}
-
-.rack-head{gap:8px}
-.rack-head b{margin-right:auto}
-.rack-count{font:700 10px var(--m);color:var(--soft)}
-.rack-head .fold{width:26px;height:26px;border-radius:8px}
-.rack .strips{min-height:260px}
-.stem .quiet{opacity:.6}
-.stem.quiet{opacity:.7}
-.rack .mute[aria-pressed="true"]{background:var(--ink);color:var(--page)}
-.rack .solo[aria-pressed="true"]{background:var(--hl)}
-.rack.disabled .strips,.rack.disabled .presets,.rack.disabled .master{opacity:.5}
-.rack button:disabled,.rack input:disabled{cursor:default}
-.presets button:disabled{opacity:.6}
-@media (max-width:1100px){.rack{width:270px}}
-
-.rack{overflow:auto;max-height:100%}
-.rack .strips{min-height:170px}
 
 /* "More outputs" menu inside the document tabs */
 
@@ -302,27 +257,6 @@ dialog{border:var(--bd) solid var(--ink);border-radius:16px;background:var(--pag
 .info-pop.hidden{display:none}
 .confidence-notice{display:none}
 
-/* ---------- Mixer rack: compact strips, faders centred under their icons, labels that fit ---------- */
-.rack{width:372px;align-self:start;max-height:100%}
-.rack .strips{flex:none;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-template-rows:auto;gap:6px;min-height:0}
-.rack .stem{display:flex;flex-direction:column;align-items:center;gap:7px;padding:0 0 7px;min-width:0;height:auto}
-.rack .stem-icon{width:100%;display:grid;place-items:center;padding:7px 0}
-.rack .stem-icon .ic{display:block;margin:0 auto}
-.rack .track{position:relative;display:block;width:100%;height:190px;padding:0;flex:none}
-/* the level meter is the fader's track: no separate column pushing the fader off-centre */
-.rack .meter{position:absolute;left:50%;top:8px;bottom:8px;width:10px;margin-left:-5px;z-index:0;background:var(--page)}
-.rack .fader{position:absolute;left:0;right:0;top:0;margin:0 auto;width:22px;height:100%;z-index:1;background:transparent}
-.rack .fader::-webkit-slider-runnable-track{background:transparent}
-.rack .mute,.rack .solo{width:calc(100% - 10px);flex:none}
-.rack .strip-label{width:100%;min-height:24px;padding:0 1px;font:800 9.5px/1.08 var(--g);font-stretch:85%;letter-spacing:0;text-transform:uppercase;text-align:center;white-space:normal;word-break:keep-all;overflow-wrap:normal}
-@media (max-width:1100px){.rack{width:340px}}
-
-/* ---------- Export the mix ---------- */
-.rack .export-mix{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center;margin:8px 0 0;padding:8px 12px;border:var(--bd) solid var(--ink);border-radius:12px;background:var(--hl);box-shadow:3px 3px 0 var(--ink);color:var(--ink);font:800 13px/1.15 var(--g);text-decoration:none;cursor:pointer}
-.rack .export-mix [data-icon]{grid-row:1/3;display:inline-grid}
-.rack .export-mix small{font:400 10.5px/1.2 var(--m);color:var(--ink);opacity:.75}
-.rack .export-mix:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--ink)}
-.rack .export-mix.disabled{opacity:.45;pointer-events:none;box-shadow:none}
 
 #workspace[data-kind="chart"] #download{display:none}
 
