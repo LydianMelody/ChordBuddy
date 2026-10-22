@@ -75,6 +75,9 @@ export function frameEvents(previous,frame,song){
 export function mountVisualizer(container){
   const canvas=document.createElement('canvas');canvas.className='visualizer-canvas';container.append(canvas);
   const g=canvas.getContext('2d'),clock=new SceneClock(),settings=loadSettings();
+  // the bundled fonts (FONTS in visual-hud.js): a canvas only uses a web font once it is loaded, so load them up front
+  for(const face of ['400 16px "Bricolage Grotesque"','800 16px "Bricolage Grotesque"','400 16px "Space Mono"','700 16px "Space Mono"','400 16px "Courier Prime"','700 16px "Courier Prime"'])
+    document.fonts?.load?.(face).catch(()=>{});
   let mixer=null,song=null,songKey=null,mix=null,status='Waiting for Chord Buddy… start playback in the main window.',raf=0,disposed=false;
   let frames=0,fpsAt=performance.now(),fps=0,lastWall=null,previous=null,active=null,activeId=null,size=[0,0];
   let scenes=[],failed=[];const broken=new Map();   // visualizations, the files that failed to load, and ones that threw (id -> message)

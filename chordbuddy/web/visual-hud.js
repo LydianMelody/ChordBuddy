@@ -1,6 +1,19 @@
 // What every scene shares, drawn on top of it: the chord (top) and the lyrics (bottom). Each has its own band of the screen, so a scene
 // can never cover them and they never cover each other; a soft shade behind each keeps them readable over anything.
+// A visualization that draws its own words instead (hud:false) uses the same helpers: layoutLyricLine, joinSyllables, halo, FONTS.
 import {chordHsl} from './visual-color.js';
+
+// Fonts a visualization can rely on, offline, in the browser and the desktop app. The three named ones are bundled with Chord Buddy
+// (web/fonts, loaded by the visualizer before drawing); nothing can be loaded from the internet (the app's security policy blocks it).
+export const FONTS={
+  ui:'system-ui,"Segoe UI",sans-serif',                                   // the default: plain, very readable
+  display:'"Bricolage Grotesque",system-ui,sans-serif',                   // the app's headline face (weights 400-800)
+  mono:'"Space Mono",ui-monospace,Consolas,monospace',                    // 400 and 700
+  typewriter:'"Courier Prime",ui-monospace,Consolas,monospace',           // 400, 700 and italic
+};
+
+// Lyric syllables split for timing ("ex-" "pected") belong together when shown: "expected". For whole line texts (lyric.next.text).
+export function joinSyllables(text){return String(text??'').replace(/(\S)-\s*(?=\S)/g,'$1');}
 
 /** The two reserved bands, in CSS pixels. Scenes may use them for backgrounds, but should keep their focal points out. */
 export function hudZones(w,h,lyrics){
@@ -9,7 +22,7 @@ export function hudZones(w,h,lyrics){
 
 function shaded(g,draw){g.save();g.lineJoin='round';draw();g.restore();}
 // Text with a soft dark halo, so it reads over anything (a stroke, not a blurred shadow: blur is very slow to draw).
-function halo(g,text,x,y){
+export function halo(g,text,x,y){
   const size=parseFloat(/(\d+(?:\.\d+)?)px/.exec(g.font)?.[1]||16),fill=g.fillStyle;
   g.strokeStyle='rgba(5,6,10,.28)';g.lineWidth=size*0.28;g.strokeText(text,x,y);
   g.strokeStyle='rgba(5,6,10,.5)';g.lineWidth=size*0.12;g.strokeText(text,x,y);
@@ -56,34 +69,45 @@ export function drawLyricHud(g,frame,w,h){
   const lineY=h*0.85,max=w*0.9;
   let nextY=h*0.93;
   if(lyric.line){
-    // a syllable split for timing ("ex-" "pected") is shown as one word, each part still lit on its own
-    const parts=lyric.words.map((x,i)=>{const joined=x.text.endsWith('-')&&i<lyric.words.length-1;return {...x,shown:joined?x.text.slice(0,-1):x.text,joined};});
-    // one row while it stays big enough to read; otherwise two rows, split between words where they balance best
-    const rowWidth=(list,size)=>{g.font=`700 ${size}px system-ui,sans-serif`;const space=g.measureText(' ').width;
-      return list.reduce((sum,x,i)=>sum+g.measureText(x.shown).width+(!x.joined&&i<list.length-1?space:0),0);};
-    const big=u*0.05,readable=u*0.034;
-    let rows=[parts];
-    if(rowWidth(parts,readable)>max){
-      let best=null;
-      for(let i=1;i<parts.length;i++){if(parts[i-1].joined)continue;const widest=Math.max(rowWidth(parts.slice(0,i),big),rowWidth(parts.slice(i),big));if(!best||widest<best.widest)best={i,widest};}
-      if(best)rows=[parts.slice(0,best.i),parts.slice(best.i)];
-    }
-    const size=Math.max(u*0.02,Math.min(big,...rows.map(r=>big*max/Math.max(1,rowWidth(r,big)))));
-    rows.forEach((row,r)=>{
-      const total=rowWidth(row,size),space=g.measureText(' ').width,y=rows.length>1?lineY+(r-0.5)*size*1.25:lineY;
-      let x=w/2-total/2;g.textAlign='left';
-      row.forEach((word,i)=>{
-        shaded(g,()=>{g.font=`700 ${size}px system-ui,sans-serif`;g.fillStyle=word.state==='now'?'#ffe27a':word.state==='sung'?'#f4f1e8':'rgba(244,241,232,.42)';halo(g,word.shown,x,y);});
-        x+=g.measureText(word.shown).width+(word.joined?0:space);
-      });
+    const layout=layoutLyricLine(g,lyric.words,{maxWidth:max,size:u*0.05,minSize:u*0.02});
+    g.textAlign='left';
+    layout.rows.forEach((row,r)=>{
+      const y=lineY+(r-(layout.rows.length-1)/2)*layout.lineHeight,left=w/2-row.width/2;
+      for(const part of row.parts)shaded(g,()=>{g.font=layout.font;g.fillStyle=part.state==='now'?'#ffe27a':part.state==='sung'?'#f4f1e8':'rgba(244,241,232,.42)';halo(g,part.text,left+part.x,y);});
     });
-    if(rows.length>1)nextY=lineY+size*1.25+u*0.035;
+    if(layout.rows.length>1)nextY=lineY+layout.lineHeight+u*0.035;
   }
   if(lyric.next&&(!lyric.line||lyric.line.end-frame.time<4)){
     g.textAlign='center';
-    const next=lyric.next.text.replace(/(\S)-\s*(?=\S)/g,'$1');                // syllables rejoined, as above
+    const next=joinSyllables(lyric.next.text);
     const size=fitFont(g,next,u*0.03,max,u*0.018,600);
     shaded(g,()=>{g.font=`600 ${size}px system-ui,sans-serif`;g.fillStyle='rgba(244,241,232,.5)';halo(g,next,w/2,lyric.line?Math.min(h-size*0.7,nextY):lineY);});
   }
   g.textAlign='center';
+}
+
+/**
+ * Lay out the line being sung (frame.lyric.words) to fit `maxWidth`, the way the shared overlay does: syllables split for timing are joined
+ * back into one word (each part keeps its own state, so the highlight still moves syllable by syllable); one row while the text stays at
+ * least `readable` px, otherwise two rows split between words where they balance best; the font shrinks only as far as `minSize`.
+ * Returns {size, font, lineHeight, rows:[{width, parts:[{text, x (from the row's left edge), width, state, index}]}]}; draw each row
+ * centred (or aligned) wherever the visualization wants it. No words (no line, or an unplaced one): rows is empty.
+ */
+export function layoutLyricLine(g,words,{maxWidth,size,minSize=size*0.4,readable=size*0.68,weight=700,family=FONTS.ui}={}){
+  const parts=(words||[]).map((x,i,all)=>{const joined=x.text.endsWith('-')&&i<all.length-1;return {text:joined?x.text.slice(0,-1):x.text,joined,state:x.state,index:i};});
+  const fontAt=px=>`${weight} ${px}px ${family}`;
+  const rowWidth=(list,px)=>{g.font=fontAt(px);const space=g.measureText(' ').width;
+    return list.reduce((sum,x,i)=>sum+g.measureText(x.text).width+(!x.joined&&i<list.length-1?space:0),0);};
+  let rows=parts.length?[parts]:[];
+  if(parts.length&&rowWidth(parts,readable)>maxWidth){
+    let best=null;
+    for(let i=1;i<parts.length;i++){if(parts[i-1].joined)continue;const widest=Math.max(rowWidth(parts.slice(0,i),size),rowWidth(parts.slice(i),size));if(!best||widest<best.widest)best={i,widest};}
+    if(best)rows=[parts.slice(0,best.i),parts.slice(best.i)];
+  }
+  const px=Math.max(minSize,Math.min(size,...rows.map(r=>size*maxWidth/Math.max(1,rowWidth(r,size)))));
+  g.font=fontAt(px);const space=g.measureText(' ').width;
+  return {size:px,font:fontAt(px),lineHeight:px*1.25,rows:rows.map(row=>{
+    let x=0;const placed=row.map((part,i)=>{const width=g.measureText(part.text).width,item={text:part.text,x,width,state:part.state,index:part.index};x+=width+(part.joined||i===row.length-1?0:space);return item;});
+    return {width:x,parts:placed};
+  })};
 }

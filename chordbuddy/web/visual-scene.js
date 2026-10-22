@@ -36,7 +36,7 @@ function midiTracks(midi){
   const out={};
   for(const [name,notes] of Object.entries(midi||{})){
     const list=(notes||[]).filter(n=>Number.isFinite(n.start)&&Number.isFinite(n.end)&&n.end>n.start&&Number.isFinite(n.pitch))
-      .map(n=>({start:n.start,end:n.end,pitch:n.pitch,velocity:Number.isFinite(n.velocity)?n.velocity:100})).sort((a,b)=>a.start-b.start);
+      .map(n=>({start:n.start,end:n.end,pitch:n.pitch,velocity:Number.isFinite(n.velocity)?n.velocity:100,strength:1})).sort((a,b)=>a.start-b.start);
     let longest=0;for(const n of list)longest=Math.max(longest,n.end-n.start);
     let low=Infinity,high=-Infinity;for(const n of list){low=Math.min(low,n.pitch);high=Math.max(high,n.pitch);}
     out[name]={notes:list,longest,low:list.length?low:null,high:list.length?high:null};
@@ -80,9 +80,33 @@ export function buildScene({content={},music={},midi={},features:raw=null,title=
     .sort((a,b)=>a.start-b.start);
   const onsets=lyricGuess&&midi?.vocal?.length?onsetsFromNotes(midi.vocal):null;
   const lyrics=measures.length?lyricLines(content,measures,onsets):{lines:[],unplaced:0};
-  return {title,key,duration:content.duration||music?.duration||0,chords,bars,sections,lyrics,midi:midiTracks(midi),features:features(raw)};
+  const f=features(raw);
+  return {title,key,duration:content.duration||music?.duration||0,chords,bars,sections,lyrics,midi:noteStrengths(midiTracks(midi),f),features:f};
 }
-export function withFeatures(scene,raw){return {...scene,features:features(raw)};}
+export function withFeatures(scene,raw){const f=features(raw);return {...scene,features:f,midi:noteStrengths(scene.midi,f)};}
+
+// The MIDI the model writes has no dynamics (every velocity is 100), so each note's `strength` (0..1) is measured instead: how loud its
+// own stem is as the note starts (the vocal melody from the vocals stem; instrumental notes from the loudest of the other pitched stems),
+// spread over that track's own range so its quiet notes are near 0 and its loud ones near 1. Until stem data is loaded, and for songs
+// without stems, every strength is 1. `velocity` is kept as the file has it.
+const STRENGTH_SOURCES={vocal:['vocals'],instrumental:['lead','piano','other','rhythm','bass']};
+export function noteStrengths(midi,f){
+  if(!f)return midi;
+  const loudness=(roles,t)=>{                       // loudest of these stems in the first 80 ms of the note (0..1)
+    let best=0;const from=Math.max(0,Math.round(t*f.fps)),to=Math.min(f.frames-1,from+Math.round(0.08*f.fps));
+    for(const role of roles){const level=f.tracks[role]?.level;if(!level)continue;for(let i=from;i<=to;i++)best=Math.max(best,level[i]);}
+    return best/255;
+  };
+  const vocalStarts=(midi.vocal?.notes||[]).map(n=>n.start);
+  const sourceOf=(name,note)=>name==='vocal'||(name==='melody'&&vocalStarts.some(t=>Math.abs(t-note.start)<0.03))?STRENGTH_SOURCES.vocal:STRENGTH_SOURCES.instrumental;
+  const out={};
+  for(const [name,track] of Object.entries(midi)){
+    const raw=track.notes.map(n=>loudness(sourceOf(name,n),n.start)),sorted=[...raw].sort((a,b)=>a-b);
+    const lo=sorted[Math.floor(sorted.length*0.1)]??0,hi=sorted[Math.floor(sorted.length*0.95)]??1,span=hi-lo;
+    out[name]={...track,notes:track.notes.map((n,i)=>({...n,strength:span>1e-3?Math.max(0,Math.min(1,(raw[i]-lo)/span)):(raw[i]>0?1:0)}))};
+  }
+  return out;
+}
 
 // Effective level of each mixer channel (0 when muted, or when another channel is soloed), as the player applies it.
 export function mixGains(mix){
@@ -127,10 +151,10 @@ function lyricAt(lyrics,t){
 function notesAt(track,t){
   const notes=track.notes,active=[];
   for(let i=lastStartingBy(notes,t);i>=0&&notes[i].start>=t-track.longest;i--){
-    const n=notes[i];if(t<n.end)active.push({pitch:n.pitch,velocity:n.velocity,start:n.start,end:n.end,progress:(t-n.start)/(n.end-n.start)});
+    const n=notes[i];if(t<n.end)active.push({pitch:n.pitch,velocity:n.velocity,strength:n.strength,start:n.start,end:n.end,progress:(t-n.start)/(n.end-n.start)});
   }
   const next=notes[lastStartingBy(notes,t)+1]||null;
-  return {active,next:next?{pitch:next.pitch,in:next.start-t}:null,low:track.low,high:track.high};
+  return {active,next:next?{pitch:next.pitch,strength:next.strength,in:next.start-t}:null,low:track.low,high:track.high};
 }
 function trackAt(feature,frame,t,gain){
   const shift=gain>0?20*Math.log10(gain)/60:-Infinity;                  // the mixer's level, in the same 0..1 (-60..0 dB) scale

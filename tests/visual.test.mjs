@@ -202,3 +202,51 @@ test('every file in the visualizations folder is a valid visualization (template
   }
   assert.ok(['cozy','runner','abstract','diagnostic'].every(id=>ids.has(id)));
 });
+
+// ---- note strength and lyric layout ----
+import {noteStrengths} from '../chordbuddy/web/visual-scene.js';
+import {layoutLyricLine,joinSyllables} from '../chordbuddy/web/visual-hud.js';
+
+test('each note gets a strength from its own stem as it starts (the MIDI itself has no dynamics)', () => {
+  const frames=1000,level=new Uint8Array(frames),other=new Uint8Array(frames);
+  level.fill(40);level.fill(250,100,110);level.fill(120,300,310);other.fill(200,500,510);   // vocals loud at 1.0 s, medium at 3.0 s; lead at 5.0 s
+  const f={fps:100,frames,tracks:{vocals:{level},lead:{level:other}}};
+  const note=(start,pitch=60)=>({start,end:start+.2,pitch,velocity:100,strength:1});
+  const midi={vocal:{notes:[note(1),note(3),note(7)]},instrumental:{notes:[note(5),note(7)]},melody:{notes:[note(1),note(5)]}};
+  const out=noteStrengths(midi,f);
+  const v=out.vocal.notes.map(n=>n.strength);
+  assert.ok(v[0]>v[1]&&v[1]>v[2]);                                         // loud, medium, quiet
+  assert.ok(out.instrumental.notes[0].strength>out.instrumental.notes[1].strength);
+  // the melody's sung note is measured on the vocals stem (loud there), its other note on lead (quieter); spread over the track: 1 and 0
+  assert.deepEqual(out.melody.notes.map(n=>n.strength),[1,0]);
+  assert.equal(out.vocal.notes[0].velocity,100);                            // the file's velocity is kept
+  assert.equal(noteStrengths(midi,null),midi);                              // no stem data: unchanged (every strength 1)
+});
+
+test('lyric layout joins split syllables, keeps each part\'s state, and wraps a long line into two rows', () => {
+  const g={font:'',measureText(text){const px=parseFloat(/(\d+(?:\.\d+)?)px/.exec(this.font)[1]);return {width:text.length*px*0.5};}};
+  const words=[{text:'ex-',state:'sung'},{text:'pected',state:'now'},{text:'to',state:'ahead'}];
+  const one=layoutLyricLine(g,words,{maxWidth:1000,size:20});
+  assert.equal(one.rows.length,1);assert.deepEqual(one.rows[0].parts.map(p=>[p.text,p.state]),[['ex','sung'],['pected','now'],['to','ahead']]);
+  assert.equal(one.rows[0].parts[1].x,one.rows[0].parts[0].width);        // no space inside the word
+  const long=Array.from({length:16},(_,i)=>({text:'word'+i,state:'ahead'}));
+  const two=layoutLyricLine(g,long,{maxWidth:300,size:20});
+  assert.equal(two.rows.length,2);assert.ok(two.rows.every(r=>r.width<=300+1e-6));
+  assert.deepEqual(layoutLyricLine(g,[],{maxWidth:300,size:20}).rows,[]);
+  assert.equal(joinSyllables('How much can I be ex-pected to tole- rate?'),'How much can I be expected to tolerate?');
+});
+
+// ---- harmony helpers ----
+import {pitchClass,parseKey,chordTones,noteInChord,scaleDegree,melodicInterval} from '../chordbuddy/web/visual-harmony.js';
+
+test('harmony: what a note means against the chord and the key', () => {
+  assert.equal(pitchClass('Bb'),10);assert.equal(pitchClass('F#'),6);assert.deepEqual(parseKey('F minor'),{tonic:5,minor:true});
+  assert.deepEqual(chordTones('Fm7').tones,[5,8,0,3]);assert.deepEqual(chordTones('Abmaj7').intervals,[0,4,7,11]);
+  assert.equal(chordTones('Bb/D').bass,2);assert.equal(chordTones('Gsus4').quality,'sus4');assert.equal(chordTones('N'),null);
+  assert.deepEqual(noteInChord(72,'Eb'),{inChord:false,interval:9,role:'outside'});    // C over Eb: a 6th, not in a plain Eb triad
+  assert.equal(noteInChord(70,'Eb').role,'fifth');assert.equal(noteInChord(67,'Eb').role,'third');assert.equal(noteInChord(63,'Eb').role,'root');
+  assert.equal(noteInChord(74,'Ebmaj7').role,'seventh');
+  assert.deepEqual(scaleDegree(65,'F minor'),{degree:1,inScale:true,step:0});            // F is the tonic of F minor
+  assert.equal(scaleDegree(72,'F minor').degree,5);assert.equal(scaleDegree(69,'F minor').inScale,false);   // A natural: chromatic in F minor
+  assert.equal(melodicInterval(72,79).name,'5th');assert.ok(melodicInterval(72,79).leap);assert.ok(melodicInterval(72,70).step);
+});
