@@ -19,7 +19,7 @@ import diagnostic from './scene-diagnostic.js';
 
 export const SCENES=[cozy,runner,abstract,diagnostic];
 const SETTINGS='cb-visualizer';
-const MAX_PIXELS=1920*1080*1.2;                 // larger screens get a gently upscaled picture, so every scene keeps a smooth frame rate
+const MAX_PIXELS=2560*1440;                     // a 4K screen gets a 1440p picture, gently upscaled, so every scene keeps a smooth frame rate
 // MIDI documents by file name: the vocal melody, the instrumental melody and the combined melody
 const MIDI_NAMES=[[/(^|\/)melody_vocal\.mid$/,'vocal'],[/(^|\/)melody_instrumental\.mid$/,'instrumental'],[/(^|\/)melody\.mid$/,'melody']];
 
