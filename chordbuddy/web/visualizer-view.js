@@ -1,8 +1,11 @@
-// A visualizer: follows the player over the visual bridge and draws the chosen scene, every display frame.
-// Scenes (scene-*.js) draw the world; the chord and the lyrics are drawn on top by visual-hud.js in their own bands, so nothing covers
-// them. Mounted by visualizer.html (pop-out window) and by the main page's full-screen view.
+// A visualizer: follows the player over the visual bridge and draws the chosen visualization, every display frame.
+// Visualizations are files in web/visualizations/ (one per look, found automatically: drop a file in and it appears on the toolbar;
+// names starting with _ are templates and drafts, left out). They draw the world; the chord and the lyrics are drawn on top by
+// visual-hud.js in their own bands, so nothing covers them. A visualization that fails to load or throws while drawing is shown as
+// broken, with its error, and the others keep working. Mounted by visualizer.html (pop-out window) and the main page's full-screen view.
 //
-// A scene module: {id, name, hud (default true), create() -> {draw(g, frame, env), resize?(w, h), dispose?()}}.
+// A visualization module's default export: {id, name, order (toolbar position, default 100), hud (default true),
+//   create() -> {draw(g, frame, env), resize?(w, h), dispose?()}}.
 // env: {w, h, dt (wall seconds since the last frame), wall (wall seconds), calm, lyrics, zones (hudZones), song (the built scene),
 //       events: {hits: {role: [strength…]} (new drum and instrument hits this frame), beat (a new beat: {bar, beat, downbeat}) or null,
 //       chordChanged, sectionChanged}, status, fps}
@@ -13,12 +16,7 @@ import {buildScene,sampleFrame,withFeatures} from './visual-scene.js';
 import {setKeySpelling} from './spelling.js';
 import {hudZones,drawChordHud,drawLyricHud} from './visual-hud.js';
 import {mountMixerDrawer} from './visual-mixer.js';
-import cozy from './scene-cozy.js';
-import runner from './scene-runner.js';
-import abstract from './scene-abstract.js';
-import diagnostic from './scene-diagnostic.js';
 
-export const SCENES=[cozy,runner,abstract,diagnostic];
 const SETTINGS='cb-visualizer';
 const MAX_PIXELS=2560*1440;                     // a 4K screen gets a 1440p picture, gently upscaled, so every scene keeps a smooth frame rate
 // MIDI documents by file name: the vocal melody, the instrumental melody and the combined melody
@@ -26,8 +24,28 @@ const MIDI_NAMES=[[/(^|\/)melody_vocal\.mid$/,'vocal'],[/(^|\/)melody_instrument
 
 export function midiName(file){for(const [pattern,name] of MIDI_NAMES)if(pattern.test(file))return name;return null;}
 
+// Every visualization in web/visualizations, sorted for the toolbar, and the files that could not be used (with why). list(): the file
+// names; load(file): the module. Both are replaceable for tests.
+export async function loadVisualizations({
+  list=async()=>{const r=await fetch('/visualizations/index.json',{cache:'no-store'});if(!r.ok)throw Error('Could not list the visualizations');return (await r.json()).files||[];},
+  load=file=>import('./visualizations/'+file),
+}={}){
+  const scenes=[],failed=[];
+  for(const file of await list()){
+    try{
+      const scene=(await load(file))?.default;
+      if(!scene||typeof scene.id!=='string'||!scene.id||typeof scene.name!=='string'||typeof scene.create!=='function')
+        throw Error('It needs a default export with id, name and create()');
+      if(scenes.some(s=>s.id===scene.id))throw Error(`Another visualization already uses the id "${scene.id}"`);
+      scenes.push({...scene,file});
+    }catch(error){failed.push({file,error:error?.message||String(error)});}
+  }
+  scenes.sort((a,b)=>(a.order??100)-(b.order??100)||a.name.localeCompare(b.name));
+  return {scenes,failed};
+}
+
 function loadSettings(){
-  const fallback={scene:SCENES[0].id,lyrics:true,calm:false,fps:false};
+  const fallback={scene:'cozy',lyrics:true,calm:false,fps:false};
   try{return {...fallback,...JSON.parse(localStorage.getItem(SETTINGS)||'{}')};}catch{return fallback;}
 }
 function saveSettings(value){try{localStorage.setItem(SETTINGS,JSON.stringify(value));}catch{}}
@@ -59,6 +77,7 @@ export function mountVisualizer(container){
   const g=canvas.getContext('2d'),clock=new SceneClock(),settings=loadSettings();
   let mixer=null,song=null,songKey=null,mix=null,status='Waiting for Chord Buddy… start playback in the main window.',raf=0,disposed=false;
   let frames=0,fpsAt=performance.now(),fps=0,lastWall=null,previous=null,active=null,activeId=null,size=[0,0];
+  let scenes=[],failed=[];const broken=new Map();   // visualizations, the files that failed to load, and ones that threw (id -> message)
 
   // ---- the song ----
   async function loadSong(m){
@@ -88,22 +107,30 @@ export function mountVisualizer(container){
   // ---- the controls: scene, lyrics, calm; they hide when the mouse rests ----
   const toolbar=document.createElement('div');toolbar.className='visualizer-toolbar';
   const button=(label,title,onclick)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.title=title;b.onclick=onclick;return b;};
-  const sceneButtons=SCENES.map((s,i)=>button(s.name,`${s.name} (${i+1})`,()=>choose(s.id)));
+  let sceneButtons=[];
   const lyricsButton=button('Lyrics','Show the lyrics (L)',()=>set({lyrics:!settings.lyrics}));
   const calmButton=button('Calm','Calm: no shaking or flashes (C)',()=>set({calm:!settings.calm}));
   const mixerButton=button('Mixer','Slide out the mixer (M)',()=>toggleMixer());
-  const group=document.createElement('div');group.className='visualizer-scenes';group.append(...sceneButtons);
+  const group=document.createElement('div');group.className='visualizer-scenes';
   toolbar.append(group,lyricsButton,calmButton,mixerButton);container.append(toolbar);
   mixer=mountMixerDrawer(container,{send:value=>receiver.setMix(value)});
   if(mix)mixer.setMix(mix);
   function toggleMixer(value){mixer.toggle(value);mixerButton.setAttribute('aria-pressed',String(mixer.open));}
   function paintControls(){
-    SCENES.forEach((s,i)=>sceneButtons[i].setAttribute('aria-pressed',String(s.id===settings.scene)));
+    scenes.forEach((s,i)=>{sceneButtons[i].setAttribute('aria-pressed',String(s.id===current()?.id));sceneButtons[i].classList.toggle('broken',broken.has(s.id));});
     lyricsButton.setAttribute('aria-pressed',String(settings.lyrics));calmButton.setAttribute('aria-pressed',String(settings.calm));
     mixerButton.setAttribute('aria-pressed',String(!!mixer?.open));
   }
   function set(change){Object.assign(settings,change);saveSettings(settings);paintControls();}
-  function choose(id){if(SCENES.some(s=>s.id===id))set({scene:id});}
+  function choose(id){if(scenes.some(s=>s.id===id)){broken.delete(id);if(activeId===id){try{active?.dispose?.();}catch{}active=null;activeId=null;}set({scene:id});}}
+  function current(){return scenes.find(s=>s.id===settings.scene)||scenes[0]||null;}
+  function showScenes(){
+    sceneButtons=scenes.map((s,i)=>button(s.name,`${s.name} (${i+1})`,()=>choose(s.id)));
+    const problems=failed.map(f=>{const b=button('⚠ '+f.file.replace(/[.]js$/,''),`${f.file} could not be loaded: ${f.error}`,()=>{});b.className='visualizer-failed';return b;});
+    group.replaceChildren(...sceneButtons,...problems);paintControls();
+  }
+  loadVisualizations().then(result=>{if(disposed)return;({scenes,failed}=result);for(const f of failed)console.error(`Visualization ${f.file}:`,f.error);showScenes();})
+    .catch(error=>{status='Could not load the visualizations: '+error.message;});
   paintControls();
   let idleTimer=0;
   const wake=()=>{toolbar.classList.remove('idle');container.classList.remove('idle');clearTimeout(idleTimer);
@@ -112,7 +139,7 @@ export function mountVisualizer(container){
   const keys=event=>{
     if(event.target?.closest?.('input,textarea,[contenteditable="true"]')||event.ctrlKey||event.metaKey||event.altKey)return;
     const n=Number(event.key);
-    if(n>=1&&n<=SCENES.length)choose(SCENES[n-1].id);
+    if(n>=1&&n<=scenes.length)choose(scenes[n-1].id);
     else if(event.key==='l'||event.key==='L')set({lyrics:!settings.lyrics});
     else if(event.key==='c'||event.key==='C')set({calm:!settings.calm});
     else if(event.key==='p'||event.key==='P')set({fps:!settings.fps});       // frame rate readout, to check smoothness
@@ -130,11 +157,19 @@ export function mountVisualizer(container){
     if(size[0]!==w||size[1]!==h){size=[w,h];active?.resize?.(w,h);}
     return [w,h];
   }
-  function sceneFor(id){
-    if(activeId===id&&active)return active;
-    active?.dispose?.();activeId=id;
-    active=(SCENES.find(s=>s.id===id)||SCENES[0]).create();active.resize?.(size[0],size[1]);
+  function sceneFor(definition){
+    if(activeId===definition.id&&active)return active;
+    try{active?.dispose?.();}catch{}
+    active=null;activeId=definition.id;
+    active=definition.create();active.resize?.(size[0],size[1]);
     return active;
+  }
+  // a visualization that failed: say so plainly, keep the chord and lyrics going, and point to the others
+  function drawBroken(definition,w,h){
+    g.fillStyle='#14111a';g.fillRect(0,0,w,h);g.textAlign='center';g.textBaseline='middle';
+    g.fillStyle='#ffb4a8';g.font='700 18px system-ui';g.fillText(`“${definition.name}” stopped with an error`,w/2,h*0.45);
+    g.fillStyle='#b8b4c8';g.font='500 14px system-ui';g.fillText(String(broken.get(definition.id)).slice(0,160),w/2,h*0.45+28);
+    g.fillText(`The other visualizations still work (keys 1–${scenes.length}). Choosing this one again retries it.`,w/2,h*0.45+52);
   }
   function draw(now){
     if(disposed)return;raf=requestAnimationFrame(draw);
@@ -143,11 +178,19 @@ export function mountVisualizer(container){
     const [w,h]=resize();
     if(!song){g.fillStyle='#0d0e14';g.fillRect(0,0,w,h);g.textAlign='center';g.textBaseline='middle';g.fillStyle='#e9e6dc';g.font='500 18px system-ui';g.fillText(status,w/2,h/2);return;}
     const frame=sampleFrame(song,clock.time(now),{playing:clock.playing,rate:clock.rate,mix});
-    const definition=SCENES.find(s=>s.id===settings.scene)||SCENES[0],scene=sceneFor(definition.id);
+    const definition=current();
+    if(!definition){g.fillStyle='#0d0e14';g.fillRect(0,0,w,h);g.textAlign='center';g.textBaseline='middle';g.fillStyle='#e9e6dc';g.font='500 18px system-ui';
+      g.fillText(scenes.length||!failed.length?'Loading the visualizations…':'No visualization could be loaded.',w/2,h/2);return;}
     const env={w,h,dt,wall:now/1000,calm:settings.calm,lyrics:settings.lyrics,zones:hudZones(w,h,settings.lyrics),song,
       events:frameEvents(previous,frame,song),status,fps};
     previous=frame;if(frames%3===0)mixer.setLevels(frame);
-    g.save();scene.draw(g,frame,env);g.restore();
+    g.save();
+    if(!broken.has(definition.id)){
+      try{sceneFor(definition).draw(g,frame,env);}
+      catch(error){broken.set(definition.id,error?.message||String(error));console.error(`Visualization "${definition.name}" failed:`,error);paintControls();}
+    }
+    g.restore();
+    if(broken.has(definition.id)){g.save();drawBroken(definition,w,h);g.restore();}
     if(definition.hud!==false){
       g.save();drawChordHud(g,frame,w,h,{calm:settings.calm});g.restore();
       if(settings.lyrics){g.save();drawLyricHud(g,frame,w,h);g.restore();}
@@ -158,7 +201,7 @@ export function mountVisualizer(container){
   raf=requestAnimationFrame(draw);
   return {
     toolbar,
-    dispose(){disposed=true;cancelAnimationFrame(raf);clearTimeout(idleTimer);receiver.dispose();active?.dispose?.();mixer.dispose();
+    dispose(){disposed=true;cancelAnimationFrame(raf);clearTimeout(idleTimer);receiver.dispose();try{active?.dispose?.();}catch{}mixer.dispose();
       container.ownerDocument.removeEventListener('keydown',keys,true);container.removeEventListener('pointermove',wake);canvas.remove();toolbar.remove();},
   };
 }

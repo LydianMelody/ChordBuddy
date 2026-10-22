@@ -173,3 +173,32 @@ test('a visualizer\'s mixer drawer changes the player\'s mix over the bridge', (
   receiver.setMix(mix);
   assert.deepEqual(mixes,[mix]);
 });
+
+// ---- the visualizations folder ----
+import {loadVisualizations} from '../chordbuddy/web/visualizer-view.js';
+import {readdirSync} from 'node:fs';
+
+test('visualizations load from the folder: sorted, and a broken file is reported without stopping the others', async () => {
+  const modules={
+    'b.js':{default:{id:'b',name:'Bee',order:20,create(){}}},
+    'a.js':{default:{id:'a',name:'Ay',order:10,create(){}}},
+    'nodefault.js':{},
+    'twin.js':{default:{id:'a',name:'Twin',create(){}}},
+    'late.js':{default:{id:'late',name:'Late',create(){}}},
+  };
+  const {scenes,failed}=await loadVisualizations({list:async()=>['b.js','boom.js','a.js','nodefault.js','twin.js','late.js'],
+    load:async file=>{if(file==='boom.js')throw new SyntaxError('Unexpected token');return modules[file];}});
+  assert.deepEqual(scenes.map(s=>s.id),['a','b','late']);                // by order, then name; no order counts as 100
+  assert.deepEqual(failed.map(f=>f.file),['boom.js','nodefault.js','twin.js']);
+  assert.match(failed[0].error,/Unexpected token/);assert.match(failed[2].error,/already uses the id "a"/);
+});
+
+test('every file in the visualizations folder is a valid visualization (templates included)', async () => {
+  const folder=new URL('../chordbuddy/web/visualizations/',import.meta.url),ids=new Set();
+  for(const file of readdirSync(folder).filter(f=>f.endsWith('.js'))){
+    const scene=(await import(new URL(file,folder))).default;
+    assert.ok(scene&&typeof scene.id==='string'&&typeof scene.name==='string'&&typeof scene.create==='function',file);
+    assert.ok(!ids.has(scene.id),`${file}: duplicate id ${scene.id}`);ids.add(scene.id);
+  }
+  assert.ok(['cozy','runner','abstract','diagnostic'].every(id=>ids.has(id)));
+});

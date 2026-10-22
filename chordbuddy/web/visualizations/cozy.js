@@ -2,7 +2,7 @@
 // raindrop that falls onto a leaf and lands exactly on the hit (the hits are known ahead of time), splashing and rippling; kicks are big
 // drops, hi-hats a fine patter. The bass bobs the leaves, a chord change sends a soft gust through them, the chord tints the light
 // (warmer for major, cooler for minor), the vocals make the bokeh glow, and the sung melody drifts up as fireflies.
-import {chordColor} from './visual-color.js';
+import {chordColor} from '../visual-color.js';
 
 const FALL=0.32;                                   // seconds a drop is seen falling before it lands
 const LEAVES=[                                     // base (fraction of the screen), angle, length and width (fraction of the short side), tone
@@ -49,7 +49,7 @@ function backdrop(w,h){
 }
 
 export default {
-  id:'cozy',name:'Cozy',
+  id:'cozy',order:10,name:'Cozy',
   create(){
     let w=0,h=0,u=1,bg=null,sprites=[],far=[],bokeh=[],glows=[],tintHue=40,gust=0,bob=0,lastTime=null;
     const drops=[],splashes=[],ripples=[],flies=[],rain=[],scheduled={};

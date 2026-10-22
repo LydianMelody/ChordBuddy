@@ -464,6 +464,11 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith('/api/'):
             raise KeyError('Unknown action')
         web=(PROJECT/'chordbuddy'/'web').resolve()
+        if path=='/visualizations/index.json':
+            # the visualizer's scenes: every .js file in web/visualizations whose name does not start with _ (templates, drafts)
+            folder=web/'visualizations'
+            files=sorted(p.name for p in folder.glob('*.js') if p.is_file() and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*\.js',p.name))
+            return self._json({'files':files})
         relative='index.html' if path=='/' else path.lstrip('/')
         target=(web/relative).resolve()
         if not target.is_relative_to(web) or not target.is_file():

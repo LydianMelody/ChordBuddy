@@ -2,7 +2,7 @@
 // chord change arrives as a glowing hurdle (with the chord's name) that reaches the fox exactly as the chord changes: the fox clears it on
 // the change. Its stride follows the beat; kicks pulse the street (and shake the camera, unless calm), the bass lights the windows, the
 // vocals warm the sun, lead guitar draws speed streaks, and each section and chord shifts the sky.
-import {chordColor,chordHsl} from './visual-color.js';
+import {chordColor,chordHsl} from '../visual-color.js';
 
 const SPEED=0.5;                 // world speed: fractions of the screen's short side per second of song
 const JUMP=0.2;                  // seconds before and after a change that the fox is in the air
@@ -70,7 +70,7 @@ function drawFox(g,x,y,s,step,air,scarfColor,wall){
 }
 
 export default {
-  id:'runner',name:'Runner',
+  id:'runner',order:20,name:'Runner',
   create(){
     let w=0,h=0,u=1,far=null,mid=null,skyHue=280,pulse=0,shake=0,lastBeat=null,stepBase=0,lastT=null;
     const dust=[],streaks=[],stars=[];

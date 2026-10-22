@@ -1,12 +1,12 @@
 // The diagnostic scene: every value the visuals can use, drawn plainly (chord, beat, section, lyrics, MIDI notes, each stem's bands and
 // hits), to check the data and its timing. Draws its own chord and lyrics, so the shared overlay is off for it.
-import {STEM_ORDER,BAND_COUNT} from './visual-scene.js';
+import {STEM_ORDER,BAND_COUNT} from '../visual-scene.js';
 
 const STEM_COLORS={vocals:'#ff5d8f',lead:'#ffb84d',rhythm:'#ffe066',bass:'#7c6cff',drums:'#38d9a9',piano:'#4dabf7',other:'#c0c4cc'};
 const STEM_NAMES={vocals:'Vocals',lead:'Lead gtr',rhythm:'Rhythm gtr',bass:'Bass',drums:'Drums',piano:'Piano',other:'Other'};
 
 export default {
-  id:'diagnostic',name:'Diagnostic',hud:false,
+  id:'diagnostic',order:90,name:'Diagnostic',hud:false,
   create(){return {draw(g,frame,env){g.fillStyle='#0d0e14';g.fillRect(0,0,env.w,env.h);g.textBaseline='middle';g.textAlign='center';drawDiagnostic(g,frame,env.w,env.h,env.status,env.fps);}};},
 };
 

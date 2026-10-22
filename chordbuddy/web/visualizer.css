@@ -39,3 +39,7 @@
 .vm-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .vm-note{margin:0;color:#9aa0b4;font-weight:500}
 .visualizer-mixer button:focus-visible,.vm-fader:focus-visible{outline:2px solid #ffe27a;outline-offset:2px}
+/* a visualization that threw while drawing, and a file that could not be loaded at all */
+.visualizer-scenes button.broken{color:#ffb4a8}
+.visualizer-scenes button.broken::after{content:' \26A0'}
+.visualizer-scenes .visualizer-failed{color:#ffb4a8;opacity:.75;cursor:help}

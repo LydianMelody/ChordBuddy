@@ -1,8 +1,8 @@
 // Abstract: a harmonic bloom. Each stem is a glowing ring whose shape is its eight frequency bands, repeated with a symmetry that changes
 // with each section; hits throw sparks off their ring, kicks send out a shockwave, the beat breathes in the centre, and the vocal melody
 // orbits as a comet (higher notes further out). The palette follows the chord's place on the circle of fifths.
-import {STEM_ORDER,BAND_COUNT} from './visual-scene.js';
-import {chordColor} from './visual-color.js';
+import {STEM_ORDER,BAND_COUNT} from '../visual-scene.js';
+import {chordColor} from '../visual-color.js';
 
 const FOLDS=[6,5,7,8,4,9];                       // symmetry by section
 const RING_ORDER=['bass','drums','piano','rhythm','lead','other','vocals'];   // inside to outside
@@ -11,7 +11,7 @@ const MAX_SPARKS=900;
 function lerpHue(from,to,k){const d=((to-from+540)%360)-180;return (from+d*k+360)%360;}
 
 export default {
-  id:'abstract',name:'Abstract',
+  id:'abstract',order:30,name:'Abstract',
   create(){
     let hue=220,fold=6,foldTarget=6,foldMix=1,breath=0,spin=0;
     const sparks=[],waves=[],trail=[];
