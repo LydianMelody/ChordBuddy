@@ -99,3 +99,45 @@ test('a visualizer that opens late is given the current song and position', () =
   assert.equal(clocks.at(-1).seconds,13);
   assert.equal(clockMessage({seconds:1,rate:100}).rate,1);
 });
+
+// ---- lyrics ----
+test('lyric words get the chart\'s times: pinned words exactly, the others spread, never-placed lines left out', () => {
+  const sections=[{id:'s1',name:'Verse',start:1,end:9,lyrics:'hello there world\n\nnot placed yet'},{id:'s2',name:'Chorus',start:9,end:16,lyrics:''}];
+  const layout={lines:[{section_id:'s1',line:0,start_measure:'m1',end_measure:'m1',words:[{offset:0,measure_id:'m1',beat:0},{offset:6,measure_id:'m1',beat:2}]}]};
+  const scene=buildScene({content:{...content,sections,layout},music});
+  assert.equal(scene.lyrics.lines.length,1);assert.equal(scene.lyrics.unplaced,1);
+  assert.deepEqual(scene.lyrics.lines[0].words.map(w=>[w.text,w.start]),[['hello',1],['there',3],['world',4]]);
+  const f=sampleFrame(scene,3.5);
+  assert.equal(f.lyric.line.text,'hello there world');assert.equal(f.lyric.line.section,'Verse');
+  assert.equal(f.lyric.word.text,'there');assert.equal(f.lyric.word.progress,.5);
+  assert.deepEqual(f.lyric.words.map(w=>w.state),['sung','now','ahead']);
+  const before=sampleFrame(scene,.5);
+  assert.equal(before.lyric.line,null);assert.equal(before.lyric.next.text,'hello there world');assert.equal(before.lyric.next.in,.5);
+  assert.equal(sampleFrame(scene,6).lyric.line,null);                    // the line is over (the last word is held 1 s, to the end of the bar)
+});
+
+test('with the melody guess on, unpinned words land on vocal notes, as on the chart', () => {
+  const sections=[{id:'s1',name:'Verse',start:1,end:9,lyrics:'one two three'}];
+  const layout={lines:[{section_id:'s1',line:0,start_measure:'m1',end_measure:'m2',words:[{offset:0,measure_id:'m1',beat:0}]}]};
+  const vocal=[{start:2.6,end:3,pitch:60},{start:6.2,end:7,pitch:62}];
+  const even=buildScene({content:{...content,sections,layout},music,midi:{vocal}});
+  const guessed=buildScene({content:{...content,sections,layout},music,midi:{vocal},lyricGuess:true});
+  assert.deepEqual(even.lyrics.lines[0].words.map(w=>w.start),[1,1+8/3,1+16/3]);
+  assert.deepEqual(guessed.lyrics.lines[0].words.map(w=>w.start),[1,2.6,6.2]);
+});
+
+test('a visualizer opened while nothing is playing still gets the song straight away', () => {
+  const open=fakeChannels();let calls=0;
+  const publisher=createVisualPublisher({open,onListen:()=>{calls++;publisher.scene({songId:'s',runId:null,title:'T',key:null,revision:'1:0',midiDocs:[]});}});
+  const scenes=[];
+  createVisualReceiver({open,onScene:m=>scenes.push(m),onClock:()=>{}});
+  assert.equal(calls,1);assert.equal(scenes.length,1);assert.equal(scenes[0].songId,'s');
+  createVisualReceiver({open,onScene:m=>scenes.push(m),onClock:()=>{}});    // a second window: answered with the same scene
+  assert.equal(scenes.filter(s=>s.songId==='s').length,3);               // the first window hears the answer to the second too
+});
+
+test('a chord held over a barline counts as one chord, so the next chord is always a change', () => {
+  const held={...content,chords:[{id:'a',label:'C',start:1,end:5},{id:'b',label:'C',start:5,end:9},{id:'c',label:'F',start:9,end:13}]};
+  const f=sampleFrame(buildScene({content:held,music}),3);
+  assert.equal(f.chord.label,'C');assert.equal(f.chord.end,9);assert.equal(f.chord.next.label,'F');assert.equal(f.chord.progress,.25);
+});

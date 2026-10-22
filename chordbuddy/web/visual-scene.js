@@ -4,11 +4,13 @@
 import {effectiveMeasures} from './chart-layout.js';
 import {chartPresentation} from './chart-presentation.js';
 import {spellChord} from './spelling.js';
+import {layoutLine,onsetsFromNotes} from './word-layout.js';
 
 // The mixer's seven channels, in the player's order (pcm-mixer-core.js). Never reorder.
 export const STEM_ORDER=['bass','drums','other','vocals','piano','lead','rhythm'];
 export const BAND_COUNT=8;
 const UPCOMING=4;                               // chords listed after the current one
+const LONGEST_WORD=2;                           // a line's last word is held at most this long (seconds)
 const placeholder=label=>label==null||['','N','?','UNKNOWN'].includes(String(label).trim().toUpperCase());
 
 function decode(text){
@@ -42,20 +44,43 @@ function midiTracks(midi){
   return out;
 }
 
+// Every placed lyric line with each word's time, exactly as the chart places them (pins, spreading, and the melody guess when the
+// chart uses it). Lines never placed on the chart have no times and are left out (counted in `unplaced`).
+function lyricLines(content,measures,onsets){
+  const lines=[];let unplaced=0;
+  for(const section of content.sections||[]){
+    String(section.lyrics??'').split('\n').forEach((text,line)=>{
+      if(!text.trim())return;
+      const layout=layoutLine(content,measures,section.id,line,{onsets});
+      if(!layout?.placed||!layout.tokens.length){unplaced++;return;}
+      const words=layout.tokens.filter(t=>Number.isFinite(t.seconds)).map((t,i,all)=>({text:t.text,start:t.seconds,
+        end:i+1<all.length?all[i+1].seconds:Math.min(layout.end,t.seconds+LONGEST_WORD)}));
+      if(!words.length){unplaced++;return;}
+      lines.push({text:text.trim(),section:section.name||'',start:words[0].start,end:Math.max(words.at(-1).end,words[0].start),words});
+    });
+  }
+  return {lines:lines.sort((a,b)=>a.start-b.start),unplaced};
+}
+
 /**
  * content, music: the chart document (as the chart page has them). midi: {name: [{start,end,pitch,velocity}]}, e.g. vocal, instrumental.
  * features: the server's /api/visual-features answer, or null while it loads. key: the song's key name, for spelling chords.
+ * lyricGuess: place unpinned words on the vocal melody's notes, as the chart does when its melody guess is on.
  */
-export function buildScene({content={},music={},midi={},features:raw=null,title='',key=null}={}){
+export function buildScene({content={},music={},midi={},features:raw=null,title='',key=null,lyricGuess=false}={}){
   const measures=music?.measures?.length?effectiveMeasures(music,content.layout||{}):[];
   const shown=chartPresentation(content,measures);
   const chords=(content.chords||[]).filter(c=>shown.visible(c)&&Number.isFinite(c.start)&&c.end>c.start)
-    .map(c=>({start:c.start,end:c.end,label:placeholder(c.label)?null:spellChord(String(c.label))})).sort((a,b)=>a.start-b.start);
+    .map(c=>({start:c.start,end:c.end,label:placeholder(c.label)?null:spellChord(String(c.label))})).sort((a,b)=>a.start-b.start)
+    // a chord held over a barline is stored once per bar: one chord to a visual, so "next" is always a change
+    .reduce((merged,c)=>{const last=merged.at(-1);if(last&&last.label===c.label&&c.start-last.end<1e-3)last.end=Math.max(last.end,c.end);else merged.push(c);return merged;},[]);
   const first=Math.max(0,measures.findIndex(m=>m.end>shown.start+1e-6));
   const bars=measures.map((m,i)=>({start:m.start,end:m.end,number:i-first+1,beats:m.beats?.length?m.beats:[m.start]}));
   const sections=(content.sections||[]).filter(s=>Number.isFinite(s.start)&&s.end>s.start).map(s=>({start:s.start,end:s.end,name:s.name||''}))
     .sort((a,b)=>a.start-b.start);
-  return {title,key,duration:content.duration||music?.duration||0,chords,bars,sections,midi:midiTracks(midi),features:features(raw)};
+  const onsets=lyricGuess&&midi?.vocal?.length?onsetsFromNotes(midi.vocal):null;
+  const lyrics=measures.length?lyricLines(content,measures,onsets):{lines:[],unplaced:0};
+  return {title,key,duration:content.duration||music?.duration||0,chords,bars,sections,lyrics,midi:midiTracks(midi),features:features(raw)};
 }
 export function withFeatures(scene,raw){return {...scene,features:features(raw)};}
 
@@ -87,6 +112,18 @@ function sectionAt(sections,t){
   const i=lastStartingBy(sections,t),current=i>=0&&t<sections[i].end?sections[i]:null,next=sections[i+1]||null;
   return {name:current?.name??null,index:current?i:-1,progress:current?(t-current.start)/(current.end-current.start):0,next:next?{name:next.name,in:next.start-t}:null};
 }
+function lyricAt(lyrics,t){
+  const lines=lyrics.lines;let i=lastStartingBy(lines,t);
+  while(i>0&&t>=lines[i].end&&lines[i-1].end>t)i--;                    // overlapping lines: the one still being sung
+  const line=i>=0&&t<lines[i].end?lines[i]:null,next=lines[lastStartingBy(lines,t)+1]||null;   // the next line to start
+  const result={line:null,word:null,words:[],next:next?{text:next.text,in:next.start-t}:null,unplaced:lyrics.unplaced};
+  if(!line)return result;
+  const w=lastStartingBy(line.words,t),word=w>=0?line.words[w]:null;
+  result.line={text:line.text,section:line.section,start:line.start,end:line.end,progress:(t-line.start)/(line.end-line.start||1),index:i};
+  result.word=word&&t<word.end?{text:word.text,index:w,start:word.start,end:word.end,progress:(t-word.start)/(word.end-word.start||1)}:null;
+  result.words=line.words.map((x,n)=>({text:x.text,start:x.start,end:x.end,state:n<w||(n===w&&t>=x.end)?'sung':n===w?'now':'ahead'}));
+  return result;
+}
 function notesAt(track,t){
   const notes=track.notes,active=[];
   for(let i=lastStartingBy(notes,t);i>=0&&notes[i].start>=t-track.longest;i--){
@@ -108,7 +145,8 @@ function trackAt(feature,frame,t,gain){
 export function sampleFrame(scene,t,{playing=false,rate=1,mix=null}={}){
   const time=Math.max(0,Math.min(scene.duration||Infinity,t));
   const frame={time,playing,rate,duration:scene.duration,title:scene.title,key:scene.key,
-    chord:chordAt(scene.chords,time),beat:beatAt(scene.bars,time),section:sectionAt(scene.sections,time),tracks:{},notes:{}};
+    chord:chordAt(scene.chords,time),beat:beatAt(scene.bars,time),section:sectionAt(scene.sections,time),
+    lyric:lyricAt(scene.lyrics||{lines:[],unplaced:0},time),tracks:{},notes:{}};
   const f=scene.features;
   if(f){
     const index=Math.max(0,Math.min(f.frames-1,Math.round(time*f.fps))),gains=mixGains(mix);

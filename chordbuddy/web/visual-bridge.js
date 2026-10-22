@@ -13,36 +13,35 @@ export function clockMessage(snapshot,at=epoch()){
     duration:snapshot.duration,loop:snapshot.loop||null,mix:snapshot.mix||null,ready:!!snapshot.ready,at};
 }
 
-/** On the main page. open(): () => BroadcastChannel-like. Returns {clock(snapshot), scene(value), dispose()}; scene(null) clears it. */
-export function createVisualPublisher({open=()=>new BroadcastChannel(CHANNEL)}={}){
-  let channel=null,lastScene=null,lastClock=null,listening=false;
-  const ensure=()=>{
-    if(channel)return channel;
-    channel=open();
-    channel.onmessage=event=>{
-      if(event.data?.type!=='hello')return;
-      listening=true;
-      if(lastScene)channel.postMessage(lastScene);
-      if(lastClock)channel.postMessage(lastClock);                     // stamped with when it was true, so it is still exact
-    };
-    return channel;
+/**
+ * On the main page. open(): () => BroadcastChannel-like. onListen(): called when a visualizer opens, before it is answered, so the page can
+ * publish a fresh scene (nothing is published while nobody listens). Returns {clock(snapshot), scene(value), dispose()}; scene(null) clears it.
+ */
+export function createVisualPublisher({open=()=>new BroadcastChannel(CHANNEL),onListen=()=>{}}={}){
+  let lastScene=null,lastClock=null,listening=false;
+  const channel=open();
+  channel.onmessage=event=>{
+    if(event.data?.type!=='hello')return;
+    listening=true;
+    const before=lastScene;onListen();
+    if(lastScene&&lastScene===before)channel.postMessage(lastScene);    // unchanged, so onListen did not send it: answer with it
+    if(lastClock)channel.postMessage(lastClock);                       // stamped with when it was true, so it is still exact
   };
-  ensure();
   return {
     clock(snapshot){
       lastClock=clockMessage(snapshot);
       if(listening)channel.postMessage(lastClock);
     },
-    // value: {songId, runId, title, key, content, music, midiDocs:[{id,name}], token}; resent only when something in it changed
+    // value: {songId, runId, title, key, content, music, midiDocs:[{id,name}], token, lyricGuess}; resent only when something in it changed
     scene(value){
       const message=value?{type:'scene',...value}:{type:'scene',songId:null};
-      const signature=JSON.stringify([message.songId,message.runId,message.key,message.title,message.revision,message.midiDocs]);
+      const signature=JSON.stringify([message.songId,message.runId,message.key,message.title,message.revision,message.midiDocs,message.lyricGuess]);
       if(lastScene&&lastScene.signature===signature)return;
       lastScene={...message,signature};
       if(listening)channel.postMessage(lastScene);
     },
     get listening(){return listening;},
-    dispose(){channel?.close();channel=null;},
+    dispose(){channel.close();},
   };
 }
 

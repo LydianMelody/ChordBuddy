@@ -25,10 +25,10 @@ export function mountVisualizer(container){
   let scene=null,sceneKey=null,mix=null,status='Waiting for Chord Buddy… start playback in the main window.',raf=0,disposed=false,frames=0,fpsAt=performance.now(),fps=0;
 
   async function loadScene(m){
-    const key=JSON.stringify([m.songId,m.runId,m.revision,m.key]);if(key===sceneKey)return;sceneKey=key;
+    const key=JSON.stringify([m.songId,m.runId,m.revision,m.key,m.lyricGuess]);if(key===sceneKey)return;sceneKey=key;
     if(!m.songId){scene=null;status='No song is open in Chord Buddy.';return;}
     setKeySpelling(m.key||'');
-    const base={content:m.content,music:m.music,title:m.title,key:m.key};
+    const base={content:m.content,music:m.music,title:m.title,key:m.key,lyricGuess:!!m.lyricGuess};
     scene=buildScene(base);status='';
     const midi={};
     await Promise.all((m.midiDocs||[]).map(async doc=>{
@@ -81,6 +81,16 @@ function drawDiagnostic(g,frame,w,h,status,fps){
     g.font='500 14px system-ui';g.fillStyle='#9aa0b4';
     g.fillText('then '+chord.upcoming.slice(1).map(c=>c.label).join('  '),cx,top+Math.min(w,h)*0.11);
   }
+  // the lyric line being sung: words already sung, the word now, words still to come; the next line below it
+  const lyric=frame.lyric,ly=top+Math.min(w,h)*0.17;
+  if(lyric.line){
+    g.font=`600 ${Math.round(Math.min(w,h)*0.04)}px system-ui`;
+    const widths=lyric.words.map(x=>g.measureText(x.text+' ').width),total=widths.reduce((a,b)=>a+b,0);let x=cx-total/2;
+    g.textAlign='left';
+    lyric.words.forEach((word,i)=>{g.fillStyle=word.state==='now'?'#ffe066':word.state==='sung'?'#e9e6dc':'#5d6275';g.fillText(word.text,x,ly);x+=widths[i];});
+    g.textAlign='center';
+  }
+  if(lyric.next){g.font=`500 ${Math.round(Math.min(w,h)*0.026)}px system-ui`;g.fillStyle='#5d6275';g.fillText(lyric.next.text,cx,ly+Math.min(w,h)*0.055);}
   // beat dots and section
   if(beat.bar!==null){
     const n=beat.beats,size=14,gap=26,x0=cx-(n-1)*gap/2,y=h*0.12;
@@ -101,10 +111,10 @@ function drawDiagnostic(g,frame,w,h,status,fps){
   // MIDI: active notes of each melody, by pitch
   let row=0;
   for(const [name,notes] of Object.entries(frame.notes)){
-    const y=h*0.52+row*22;row++;
-    g.font='600 12px system-ui';g.textAlign='right';g.fillStyle='#9aa0b4';g.fillText(name,w*0.2,y);g.textAlign='center';
+    const y=28+row*20;row++;                                             // top left, out of the way
+    g.font='600 12px system-ui';g.textAlign='right';g.fillStyle='#9aa0b4';g.fillText(name,84,y);g.textAlign='center';
     const span=Math.max(12,(notes.high??72)-(notes.low??48));
-    for(const n of notes.active){const x=w*0.22+(n.pitch-(notes.low??48))/span*w*0.56;g.fillStyle='#ff5d8f';g.globalAlpha=1-0.6*n.progress;g.beginPath();g.arc(x,y,6,0,Math.PI*2);g.fill();g.globalAlpha=1;}
+    for(const n of notes.active){const x=96+(n.pitch-(notes.low??48))/span*w*0.22;g.fillStyle='#ff5d8f';g.globalAlpha=1-0.6*n.progress;g.beginPath();g.arc(x,y,6,0,Math.PI*2);g.fill();g.globalAlpha=1;}
   }
   g.font='500 12px ui-monospace,monospace';g.textAlign='left';g.fillStyle='#6b7085';
   g.fillText(`${fmt(frame.time)}  ${frame.playing?'playing':'paused'}  ${Math.round(frame.rate*100)}%  ${Math.round(fps)} fps${status?'  · '+status:''}`,12,h-14);
