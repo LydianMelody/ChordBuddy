@@ -12,6 +12,7 @@ import {SceneClock} from './visual-clock.js';
 import {buildScene,sampleFrame,withFeatures} from './visual-scene.js';
 import {setKeySpelling} from './spelling.js';
 import {hudZones,drawChordHud,drawLyricHud} from './visual-hud.js';
+import {mountMixerDrawer} from './visual-mixer.js';
 import cozy from './scene-cozy.js';
 import runner from './scene-runner.js';
 import abstract from './scene-abstract.js';
@@ -56,7 +57,7 @@ export function frameEvents(previous,frame,song){
 export function mountVisualizer(container){
   const canvas=document.createElement('canvas');canvas.className='visualizer-canvas';container.append(canvas);
   const g=canvas.getContext('2d'),clock=new SceneClock(),settings=loadSettings();
-  let song=null,songKey=null,mix=null,status='Waiting for Chord Buddy… start playback in the main window.',raf=0,disposed=false;
+  let mixer=null,song=null,songKey=null,mix=null,status='Waiting for Chord Buddy… start playback in the main window.',raf=0,disposed=false;
   let frames=0,fpsAt=performance.now(),fps=0,lastWall=null,previous=null,active=null,activeId=null,size=[0,0];
 
   // ---- the song ----
@@ -81,7 +82,7 @@ export function mountVisualizer(container){
   }
   const receiver=createVisualReceiver({
     onScene:m=>{loadSong(m).catch(()=>{status='Could not load this song.';});},
-    onClock:m=>{clock.report(m,m.at);mix=m.mix;},
+    onClock:m=>{clock.report(m,m.at);mix=m.mix;mixer?.setMix(m.mix);},
   });
 
   // ---- the controls: scene, lyrics, calm; they hide when the mouse rests ----
@@ -90,11 +91,16 @@ export function mountVisualizer(container){
   const sceneButtons=SCENES.map((s,i)=>button(s.name,`${s.name} (${i+1})`,()=>choose(s.id)));
   const lyricsButton=button('Lyrics','Show the lyrics (L)',()=>set({lyrics:!settings.lyrics}));
   const calmButton=button('Calm','Calm: no shaking or flashes (C)',()=>set({calm:!settings.calm}));
+  const mixerButton=button('Mixer','Slide out the mixer (M)',()=>toggleMixer());
   const group=document.createElement('div');group.className='visualizer-scenes';group.append(...sceneButtons);
-  toolbar.append(group,lyricsButton,calmButton);container.append(toolbar);
+  toolbar.append(group,lyricsButton,calmButton,mixerButton);container.append(toolbar);
+  mixer=mountMixerDrawer(container,{send:value=>receiver.setMix(value)});
+  if(mix)mixer.setMix(mix);
+  function toggleMixer(value){mixer.toggle(value);mixerButton.setAttribute('aria-pressed',String(mixer.open));}
   function paintControls(){
     SCENES.forEach((s,i)=>sceneButtons[i].setAttribute('aria-pressed',String(s.id===settings.scene)));
     lyricsButton.setAttribute('aria-pressed',String(settings.lyrics));calmButton.setAttribute('aria-pressed',String(settings.calm));
+    mixerButton.setAttribute('aria-pressed',String(!!mixer?.open));
   }
   function set(change){Object.assign(settings,change);saveSettings(settings);paintControls();}
   function choose(id){if(SCENES.some(s=>s.id===id))set({scene:id});}
@@ -110,6 +116,7 @@ export function mountVisualizer(container){
     else if(event.key==='l'||event.key==='L')set({lyrics:!settings.lyrics});
     else if(event.key==='c'||event.key==='C')set({calm:!settings.calm});
     else if(event.key==='p'||event.key==='P')set({fps:!settings.fps});       // frame rate readout, to check smoothness
+    else if(event.key==='m'||event.key==='M')toggleMixer();
     else return;
     event.preventDefault();event.stopPropagation();wake();       // over the main page, its own shortcuts must not fire too
   };
@@ -139,7 +146,7 @@ export function mountVisualizer(container){
     const definition=SCENES.find(s=>s.id===settings.scene)||SCENES[0],scene=sceneFor(definition.id);
     const env={w,h,dt,wall:now/1000,calm:settings.calm,lyrics:settings.lyrics,zones:hudZones(w,h,settings.lyrics),song,
       events:frameEvents(previous,frame,song),status,fps};
-    previous=frame;
+    previous=frame;if(frames%3===0)mixer.setLevels(frame);
     g.save();scene.draw(g,frame,env);g.restore();
     if(definition.hud!==false){
       g.save();drawChordHud(g,frame,w,h,{calm:settings.calm});g.restore();
@@ -151,7 +158,7 @@ export function mountVisualizer(container){
   raf=requestAnimationFrame(draw);
   return {
     toolbar,
-    dispose(){disposed=true;cancelAnimationFrame(raf);clearTimeout(idleTimer);receiver.dispose();active?.dispose?.();
+    dispose(){disposed=true;cancelAnimationFrame(raf);clearTimeout(idleTimer);receiver.dispose();active?.dispose?.();mixer.dispose();
       container.ownerDocument.removeEventListener('keydown',keys,true);container.removeEventListener('pointermove',wake);canvas.remove();toolbar.remove();},
   };
 }

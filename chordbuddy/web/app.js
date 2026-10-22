@@ -26,7 +26,7 @@ import {setKeySpelling,spellChord,spellAbc} from './spelling.js';
 import {onsetsFromNotes} from './word-layout.js';
 import {mountModelsPanel,mountChordModelPanel} from './models-view.js';
 import {mountDeskBars,combinedZoom} from './desk-bars.js';
-import {createVisualPublisher} from './visual-bridge.js';
+import {createVisualPublisher,desktopWindow} from './visual-bridge.js';
 import {mountVisualizer} from './visualizer-view.js';
 
 const $ = id => document.getElementById(id);
@@ -195,7 +195,8 @@ async function reloadPracticeChart(){
 
 transport.subscribe(()=>{if(model.detail)updatePlayback();renderLock();});
 // ---- Visualizer: a pop-out window or this page in full screen, following the player over the visual bridge (visual-bridge.js). ----
-const visuals=createVisualPublisher({onListen:()=>publishVisualScene()});
+const visuals=createVisualPublisher({onListen:()=>publishVisualScene(),
+  onMix:mix=>{try{transport.setMix(mix);}catch(error){showError(error);}}});        // a visualizer's mixer drawer (the transport checks it)
 function publishVisualScene(){
   const song=currentSong(),record=chartRecord();
   if(!song||!model.detail){visuals.scene(null);return;}
@@ -206,21 +207,26 @@ function publishVisualScene(){
 }
 transport.subscribe(snapshot=>{visuals.clock(snapshot);if(visuals.listening)publishVisualScene();});
 // Opening must happen straight from the click (browsers only allow pop-ups and full screen then); the song follows a moment later.
+// In the desktop app the page cannot open windows or go full screen itself (WebView2), so it asks the app (desktopWindow()).
 function openVisualizer(fullScreen){
   $('more-menu').open=false;
+  const desktop=desktopWindow();
   if(fullScreen){
     const overlay=document.createElement('div');overlay.className='visualizer-overlay';document.body.append(overlay);
     const view=mountVisualizer(overlay),button=document.createElement('button');
     button.type='button';button.textContent='Close';button.title='Close the visualizer (Esc)';view.toolbar.append(button);
-    let entered=false;
+    let entered=false,closed=false;
     // Esc leaves full screen first (the browser does that); leaving it, Esc or Close removes the view
-    const close=()=>{document.removeEventListener('fullscreenchange',changed);document.removeEventListener('keydown',key);view.dispose();overlay.remove();
-      if(document.fullscreenElement===overlay)document.exitFullscreen().catch(()=>{});};
+    const close=()=>{if(closed)return;closed=true;document.removeEventListener('fullscreenchange',changed);document.removeEventListener('keydown',key);view.dispose();overlay.remove();
+      if(document.fullscreenElement===overlay)document.exitFullscreen().catch(()=>{});
+      if(desktop)desktop.is_fullscreen().then(on=>{if(on)desktop.toggle_fullscreen();}).catch(()=>{});};
     const changed=()=>{if(document.fullscreenElement===overlay)entered=true;else if(entered)close();};
     const key=event=>{if(event.key==='Escape'&&document.fullscreenElement!==overlay){event.preventDefault();close();}};
     document.addEventListener('fullscreenchange',changed);document.addEventListener('keydown',key);button.onclick=close;
-    overlay.requestFullscreen().catch(()=>{});            // without full screen it still fills the window, with Close and Esc
-  }else window.open('/visualizer.html','chordbuddy-visualizer','popup,width=1280,height=720');
+    if(desktop)desktop.is_fullscreen().then(on=>{if(!on&&!closed)desktop.toggle_fullscreen();}).catch(()=>{});   // the whole window, edge to edge
+    else overlay.requestFullscreen().catch(()=>{});      // without full screen it still fills the window, with Close and Esc
+  }else if(desktop)desktop.open_visualizer().catch(showError);
+  else window.open('/visualizer.html','chordbuddy-visualizer','popup,width=1280,height=720');
   loadChartRecord().then(publishVisualScene).catch(showError);
 }
 $('visualizer-window').onclick=()=>openVisualizer(false);

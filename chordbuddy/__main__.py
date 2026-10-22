@@ -92,6 +92,46 @@ class NativeCloseGuard:
         self._show_error('Your edits could not finish saving. '+detail+' Keep this window open and retry the failed save before closing.')
 
 
+class WindowApi:
+    """What a page in the desktop app can ask of its own window (as window.pywebview.api): the web page cannot open a second
+    window or make its window full screen inside WebView2 by itself. One instance per window. Names starting with _ stay private."""
+    def __init__(self,base_url):
+        self._base=base_url
+        self._window=None
+        self._fullscreen=False
+        self._visualizer=None
+
+    def toggle_fullscreen(self):
+        if self._window is None:
+            return False
+        self._window.toggle_fullscreen()
+        self._fullscreen=not self._fullscreen
+        return self._fullscreen
+
+    def is_fullscreen(self):
+        return self._fullscreen
+
+    def open_visualizer(self):
+        import webview
+        if self._visualizer is not None:
+            try:
+                self._visualizer.show()
+                return True
+            except Exception:
+                self._visualizer=None
+        api=WindowApi(self._base)
+        window=webview.create_window('Chord Buddy Visualizer',self._base+'/visualizer.html',width=1280,height=720,min_size=(480,300),
+                                     background_color='#0d0e14',js_api=api)
+        api._window=window
+        self._visualizer=window
+
+        def closed(*args):
+            if self._visualizer is window:
+                self._visualizer=None
+        window.events.closed+=closed
+        return True
+
+
 def main():
     parser=argparse.ArgumentParser(description='Chord Buddy music transcription workspace')
     parser.add_argument('--library',type=Path,default=Path(os.environ.get('USERPROFILE',str(Path.home())))/'Music'/'ChordBuddy')
@@ -121,7 +161,17 @@ def main():
             thread.join()
         else:
             import webview
-            window=webview.create_window('Chord Buddy',url,width=1320,height=880,min_size=(960,650),background_color='#f6f3eb')
+            api=WindowApi(f'http://127.0.0.1:{server.server_port}')
+            window=webview.create_window('Chord Buddy',url,width=1320,height=880,min_size=(960,650),background_color='#f6f3eb',js_api=api)
+            api._window=window
+
+            def close_visualizer(*args):                      # the visualizer cannot outlive the player it follows
+                if api._visualizer is not None:
+                    try:
+                        api._visualizer.destroy()
+                    except Exception:
+                        pass
+            window.events.closed+=close_visualizer
             close_guard=NativeCloseGuard(window)
             window.events.loaded += close_guard.on_loaded
             window.events.closing += close_guard.on_closing

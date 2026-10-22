@@ -81,7 +81,7 @@ export function drawLyricHud(g,frame,w,h){
   }
   if(lyric.next&&(!lyric.line||lyric.line.end-frame.time<4)){
     g.textAlign='center';
-    const next=lyric.next.text.replace(/(\S)-\s+(?=\S)/g,'$1');                // syllables rejoined, as above
+    const next=lyric.next.text.replace(/(\S)-\s*(?=\S)/g,'$1');                // syllables rejoined, as above
     const size=fitFont(g,next,u*0.03,max,u*0.018,600);
     shaded(g,()=>{g.font=`600 ${size}px system-ui,sans-serif`;g.fillStyle='rgba(244,241,232,.5)';halo(g,next,w/2,lyric.line?Math.min(h-size*0.7,nextY):lineY);});
   }

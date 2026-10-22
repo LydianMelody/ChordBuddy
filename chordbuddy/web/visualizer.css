@@ -15,3 +15,27 @@
 .visualizer-toolbar button{text-align:left}
 /* the main page's full-screen view */
 .visualizer-overlay{position:fixed;inset:0;z-index:1000;background:#0d0e14}
+/* the slide-out mixer, from the right edge */
+.visualizer-mixer{position:absolute;top:12px;right:12px;bottom:12px;z-index:3;width:min(330px,calc(100% - 24px));display:flex;flex-direction:column;gap:10px;
+  padding:12px 14px;border-radius:14px;background:rgba(18,20,28,.86);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(8px);color:#e9e6dc;
+  font:600 12px system-ui;overflow:auto;transform:translateX(calc(100% + 24px));transition:transform .25s ease;cursor:auto}
+.visualizer-mixer.open{transform:none}
+.vm-head{display:flex;align-items:center;justify-content:space-between;font-size:14px}
+.vm-close{width:28px;height:28px;border:0;border-radius:999px;background:rgba(255,255,255,.08);color:inherit;font-size:18px;line-height:1;cursor:pointer}
+.vm-presets{display:flex;flex-wrap:wrap;gap:6px}
+.vm-presets button,.vm-mute,.vm-solo{border:0;border-radius:999px;background:rgba(255,255,255,.08);color:inherit;font:600 12px system-ui;cursor:pointer}
+.vm-presets button{padding:5px 10px}
+.vm-presets button[aria-pressed="true"]{background:#f4f1e8;color:#14151c}
+.vm-rows{display:flex;flex-direction:column;gap:8px}
+.vm-row{display:grid;grid-template-columns:70px 26px 26px 1fr;grid-template-rows:auto 3px;column-gap:6px;align-items:center}
+.vm-row.quiet{opacity:.45}
+.vm-mute,.vm-solo{width:26px;height:24px;padding:0}
+.vm-mute[aria-pressed="true"]{background:#ff6b6b;color:#14151c}
+.vm-solo[aria-pressed="true"]{background:#ffd43b;color:#14151c}
+.vm-fader{width:100%;accent-color:#f4f1e8}
+.vm-meter{grid-column:4;height:3px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden}
+.vm-meter i{display:block;height:100%;width:0;background:#7ee2a8;transition:width .1s linear}
+.vm-master{display:grid;grid-template-columns:70px 1fr;align-items:center;column-gap:6px;padding-top:8px;border-top:1px solid rgba(255,255,255,.12)}
+.vm-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vm-note{margin:0;color:#9aa0b4;font-weight:500}
+.visualizer-mixer button:focus-visible,.vm-fader:focus-visible{outline:2px solid #ffe27a;outline-offset:2px}

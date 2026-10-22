@@ -164,3 +164,12 @@ test('frame events report new hits and beats while playing, and nothing across a
   assert.ok(frameEvents(at(4.9),at(5.05),song).chordChanged);
   assert.deepEqual(frameEvents(at(2),at(2),song).hits,{});                // paused
 });
+
+test('a visualizer\'s mixer drawer changes the player\'s mix over the bridge', () => {
+  const open=fakeChannels(),mixes=[];
+  createVisualPublisher({open,onMix:mix=>mixes.push(mix)});
+  const receiver=createVisualReceiver({open,onScene:()=>{},onClock:()=>{}});
+  const mix={gains:[1,1,1,.5,1,1,1],mutes:Array(7).fill(false),solos:Array(7).fill(false),master:.8};
+  receiver.setMix(mix);
+  assert.deepEqual(mixes,[mix]);
+});

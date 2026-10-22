@@ -3,8 +3,16 @@
 //   hello  (visualizer -> player)  "I just opened": the player answers with the scene and the clock
 //   scene  (player -> visualizers) the song: its chart, MIDI document ids, the separation run for stem features, and the API token
 //   clock  (player -> visualizers) position, play state, speed, loop and mixer, stamped with the moment it was true
+//   mix    (visualizer -> player)  a new mixer setting from a visualizer's own mixer drawer: {gains, mutes, solos, master}
 // Clock stamps are epoch milliseconds (performance.timeOrigin + performance.now()), so each window converts them to its own clock.
 export const CHANNEL='chordbuddy-visuals';
+
+// The desktop app's own window controls (pywebview), or null in a browser: {toggle_fullscreen, is_fullscreen, open_visualizer}, each
+// returning a Promise. A browser uses the page's own full screen and window.open instead.
+export function desktopWindow(){
+  const api=typeof window!=='undefined'?window.pywebview?.api:null;
+  return api&&typeof api.toggle_fullscreen==='function'?api:null;
+}
 const epoch=()=>performance.timeOrigin+performance.now();
 
 // The subset of the player's state a visualizer needs. snapshot: the transport's getSnapshot(); rate there is a percentage.
@@ -15,12 +23,14 @@ export function clockMessage(snapshot,at=epoch()){
 
 /**
  * On the main page. open(): () => BroadcastChannel-like. onListen(): called when a visualizer opens, before it is answered, so the page can
- * publish a fresh scene (nothing is published while nobody listens). Returns {clock(snapshot), scene(value), dispose()}; scene(null) clears it.
+ * publish a fresh scene (nothing is published while nobody listens). onMix(mix): a visualizer changed the mix (the page applies and
+ * validates it). Returns {clock(snapshot), scene(value), dispose()}; scene(null) clears it.
  */
-export function createVisualPublisher({open=()=>new BroadcastChannel(CHANNEL),onListen=()=>{}}={}){
+export function createVisualPublisher({open=()=>new BroadcastChannel(CHANNEL),onListen=()=>{},onMix=()=>{}}={}){
   let lastScene=null,lastClock=null,listening=false;
   const channel=open();
   channel.onmessage=event=>{
+    if(event.data?.type==='mix'&&event.data.mix&&typeof event.data.mix==='object'){onMix(event.data.mix);return;}
     if(event.data?.type!=='hello')return;
     listening=true;
     const before=lastScene;onListen();
@@ -54,5 +64,5 @@ export function createVisualReceiver({onScene,onClock,open=()=>new BroadcastChan
     else if(m?.type==='clock')onClock({...m,at:m.at-performance.timeOrigin});
   };
   channel.postMessage({type:'hello'});
-  return {hello(){channel.postMessage({type:'hello'});},dispose(){channel.close();}};
+  return {hello(){channel.postMessage({type:'hello'});},setMix(mix){channel.postMessage({type:'mix',mix});},dispose(){channel.close();}};
 }
