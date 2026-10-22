@@ -190,3 +190,16 @@ def test_analyze_again_carries_the_choice_about_edits(tmp_path):
     with pytest.raises(ValueError):
         job.start('song', (), True, 'throw away')
     lib.close()
+
+
+def test_the_visualizer_measures_the_recording_when_there_are_no_stems(setup):
+    from chordbuddy import visual_features
+    setup.analyzed()
+    setup.reader.state('s')
+    description = setup.reader.original_run('s')
+    features = visual_features.load_or_compute(description['root'], description['manifest'])
+    assert list(features['tracks']) == ['original'] and features['run_id'] == original_playback.run_id('s')
+    assert features['frames'] == FRAMES * visual_features.FPS // SAMPLE_RATE
+    assert visual_features.load_or_compute(description['root'], description['manifest']) == features   # saved beside the recording
+    with pytest.raises(ValueError):
+        visual_features.load_or_compute(description['root'], dict(description['manifest'], assets=[dict(description['asset'], role='vocals')]))

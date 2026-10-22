@@ -96,11 +96,11 @@ export function mountVisualizer(container){
     }));
     if(songKey!==key||disposed)return;
     song=buildScene({...base,midi});previous=null;
-    if(!m.runId){status='Split the stems to let each instrument move the scene.';return;}
+    if(!m.runId)return;                                // not playable yet: chords, lyrics and MIDI only
     try{
       const features=await getJson('/api/visual-features/'+encodeURIComponent(m.runId),m.token);
       if(songKey===key&&!disposed){song=withFeatures(song,features);previous=null;}
-    }catch{if(songKey===key)status='Stem data is not available for this song yet.';}
+    }catch{if(songKey===key)status='Sound data is not available for this song yet.';}
   }
   const receiver=createVisualReceiver({
     onScene:m=>{loadSong(m).catch(()=>{status='Could not load this song.';});},

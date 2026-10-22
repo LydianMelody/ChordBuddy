@@ -78,6 +78,25 @@ test('stem values follow the mixer: muted and un-soloed stems go quiet, a fader 
   assert.deepEqual(STEM_ORDER.map(r=>solo[r]>0),[false,false,false,false,true,false,false]);
 });
 
+test('without split stems, every stem is stood in for by its part of the whole mix and follows the master level only', () => {
+  const frames=200,bands=[];for(let i=0;i<frames;i++)bands.push(240,240,60,60,60,60,60,60);   // a bass-heavy mix
+  const mix={level:b64(Array(frames).fill(230)),bands:b64(bands),brightness:b64(Array(frames).fill(40)),flux:b64(Array(frames).fill(9)),hits:[[1,1]],peak_db:-3};
+  const scene=withFeatures(buildScene({content,music}),{fps:100,frames,floor_db:-60,band_edges_hz:[],tracks:{original:mix}});
+  const muted={gains:Array(7).fill(1),mutes:Array(7).fill(true),solos:Array(7).fill(false),master:1};
+  const f=sampleFrame(scene,1.05,{mix:muted});
+  assert.equal(f.stems,false);
+  assert.deepEqual(Object.keys(f.tracks).sort(),['original',...STEM_ORDER].sort());
+  assert.ok(f.tracks.bass.level>.85&&f.tracks.bass.level<=230/255);       // nearly all of the mix is bass
+  assert.ok(f.tracks.vocals.level<f.tracks.bass.level-.2);               // little sits in the vocal range
+  assert.ok(f.tracks.vocals.bands[0]<f.tracks.bass.bands[0]);            // outside its range, turned down
+  assert.ok(f.tracks.drums.pulse>0&&f.tracks.drums.level>0);             // stem mutes do nothing: the recording is what plays
+  assert.equal(sampleFrame(scene,1.05,{mix:{...muted,master:0}}).tracks.drums.level,0);
+  const split=withFeatures(buildScene({content,music}),featuresFor(1600));
+  assert.equal(sampleFrame(split,1).stems,true);
+  assert.equal(sampleFrame(buildScene({content,music}),1).stems,false);   // still loading: no tracks at all
+  assert.deepEqual(sampleFrame(buildScene({content,music}),1).tracks,{});
+});
+
 // ---- bridge ----
 function fakeChannels(){
   const all=[];

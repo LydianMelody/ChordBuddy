@@ -430,7 +430,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header('X-Stem-'+name,str(value))
             self.end_headers();self.wfile.write(payload);return
         if path.startswith('/api/visual-features/'):
-            root,manifest=self.app.separation_store.get_published_run(path.removeprefix('/api/visual-features/'))
+            run_id=path.removeprefix('/api/visual-features/')
+            if original_playback.song_of(run_id):
+                description=self.app.playback.original_run(original_playback.song_of(run_id));root,manifest=description['root'],description['manifest']
+            else:
+                root,manifest=self.app.separation_store.get_published_run(run_id)
             return self._json(visual_features.load_or_compute(root,manifest))
         if path.startswith('/api/playback/'):
             return self._json(self.app.playback_state(path.removeprefix('/api/playback/')))

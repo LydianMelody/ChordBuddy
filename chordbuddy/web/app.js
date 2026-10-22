@@ -200,7 +200,8 @@ const visuals=createVisualPublisher({onListen:()=>publishVisualScene(),
 function publishVisualScene(){
   const song=currentSong(),record=chartRecord();
   if(!song||!model.detail){visuals.scene(null);return;}
-  visuals.scene({songId:song.id,title:song.title,key:songKey().label,runId:separationDetail?.active?.run_id||null,token,
+  const playing=transport.getSnapshot();                          // without split stems, the recording it plays (orig-…) gives the sound data
+  visuals.scene({songId:song.id,title:song.title,key:songKey().label,runId:separationDetail?.active?.run_id||(playing.ready&&playing.sourceRunId)||null,token,
     lyricGuess:prefs.get('cb-suggest','1')!=='0',                  // the chart's "guess from melody" setting, so words land where the chart puts them
     revision:record?`${record.doc.revision}:${record.version}`:null,content:record?.draft||record?.doc.content||null,music:record?.doc.music||null,
     midiDocs:(model.detail.documents||[]).filter(doc=>doc.kind==='midi').map(doc=>({id:doc.id,name:doc.name}))});

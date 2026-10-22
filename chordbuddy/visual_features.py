@@ -114,8 +114,10 @@ def compute(root, manifest):
 
 
 def load_or_compute(root, manifest):
-    """The saved features for this run, worked out first if they are missing or were made from other audio or an older version."""
-    if [a['role'] for a in manifest['assets']] != list(TRACKS):
+    """The saved features for this run, worked out first if they are missing or were made from other audio or an older version.
+    A song played without split stems (original_playback.py) has only its recording: just `original` is measured, and the
+    visualizer stands in for the stems from it."""
+    if [a['role'] for a in manifest['assets']] not in (list(TRACKS), ['original']):
         raise ValueError('Invalid playback roles')
     path = Path(root) / CACHE_NAME
     with _locks_guard:

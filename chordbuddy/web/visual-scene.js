@@ -30,7 +30,29 @@ function features(raw){
     tracks[role]={level:decode(track.level),bands:decode(track.bands),brightness:decode(track.brightness),flux:decode(track.flux),
       hits:(track.hits||[]).map(([time,strength])=>({start:time,strength})),peakDb:track.peak_db};
   }
-  return {fps:raw.fps,frames:raw.frames,floorDb:raw.floor_db,bandEdges:raw.band_edges_hz,tracks};
+  const standIn=!STEM_ORDER.some(role=>tracks[role])&&!!tracks.original;
+  if(standIn)for(const role of STEM_ORDER)tracks[role]=standInTrack(tracks.original,STAND_IN_BANDS[role]);
+  return {fps:raw.fps,frames:raw.frames,floorDb:raw.floor_db,bandEdges:raw.band_edges_hz,tracks,standIn};
+}
+
+// A song whose stems were never split has only the whole mix, so each stem is stood in for by the part of the mix where that
+// instrument usually sits (bands: 30-80, 80-180, 180-400, 400-900, 900-2k, 2k-4.5k, 4.5k-10k, 10k-18k Hz). Visuals read them exactly
+// like real stems; `frame.stems` is false for anyone who wants to tell. They are rough: "vocals" also moves with guitars in that range.
+const STAND_IN_BANDS={bass:[0,1],drums:[0,6,7],other:[2,3,4,5,6],vocals:[3,4,5],piano:[3,4],lead:[4,5,6],rhythm:[2,3]};
+const OUTSIDE=Math.round(18/60*255);            // bands outside the instrument's range are turned down 18 dB
+function standInTrack(mix,chosen){
+  const frames=mix.level.length,level=new Uint8Array(frames),bands=new Uint8Array(mix.bands.length);
+  const power=byte=>10**((byte/255*60-60)/10);
+  for(let i=0;i<frames;i++){
+    let all=0,part=0;
+    for(let b=0;b<BAND_COUNT;b++){
+      const byte=mix.bands[i*BAND_COUNT+b],p=power(byte),inside=chosen.includes(b);all+=p;if(inside)part+=p;
+      bands[i*BAND_COUNT+b]=inside?byte:Math.max(0,byte-OUTSIDE);
+    }
+    // the mix's loudness, less the share of it outside these bands (same -60..0 dB scale)
+    level[i]=Math.max(0,Math.min(255,Math.round(mix.level[i]+10*Math.log10(part/all)/60*255)));
+  }
+  return {level,bands,brightness:mix.brightness,flux:mix.flux,hits:mix.hits,peakDb:mix.peakDb};
 }
 function midiTracks(midi){
   const out={};
@@ -87,8 +109,8 @@ export function withFeatures(scene,raw){const f=features(raw);return {...scene,f
 
 // The MIDI the model writes has no dynamics (every velocity is 100), so each note's `strength` (0..1) is measured instead: how loud its
 // own stem is as the note starts (the vocal melody from the vocals stem; instrumental notes from the loudest of the other pitched stems),
-// spread over that track's own range so its quiet notes are near 0 and its loud ones near 1. Until stem data is loaded, and for songs
-// without stems, every strength is 1. `velocity` is kept as the file has it.
+// spread over that track's own range so its quiet notes are near 0 and its loud ones near 1 (from the stand-ins when the stems
+// were never split). Until the sound data is loaded, every strength is 1. `velocity` is kept as the file has it.
 const STRENGTH_SOURCES={vocal:['vocals'],instrumental:['lead','piano','other','rhythm','bass']};
 export function noteStrengths(midi,f){
   if(!f)return midi;
@@ -172,9 +194,11 @@ export function sampleFrame(scene,t,{playing=false,rate=1,mix=null}={}){
     chord:chordAt(scene.chords,time),beat:beatAt(scene.bars,time),section:sectionAt(scene.sections,time),
     lyric:lyricAt(scene.lyrics||{lines:[],unplaced:0},time),tracks:{},notes:{}};
   const f=scene.features;
+  frame.stems=!!f&&!f.standIn;
   if(f){
     const index=Math.max(0,Math.min(f.frames-1,Math.round(time*f.fps))),gains=mixGains(mix);
-    for(const [role,feature] of Object.entries(f.tracks))frame.tracks[role]=trackAt(feature,index,time,gains[role]??1);
+    // without split stems only the recording plays, so the stand-ins follow its level, not the stem channels
+    for(const [role,feature] of Object.entries(f.tracks))frame.tracks[role]=trackAt(feature,index,time,(f.standIn?gains.original:gains[role])??1);
   }
   for(const [name,track] of Object.entries(scene.midi))frame.notes[name]=notesAt(track,time);
   return frame;
