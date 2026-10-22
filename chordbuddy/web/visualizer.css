@@ -2,10 +2,16 @@
 .visualizer-page{margin:0;height:100vh;overflow:hidden;background:#0d0e14}
 .visualizer-stage{position:relative;width:100%;height:100%;overflow:hidden;background:#0d0e14}
 .visualizer-canvas{display:block;width:100%;height:100%}
-.visualizer-button{position:fixed;top:12px;right:12px;z-index:2;padding:6px 12px;border:1px solid #3a3e4f;border-radius:999px;background:#1b1d27;color:#e9e6dc;font:600 12px system-ui;cursor:pointer;opacity:.6;transition:opacity .2s}
-.visualizer-button:hover,.visualizer-button:focus-visible{opacity:1}
-:fullscreen .visualizer-button{opacity:0}
-:fullscreen .visualizer-button:hover{opacity:.8}
+.visualizer-stage.idle,.visualizer-overlay.idle{cursor:none}
+/* the controls: scenes, lyrics, calm (and full screen or close); they fade when the mouse rests */
+/* a slim column at the top left, clear of the chord (top centre) and the lyrics (bottom) */
+.visualizer-toolbar{position:absolute;top:12px;left:12px;z-index:2;display:flex;flex-direction:column;gap:4px;align-items:stretch;padding:6px;
+  border-radius:14px;background:rgba(18,20,28,.72);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(6px);transition:opacity .4s}
+.visualizer-toolbar.idle{opacity:0;pointer-events:none}
+.visualizer-toolbar button,.visualizer-scenes button{padding:6px 12px;border:0;border-radius:999px;background:transparent;color:#d8d5cc;font:600 12px system-ui;cursor:pointer}
+.visualizer-toolbar button:hover{background:rgba(255,255,255,.1)}
+.visualizer-toolbar button[aria-pressed="true"]{background:#f4f1e8;color:#14151c}
+.visualizer-scenes{display:flex;flex-direction:column;gap:2px;padding-bottom:6px;margin-bottom:2px;border-bottom:1px solid rgba(255,255,255,.14)}
+.visualizer-toolbar button{text-align:left}
 /* the main page's full-screen view */
 .visualizer-overlay{position:fixed;inset:0;z-index:1000;background:#0d0e14}
-.visualizer-overlay .visualizer-button{position:absolute}

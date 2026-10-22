@@ -138,7 +138,7 @@ function trackAt(feature,frame,t,gain){
   const bands=new Array(BAND_COUNT);for(let b=0;b<BAND_COUNT;b++)bands[b]=gain>0?scaled(feature.bands[frame*BAND_COUNT+b]):0;
   const h=lastStartingBy(feature.hits,t),hit=h>=0?feature.hits[h]:null,since=hit?t-hit.start:Infinity;
   return {level:gain>0?scaled(feature.level[frame]):0,bands,brightness:feature.brightness[frame]/255,flux:gain>0?feature.flux[frame]/255:0,
-    sinceHit:since,hit:hit?hit.strength:0,pulse:hit&&gain>0?hit.strength*Math.exp(-since/0.12):0,gain};
+    sinceHit:since,hit:hit?hit.strength:0,hitIndex:h,pulse:hit&&gain>0?hit.strength*Math.exp(-since/0.12):0,gain};
 }
 
 /** Everything a visual needs for one moment. t: song seconds; state: {playing, rate (1 = normal), mix (the transport's mix)}. */

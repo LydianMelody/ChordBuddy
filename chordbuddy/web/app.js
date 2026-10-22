@@ -211,7 +211,7 @@ function openVisualizer(fullScreen){
   if(fullScreen){
     const overlay=document.createElement('div');overlay.className='visualizer-overlay';document.body.append(overlay);
     const view=mountVisualizer(overlay),button=document.createElement('button');
-    button.type='button';button.className='visualizer-button';button.textContent='Close';button.title='Close the visualizer (Esc)';overlay.append(button);
+    button.type='button';button.textContent='Close';button.title='Close the visualizer (Esc)';view.toolbar.append(button);
     let entered=false;
     // Esc leaves full screen first (the browser does that); leaving it, Esc or Close removes the view
     const close=()=>{document.removeEventListener('fullscreenchange',changed);document.removeEventListener('keydown',key);view.dispose();overlay.remove();

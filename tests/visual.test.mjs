@@ -141,3 +141,26 @@ test('a chord held over a barline counts as one chord, so the next chord is alwa
   const f=sampleFrame(buildScene({content:held,music}),3);
   assert.equal(f.chord.label,'C');assert.equal(f.chord.end,9);assert.equal(f.chord.next.label,'F');assert.equal(f.chord.progress,.25);
 });
+
+// ---- scenes' shared pieces ----
+import {chordColor} from '../chordbuddy/web/visual-color.js';
+import {frameEvents} from '../chordbuddy/web/visualizer-view.js';
+
+test('chord colours follow the circle of fifths, and minor chords are marked', () => {
+  assert.equal(chordColor('C').hue,0);assert.equal(chordColor('G7').hue,30);assert.equal(chordColor('F').hue,330);
+  assert.equal(chordColor('Gb').root,chordColor('F#maj7').root);
+  assert.ok(chordColor('Am7').minor&&!chordColor('Amaj7').minor&&chordColor('Bdim').minor);
+  assert.equal(chordColor(null).root,null);
+});
+
+test('frame events report new hits and beats while playing, and nothing across a seek', () => {
+  const song=withFeatures(buildScene({content,music}),featuresFor(1600));
+  song.features.tracks.drums.hits=[{start:1,strength:.5},{start:1.01,strength:.9},{start:3,strength:1}];
+  const at=t=>sampleFrame(song,t);
+  const e=frameEvents(at(.99),at(1.02),song);
+  assert.deepEqual(e.hits.drums,[.5,.9]);
+  assert.equal(frameEvents(at(1.5),at(3.2),song).hits.drums,undefined);   // a jump: no burst of skipped hits
+  assert.deepEqual(frameEvents(at(1.9),at(2.05),song).beat,{bar:1,beat:2,downbeat:false});
+  assert.ok(frameEvents(at(4.9),at(5.05),song).chordChanged);
+  assert.deepEqual(frameEvents(at(2),at(2),song).hits,{});                // paused
+});
