@@ -30,6 +30,7 @@ from .rhythm_apply import RhythmService
 from .playback_ready import PlaybackReadiness
 from .filenames import safe_stem
 from . import original_playback
+from .song_transfer import SongTransfer
 
 
 PROJECT=Path(__file__).resolve().parent.parent
@@ -56,6 +57,7 @@ class Application:
         self.playback=PlaybackReadiness(self.analysis.store,self.separation_store)
         self.rhythm=RhythmService(self)
         self.analysis.rhythm_service=self.rhythm
+        self.transfer=SongTransfer(self)
         self.job_lock=threading.Lock()
         self._closed=False
         self.waveform_cache={}
@@ -290,7 +292,7 @@ class Handler(BaseHTTPRequestHandler):
             return False
         if path.startswith('/api/'):
             token=self.headers.get('X-ChordBuddy-Token','')
-            if path.startswith(('/api/audio/','/api/export/','/api/mix-export/','/api/stems-export/','/api/export-midi/','/api/export-outputs/')):
+            if path.startswith(('/api/audio/','/api/export/','/api/mix-export/','/api/stems-export/','/api/export-midi/','/api/export-outputs/','/api/song-export/')):
                 token=token or query.get('token',[''])[0]
             return secrets.compare_digest(token,self.app.token)
         return True
@@ -351,6 +353,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._get(path)
             elif path=='/api/models/import':
                 self._json(self._models_import(query))
+            elif path=='/api/song-import':
+                # A song zip from another computer can be gigabytes: it is streamed to disk, never held in memory.
+                try:size=int(self.headers.get('Content-Length','0'))
+                except ValueError:raise ValueError('Invalid request size')
+                self.connection.settimeout(120)
+                self._json(self.app.transfer.receive(self.rfile.read,size))
             elif path=='/api/import':
                 self._json(self.app.library.import_audio(query.get('filename',[''])[0],self._read(250*1024*1024),query.get('setlist',['default'])[0]))
             else:
@@ -413,6 +421,17 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Connection','close');self.close_connection=True
             self.end_headers()
             export_stems(PROJECT,root,manifest,name,self.wfile.write);return
+        if path.startswith('/api/song-export/'):
+            # The whole song (recording, analysis, edits and, if asked, stems) as one zip named after the song.
+            song_id=path.removeprefix('/api/song-export/');query=parse_qs(urlparse(self.path).query)
+            if self.app._song_busy(song_id):raise RevisionConflict('This song is being analyzed. Wait for it to finish, then export it.')
+            manifest,files,name=self.app.transfer.export_plan(song_id,query.get('stems',['0'])[0]=='1')
+            self.send_response(200)
+            self.send_header('Content-Type','application/zip')
+            self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote(name))
+            self.send_header('Connection','close');self.close_connection=True
+            self.end_headers()
+            self.app.transfer.write_zip(manifest,files,self.wfile.write);return
         if path.startswith('/api/separation-audio/'):
             run_id=path.removeprefix('/api/separation-audio/')
             query=parse_qs(urlparse(self.path).query)
@@ -514,6 +533,13 @@ class Handler(BaseHTTPRequestHandler):
             result=lib.restore_song(body['id'])
         elif path=='/api/song/purge':
             result=self.app.purge_song(body['id'])
+        elif path=='/api/song-export/info':
+            if self.app._song_busy(body['song_id']):raise RevisionConflict('This song is being analyzed. Wait for it to finish, then export it.')
+            result=self.app.transfer.sizes(body['song_id'])
+        elif path=='/api/song-import/apply':
+            result=self.app.transfer.apply(body['token'],body.get('mode'),body.get('analysis',False),body.get('stems',False),body.get('setlist') or 'default',body.get('target'))
+        elif path=='/api/song-import/cancel':
+            result=self.app.transfer.cancel(body['token'])
         elif path=='/api/setlist':
             result=lib.create_setlist(body['name'])
         elif path=='/api/setlist/order':

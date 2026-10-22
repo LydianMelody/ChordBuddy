@@ -108,6 +108,59 @@ export function askSongSetup({title='',artist='',stems=false,stemsHint='',device
   });
 }
 
+// A song zip whose title is already in this library (any recording, any IDs): keep or overwrite its analysis and its stems, or import
+// it as a new song instead, which greys the other choices out. Stems only in the zip are added without asking. matches: the songs here with that title [{id, title, artist, analyzed,
+// stems, same_recording}]; incoming: {analyzed, stems}. Resolves with {mode:'update', target, analysis, stems}, {mode:'new'}, or null.
+export function askSongImport({title,matches,incoming,host=document.body}){
+  return new Promise(resolve=>{
+    const {dialog,actions,close}=shell(host,'Already in your library',['“'+title+'” is already here. Choose what to overwrite with the imported copy. Anything left unticked stays as it is on this computer.']);
+    dialog.classList.add('setup-dialog');
+    let target=matches[0],check=()=>{};
+    const addStems=()=>!!incoming.stems&&!target.stems;
+    if(matches.length>1){
+      // Several songs share the title: pick the one to update.
+      const wrap=el('label','setup-field setup-device'),pick=el('select');pick.id='import-target';
+      const added=match=>{const date=new Date(match.created);return isNaN(date)?'':' · added '+date.toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});};
+      for(const match of matches){const option=el('option','',match.title+added(match));option.value=match.id;pick.append(option);}
+      pick.onchange=()=>{target=matches.find(match=>match.id===pick.value)||matches[0];render();};
+      wrap.append(el('span','','Song to update'),pick);dialog.append(wrap);
+    }
+    const choices=el('div','import-choices');dialog.append(choices);
+    const rows={};
+    const asNew=checkRow({label:'Import as a new song instead',checked:false,id:'import-new',onChange:()=>check(),
+      hint:'Adds it as a separate song and leaves the one here untouched.'});
+    function render(){
+      for(const key of Object.keys(rows))delete rows[key];
+      choices.replaceChildren();
+      if(incoming.analyzed)rows.analysis=checkRow({label:'Overwrite the analysis and edits',checked:true,id:'import-analysis',onChange:()=>check(),
+        hint:target.analyzed?'Use the imported chart, lead sheet, MIDI and edits. The ones on this computer move to Previous transcriptions in the ⋯ menu, so you can bring them back.':'This song isn’t analyzed here yet.'});
+      // Stems on both sides: keep or replace. Only in the zip: they are simply added.
+      if(incoming.stems&&target.stems)rows.stems=checkRow({label:'Overwrite the stems',checked:false,id:'import-stems',onChange:()=>check(),
+        hint:'Use the imported stems. The stems on this computer are deleted (they can always be split again).'});
+      if(!incoming.analyzed&&!incoming.stems)choices.append(el('p','choice-text','The imported copy has no analysis or stems, only the recording.'));
+      choices.append(...Object.values(rows));
+      check();
+    }
+    dialog.append(asNew);
+    let done=false;
+    const finish=value=>{if(done)return;done=true;close();resolve(value);};
+    const cancel=el('button','secondary choice-cancel','Cancel');cancel.type='button';cancel.onclick=()=>finish(null);
+    const go=el('button','btn blue','Import');go.type='button';go.id='import-go';
+    check=()=>{
+      const fresh=asNew.input.checked;
+      for(const row of Object.values(rows)){row.input.disabled=fresh;row.classList.toggle('is-disabled',fresh);}
+      go.disabled=!fresh&&!addStems()&&!Object.values(rows).some(row=>row.input.checked);
+    };
+    go.onclick=()=>{if(go.disabled)return;finish(asNew.input.checked?{mode:'new'}:{mode:'update',target:target.id,analysis:!!rows.analysis?.input.checked,stems:addStems()||!!rows.stems?.input.checked});};
+    render();
+    actions.append(cancel,go);dialog.append(actions);
+    dialog.oncancel=e=>{e?.preventDefault?.();finish(null);};
+    dialog.addEventListener?.('close',()=>finish(null));
+    show(dialog);
+    cancel.focus?.();
+  });
+}
+
 // The Trash: every trashed song with Restore and Delete forever. `items` is read again after each action via getItems().
 export function openTrash({getItems,onRestore,onPurge,host=document.body}){
   const {dialog,actions,close}=shell(host,'Trash',['Deleted songs wait here. Nothing is erased until you choose Delete forever.']);

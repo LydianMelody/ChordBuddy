@@ -61,6 +61,7 @@
             <button type="button" class="text-button" data-export="midi">MIDI · one file, all tracks</button>
             <button type="button" class="text-button" data-export="midi-tracks">MIDI · one file per track (zip)</button>
             <button type="button" class="text-button" data-export="outputs" title="Everything SheetSage wrote for this song: beats, chords, melody, tokens and more">All SheetSage outputs (zip)</button>
+            <button type="button" class="text-button" data-export="song" title="The recording, analysis and every edit in one zip, to import on another computer (or keep as a backup)">Whole song · zip</button>
             <a id="download" class="text-button disabled" title="This view's own file, as Chord Buddy saves it">This view's file</a>
           </div></details>
         </div>
@@ -72,10 +73,10 @@
           </div>
           <button id="scheme-toggle" class="btn sq" type="button" aria-label="Switch between light and dark" data-tip-title="Light or dark" data-tip="Switch between the light and the dark look."><span data-icon="moon"></span></button>
           <button id="model-attribution" class="btn sq" title="Model &amp; attribution" aria-label="Model and attribution"><span data-icon="note"></span></button>
-          <button id="import-button" class="btn hot"><span data-icon="plus"></span><em>Import MP3</em></button>
+          <button id="import-button" class="btn hot" title="Import an MP3, or a song zip exported from Chord Buddy"><span data-icon="plus"></span><em>Import</em></button>
         </div>
         </div>
-        <input id="file-input" type="file" accept=".mp3,audio/mpeg" hidden>
+        <input id="file-input" type="file" accept=".mp3,audio/mpeg,.zip,application/zip" hidden>
       </header>
       <div id="alert" role="alert" class="alert hidden"></div>
       <section id="job-panel" class="job-panel hidden" aria-live="polite"><div class="job-icon">♫</div><div class="job-copy"><strong id="job-title">Preparing transcription</strong><span id="job-message"></span><div class="progress-track"><div id="job-progress"></div></div></div><button id="cancel-job" class="secondary">Cancel</button></section>
@@ -147,6 +148,6 @@
   </div>
   <div id="info-pop" class="info-pop hidden" role="note"></div>
   <div id="key-pop" class="info-pop key-pop hidden"></div>
-  <div id="drop-overlay" class="drop-overlay hidden"><div>↓<h2>Drop your MP3 here</h2><p>Add it to your selected set list.</p></div></div>
+  <div id="drop-overlay" class="drop-overlay hidden"><div>↓<h2>Drop your MP3 here</h2><p>Or a song zip exported from Chord Buddy. It goes in your selected set list.</p></div></div>
 </body>
 </html>

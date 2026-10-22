@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Node,all,installDom} from './compact-dom.mjs';
-import {askChoice,askSongSetup,openTrash,CPU_STEMS_WARNING} from '../chordbuddy/web/dialogs.js';
+import {askChoice,askSongSetup,askSongImport,openTrash,CPU_STEMS_WARNING} from '../chordbuddy/web/dialogs.js';
 
 const has=(n,c)=>n.className.split(' ').includes(c);
 const byClass=(root,c)=>all(root).filter(n=>has(n,c));
@@ -132,4 +132,29 @@ test('a choice dialog can offer one option out of a few, and reports a change of
   assert.equal(radios.length,2);assert.equal(radios[0].checked,true);assert.match(host.textContent,/Kept under Previous transcriptions/);
   radios[1].checked=true;radios[1].onchange();assert.equal(picked,'replace');
   all(host).find(n=>n.dataset?.choice==='go').onclick();assert.equal(await promise,'go');
+});
+
+test('a song zip with a title already here offers to keep or overwrite each part, or to import it as a new song', async () => {
+  const host=setup();
+  const here={id:'s1',title:'Koi no Highway',artist:'',analyzed:true,stems:true,same_recording:true};
+  const first=askSongImport({title:'Koi no Highway',matches:[here],incoming:{analyzed:true,stems:true},host});
+  assert.match(host.textContent,/Overwrite the analysis and edits/);assert.match(host.textContent,/Overwrite the stems/);
+  const box=id=>all(host).find(n=>n.id===id),go=box('import-go');
+  assert.equal(box('import-analysis').checked,true);assert.equal(box('import-stems').checked,false);   // stems already here: kept unless asked
+  box('import-analysis').checked=false;box('import-analysis').onchange();assert.equal(go.disabled,true);  // nothing would change
+  box('import-stems').checked=true;box('import-stems').onchange();assert.equal(go.disabled,false);
+  box('import-new').checked=true;box('import-new').onchange();
+  assert.equal(box('import-stems').disabled,true);assert.equal(box('import-analysis').disabled,true);assert.equal(go.disabled,false);
+  box('import-new').checked=false;box('import-new').onchange();assert.equal(box('import-stems').disabled,false);
+  go.onclick();assert.deepEqual(await first,{mode:'update',target:'s1',analysis:false,stems:true});
+
+  const two=askSongImport({title:'Koi no Highway',matches:[here,{...here,id:'s2',stems:false,same_recording:false}],incoming:{analyzed:true,stems:true},host});
+  const pick=box('import-target');pick.value='s2';pick.onchange();
+  assert.equal(box('import-stems'),undefined);                        // no stems here: the zip's are added without asking
+  assert.doesNotMatch(host.textContent,/recording/);                  // the recordings are never compared in the dialog
+  box('import-analysis').checked=false;box('import-analysis').onchange();assert.equal(box('import-go').disabled,false);
+  box('import-go').onclick();assert.deepEqual(await two,{mode:'update',target:'s2',analysis:false,stems:true});
+
+  const gone=askSongImport({title:'Koi no Highway',matches:[here],incoming:{analyzed:true,stems:false},host});
+  assert.equal(box('import-stems'),undefined);byClass(host,'choice-cancel')[0].onclick();assert.equal(await gone,null);
 });

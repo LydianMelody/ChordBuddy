@@ -17,6 +17,10 @@
 .setup-stems-text small{font:400 11.5px/1.45 var(--m);color:var(--soft)}
 .setup-stems-text small.setup-stems-warn{margin-top:4px;font-weight:700;color:var(--a1t)}
 .setup-stems-warn[hidden]{display:none}
+/* importing a song zip: "Import as a new song" greys out the overwrite choices */
+.setup-stems.is-disabled{opacity:.45;cursor:default}
+.setup-stems.is-disabled input{cursor:default}
+.setup-dialog .setup-device{margin-bottom:6px}
 .setup-dialog .choice-actions .btn:disabled{opacity:.45;cursor:default}
 
 /* the mixer, switched off until the stems exist */

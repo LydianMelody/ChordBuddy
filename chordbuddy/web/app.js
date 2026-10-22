@@ -4,7 +4,7 @@ import {reconcileCompactPreferences} from './compact-chart.js';
 import {installTooltips} from './tooltips.js';
 import {mountChartPage} from './chart-page.js';
 import {ZOOM_LEVELS} from './timing-geometry.js';
-import {askChoice,askSongSetup,openTrash,CPU_STEMS_SLOW,CPU_STEMS_WARNING} from './dialogs.js';
+import {askChoice,askSongSetup,askSongImport,openTrash,CPU_STEMS_SLOW,CPU_STEMS_WARNING} from './dialogs.js';
 import {updateViewport} from './practice-timeline.js';
 import {PlaybackGate} from './playback-ready.js';
 import {analysisUiState,songStatusLabel,analysisErrorMessage,lockStepStates,lockJobFailed} from './analysis-view.js';
@@ -662,12 +662,36 @@ async function setupImportedSong(song){
  await startAnalysis(song.id,[],setup.stems);
 }
 async function importFile(file){
-  if(!file)return;if(!/\.mp3$/i.test(file.name)){showError('Choose an MP3 recording.');return;}if(file.size>250*1024*1024){showError('This recording is larger than the 250 MB import limit.');return;}
+  if(!file)return;if(/\.zip$/i.test(file.name))return importSongZip(file);
+  if(!/\.mp3$/i.test(file.name)){showError('Choose an MP3 recording, or a song zip exported from Chord Buddy.');return;}if(file.size>250*1024*1024){showError('This recording is larger than the 250 MB import limit.');return;}
   if(model.importing)return;model.importing=true;$('import-button').disabled=true;$('import-button').querySelector('em').textContent='Importing…';clearError();
   let added=null;
   try{const bytes=await file.arrayBuffer();const song=await api(`/api/import?filename=${encodeURIComponent(file.name)}&setlist=${encodeURIComponent(model.setlist || '')}`,undefined,{method:'POST',headers:{'Content-Type':'audio/mpeg'},body:bytes});await refreshState();await selectSong(song.id);added=song;}
-  catch(error){showError(error);}finally{model.importing=false;$('import-button').disabled=false;$('import-button').querySelector('em').textContent='Import MP3';$('file-input').value='';renderControls();}
+  catch(error){showError(error);}finally{model.importing=false;$('import-button').disabled=false;$('import-button').querySelector('em').textContent='Import';$('file-input').value='';renderControls();}
   if(added)setupImportedSong(added).catch(showError);
+}
+// A song exported from another computer (Export → Whole song): it is added, or, when a song here has the same title, you choose what
+// to overwrite or import it as a new song. The zip can be gigabytes with stems, so it is sent as the file itself, never read into memory here.
+async function importSongZip(file){
+  if(model.importing)return;model.importing=true;$('import-button').disabled=true;$('import-button').querySelector('em').textContent='Importing…';clearError();
+  let left=null;
+  try{
+    const summary=await api('/api/song-import',undefined,{method:'POST',headers:{'Content-Type':'application/zip'},body:file});
+    let choice={mode:'new'};
+    if(summary.matches.length){
+      choice=await askSongImport({title:summary.matches[0].title,matches:summary.matches,incoming:summary});
+      if(!choice){await api('/api/song-import/cancel',{token:summary.token});return;}
+    }
+    // Updating the open song: let go of it first, so its stems are not playing while they are replaced.
+    if(choice.mode==='update'&&choice.target===model.song){
+      const flushed=await window.chordBuddyFlush();if(!flushed.ok){await api('/api/song-import/cancel',{token:summary.token});throw new Error('Finish saving your edits first.');}
+      left=model.song;await leaveSong();
+    }
+    const result=await api('/api/song-import/apply',{token:summary.token,...choice,setlist:model.setlist||'default'});
+    await refreshState();await selectSong(result.song_id);
+    if(result.warning)showError(result.warning);
+  }catch(error){showError(error);if(left&&!model.song)selectSong(left).catch(()=>{});}
+  finally{model.importing=false;$('import-button').disabled=false;$('import-button').querySelector('em').textContent='Import';$('file-input').value='';renderControls();}
 }
 $('import-button').onclick=$('empty-import').onclick=()=>$('file-input').click();$('file-input').onchange=()=>importFile($('file-input').files[0]);
 $('new-setlist').onclick=()=>{$('setlist-form').classList.toggle('hidden');if(!$('setlist-form').classList.contains('hidden'))$('setlist-name').focus();};
@@ -696,7 +720,7 @@ $('transcription-history').onclick=async()=>{
 // ---- Export: saving and exporting live in one menu, in the same place in every view ----
 function renderExportMenu(){
   const docs=model.detail?.documents||[],song=currentSong();
-  const has={ 'pdf-chart':docs.some(d=>d.kind==='chart'),'pdf-lead':docs.some(d=>d.kind==='abc'),midi:docs.some(d=>d.kind==='midi'),'midi-tracks':docs.some(d=>d.kind==='midi'),outputs:!!song?.active_run };
+  const has={ 'pdf-chart':docs.some(d=>d.kind==='chart'),'pdf-lead':docs.some(d=>d.kind==='abc'),midi:docs.some(d=>d.kind==='midi'),'midi-tracks':docs.some(d=>d.kind==='midi'),outputs:!!song?.active_run,song:!!song };
   for(const button of document.querySelectorAll('[data-export]'))button.disabled=!has[button.dataset.export];
   $('export-button').classList.toggle('disabled',!song);
 }
@@ -708,6 +732,24 @@ async function runExport(kind){
   if(kind==='pdf-lead')return exportPdf('lead');
   if(kind==='midi'||kind==='midi-tracks'){if(!midi)throw new Error('This song has no MIDI yet.');return downloadUrl(mediaUrl('/api/export-midi/'+encodeURIComponent(midi.id))+'&mode='+(kind==='midi'?'single':'tracks'));}
   if(kind==='outputs')return downloadUrl(mediaUrl('/api/export-outputs/'+encodeURIComponent(song.id)));
+  if(kind==='song')return exportSong(song);
+}
+const sizeLabel=bytes=>bytes>=1e9?(bytes/1e9).toFixed(1)+' GB':Math.max(1,Math.round(bytes/1e6))+' MB';
+// The whole song in one zip named after it (recording, analysis, every edit), for Import on another computer. Stems are most of the
+// size, so they are only included when asked for.
+async function exportSong(song){
+  const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving your edits first.');
+  const info=await api('/api/song-export/info',{song_id:song.id});
+  let stems=false;
+  if(info.stems_bytes){
+    stems=prefs.get('cb-export-stems','0')==='1';
+    const answer=await askChoice({title:'Export “'+song.title+'”',message:['One zip with the recording, the analysis and every edit, ready to import on another computer.'],
+      checkbox:{label:'Include the stems',hint:'Adds '+sizeLabel(info.stems_bytes)+'. Without them the zip is about '+sizeLabel(info.bytes)+', and the stems can be split again on the other computer.',checked:stems,onChange:value=>{stems=value;}},
+      choices:[{id:'export',label:'Export',kind:'primary'}]});
+    if(answer!=='export')return;
+    prefs.set('cb-export-stems',stems?'1':'0');
+  }
+  downloadUrl(mediaUrl('/api/song-export/'+encodeURIComponent(song.id))+'&stems='+(stems?1:0));
 }
 for(const button of document.querySelectorAll('[data-export]'))button.onclick=()=>{$('export-menu').open=false;runExport(button.dataset.export).catch(showError);};
 
@@ -762,14 +804,18 @@ $('transcribe').onclick=async()=>{
 };
 $('banner-export').onclick=exportChartPdf;$('banner-reanalyze').onclick=()=>$('transcribe').click();
 
+// No song open: the views are emptied and the player lets go of the recording and stems.
+async function leaveSong(){
+ model.song=null;model.detail=null;model.document=null;practiceData=null;practiceViewport=null;player.setWaveformRun(null);player.setPractice({music:{measures:[]},projection:null,viewport:null});
+ await transport.loadSong({songId:null});
+}
 // Deleting a song: first to the Trash (hidden, nothing erased, restorable), then forever only from the Trash.
 async function trashSong(id){
  try{
   const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving your edits first.');
   const wasCurrent=model.song===id;await api('/api/song/trash',{id});await refreshState();
   if(wasCurrent){
-   model.song=null;model.detail=null;model.document=null;practiceData=null;practiceViewport=null;player.setWaveformRun(null);player.setPractice({music:{measures:[]},projection:null,viewport:null});
-   await transport.loadSong({songId:null});const next=model.state.songs[0];
+   await leaveSong();const next=model.state.songs[0];
    if(next)await selectSong(next.id);else{renderLibrary();renderControls();renderDocument();renderLock();}
   }
  }catch(error){showError(error);}
