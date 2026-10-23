@@ -10,3 +10,21 @@ test('mounted footer has one playback group and scrubber; section skip preserves
 test('stale waveform success/failure cannot replace a newer song; sync load failures stay contained',async()=>{
  const requests={};const {root,player}=setup(run=>new Promise((resolve,reject)=>requests[run]={resolve,reject}));player.setWaveformRun('a');await tick();player.setWaveformRun('b');await tick();requests.b.resolve({run_id:'b',duration:40,peaks:[1]});await tick();assert.equal(root.querySelector('.practice-waveform-notice').textContent,'');requests.a.reject(Error('stale'));await tick();assert.equal(root.querySelector('.practice-waveform-notice').textContent,'');player.setWaveformRun('c');await tick();player.setWaveformRun(null);requests.c.resolve({run_id:'c',duration:40,peaks:[1]});await tick();assert.match(root.querySelector('.practice-waveform-notice').textContent,/after analysis/);player.dispose();const sync=setup(()=>{throw Error('offline');});assert.doesNotThrow(()=>sync.player.setWaveformRun('d'));await tick();assert.match(sync.root.querySelector('.practice-waveform-notice').textContent,/unavailable/);sync.player.dispose();
 });
+
+// The Loop button (and R, through toggleLoop) loops the section you are in; again ends the loop. The loop follows you when you seek
+// into another section, but never because the playhead drifted a moment before the section's start.
+test('the loop toggles on the current section and follows seeks, never playback drift',()=>{
+ installDom();const root=new Node(),audio=new Node('audio');root.append(audio);audio.removeAttribute=k=>delete audio.attributes[k];audio.after=n=>root.append(n);
+ const query=root.querySelector.bind(root);root.querySelector=s=>s==='audio'?audio:query(s);
+ let state={ready:true,seconds:12,duration:40,playIntent:true,seeks:0,mix:{master:1},loop:{enabled:false,start:null,end:null,implicit:false}};const loops=[],listeners=[];
+ const transport={getSnapshot:()=>state,subscribe:f=>{listeners.push(f);f(state);return()=>{};},seek:()=>Promise.resolve(),play:()=>Promise.resolve(),pause(){},
+  setLoop:v=>{loops.push(v);state={...state,loop:v?{...v}:{enabled:false,start:null,end:null,implicit:false}};listeners.forEach(f=>f(state));return Promise.resolve();}};
+ const player=mountPlayer(root,transport,e=>{throw e;},{});
+ player.setPractice({music:{measures:[]},viewport:{start:0,end:40},projection:{sections:[{id:'a',name:'Verse',start:0,end:10},{id:'b',name:'Chorus',start:10,end:30},{id:'c',name:'Outro',start:30,end:40}]}});
+ const set=v=>{state={...state,...v};listeners.forEach(f=>f(state));};
+ player.toggleLoop();assert.deepEqual(loops.at(-1),{enabled:true,start:10,end:30,implicit:true});
+ set({seconds:9.97});assert.equal(loops.length,1,'a moment before the start, while playing: the loop stays');
+ set({seconds:31,seeks:1});assert.deepEqual(loops.at(-1),{enabled:true,start:30,end:40,implicit:true},'a seek into the outro moves it there');
+ player.toggleLoop();assert.equal(loops.at(-1),null,'again: the loop ends');
+ assert.deepEqual(player.sectionStarts(),[0,10,30]);
+});

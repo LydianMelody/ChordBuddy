@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {Node,all,installDom} from './compact-dom.mjs';
-import {mountChartPage} from '../chordbuddy/web/chart-page.js';
+import {mountChartPage,chordTokens,alignChords} from '../chordbuddy/web/chart-page.js';
 import {buildChartModel,playbackTarget} from '../chordbuddy/web/chart-model.js';
 import {buildCompactChart} from '../chordbuddy/web/compact-chart.js';
 import {buildPracticeMarkers} from '../chordbuddy/web/practice-state.js';
@@ -132,131 +132,284 @@ test('clicking a section name or bar number seeks there', () => {
   byClass(root,'bar-no')[0].onclick();assert.equal(seeks.at(-1),0);
 });
 
-// ===================== Edit =====================
-const editChordSetup=(f=fixture(),options)=>{const m=mount(f,options);m.view.setMode('edit');return m;};
-const openChord=(m,index=0)=>{chordButtons(m.root)[index].onclick();return byClass(m.root,'chord-input')[0];};
+// ===================== Ctrl: what is written =====================
+const ctrl={ctrlKey:true,stopPropagation(){},preventDefault(){}},shift={shiftKey:true,stopPropagation(){},preventDefault(){}};
+const chordLine=root=>byClass(root,'chord-type')[0];
+const openChords=(m,index=0)=>{chordButtons(m.root)[index].onclick(ctrl);return chordLine(m.root);};
+const typeLine=(node,text)=>{node.textContent=text;node.oninput?.();};
 
-test('Edit: clicking a chord turns it into an input; Enter saves it as one edit', async () => {
-  const m=editChordSetup();const input=openChord(m);assert.ok(input);assert.equal(input.value,'G');
-  input.value='Gsus4';input.oninput();assert.equal(m.view.hasDraft(),true);
-  press(input,'Enter');await tick();
-  assert.equal(m.commits.length,1);assert.equal(m.commits[0].label,'Edit chord');
+test('Ctrl+click on a chord opens the row’s chords as one line to type; Enter saves it as one edit', async () => {
+  const m=mount(fixture());const line=openChords(m);
+  assert.ok(line);assert.equal(line.textContent,'G C D C');assert.ok(has(byClass(m.root,'row')[0],'editing'));
+  typeLine(line,'Gsus4 C D C');assert.equal(m.view.hasDraft(),true);
+  press(line,'Enter');await tick();
+  assert.equal(m.commits.length,1);assert.equal(m.commits[0].label,'Edit chords');
   assert.equal(m.commits[0].candidate.chords.find(c=>c.id==='c0').label,'Gsus4');
   assert.deepEqual(m.commits[0].ctx,{documentId:'d',revision:0});
+  assert.equal(chordLine(m.root),undefined,'the row is back to normal');
 });
 
-test('Edit: by default a chord change touches only the selected pass', async () => {
-  const m=editChordSetup();const input=openChord(m,1);input.value='Cmaj7';press(input,'Enter');await tick();
-  const labels=m.commits[0].candidate.chords.filter(c=>c.label==='Cmaj7').map(c=>c.id);assert.deepEqual(labels,['c1']);
+test('a plain click on a chord plays from there and opens nothing', () => {
+  const m=mount(fixture());chordButtons(m.root)[1].onclick({});
+  assert.deepEqual(m.seeks,[2]);assert.equal(chordLine(m.root),undefined);
 });
 
-test('Edit: "All matching" applies the change to every pass of the progression', async () => {
-  const m=editChordSetup();m.view.setScope('all-matching');const input=openChord(m,1);input.value='Cmaj7';press(input,'Enter');await tick();
-  assert.deepEqual(m.commits[0].candidate.chords.filter(c=>c.label==='Cmaj7').map(c=>c.id),['c1','c5','c9','c13']);
-  assert.equal(m.commits[0].label,'Edit chords in matching passes');
+test('the chord line: by default a change touches only the selected pass, "All matching" every pass', async () => {
+  const one=mount(fixture());typeLine(openChords(one),'G Cmaj7 D C');press(chordLine(one.root),'Enter');await tick();
+  assert.deepEqual(one.commits[0].candidate.chords.filter(c=>c.label==='Cmaj7').map(c=>c.id),['c1']);
+  const every=mount(fixture());every.view.setScope('all-matching');typeLine(openChords(every),'G Cmaj7 D C');press(chordLine(every.root),'Enter');await tick();
+  assert.deepEqual(every.commits[0].candidate.chords.filter(c=>c.label==='Cmaj7').map(c=>c.id),['c1','c5','c9','c13']);
 });
 
-test('Edit: Esc and an unchanged chord write nothing', async () => {
-  const m=editChordSetup();let input=openChord(m);input.value='D';press(input,'Escape');await tick();assert.equal(m.commits.length,0);assert.equal(m.view.hasDraft(),false);
-  input=openChord(m);input.onblur();await tick();assert.equal(m.commits.length,0);               // blur without a change keeps the chord
-  input=openChord(m);input.value='';input.onblur();await tick();assert.equal(m.commits.length,0);    // an emptied box that is left, not confirmed, keeps the chord
+test('the chord line: Esc, or leaving it unchanged, writes nothing', async () => {
+  const m=mount(fixture());typeLine(openChords(m),'D D D D');press(chordLine(m.root),'Escape');await tick();
+  assert.equal(m.commits.length,0);assert.equal(m.view.hasDraft(),false);assert.equal(chordLine(m.root),undefined);
+  openChords(m).onblur();await tick();assert.equal(m.commits.length,0);
 });
 
-test('Edit: Enter on an emptied chord box deletes the chord, and the chord next to it takes its time', async () => {
-  const m=editChordSetup(),before=m.commits.length,input=openChord(m);input.value='  ';press(input,'Enter');await tick();
-  assert.equal(m.commits.length,before+1);assert.equal(m.commits.at(-1).label,'Delete chord');
-  assert.equal(m.commits.at(-1).candidate.chords.length,fixture().content.chords.length-1);
+test('the chord line: a removed chord hands its time to its neighbour; an added one splits the chord before it on a beat', async () => {
+  const gone=mount(fixture());typeLine(openChords(gone),'G D C');press(chordLine(gone.root),'Enter');await tick();
+  const fewer=gone.commits[0].candidate.chords;assert.equal(fewer.length,15);
+  assert.equal(fewer.find(c=>c.id==='c0').end,4,'G holds on through the bar the C had');
+  const more=mount(fixture());typeLine(openChords(more),'G C D C Em');press(chordLine(more.root),'Enter');await tick();
+  const added=more.commits[0].candidate.chords.find(c=>c.label==='Em'),last=more.commits[0].candidate.chords.find(c=>c.id==='c3');
+  assert.ok(added);assert.equal(last.end,added.start);assert.ok(added.start>6&&added.start<8);
+  assert.ok(fixture().music.measures.some(b=>b.beats.includes(added.start)),'on a beat');
 });
 
-test('Edit: an open edit is never lost to playback updates or a redraw of the same chart', () => {
-  const m=editChordSetup();const input=openChord(m);input.value='Am';input.oninput();
-  m.view.updatePlayback({seconds:9,ready:true,playing:true});assert.equal(byClass(m.root,'chord-input')[0],input);
-  m.view.update({...m.data});assert.equal(byClass(m.root,'chord-input')[0],input);assert.equal(input.value,'Am');
+test('the chord line: a chord typed before the first one splits it, and the first half takes the new chord', async () => {
+  const m=mount(fixture());typeLine(openChords(m),'Em G C D C');press(chordLine(m.root),'Enter');await tick();
+  const c=m.commits[0].candidate.chords,first=c.find(x=>x.id==='c0'),second=c.find(x=>x.start===first.end);
+  assert.equal(first.label,'Em');assert.equal(first.start,0);assert.equal(second.label,'G');assert.equal(second.end,2);
 });
 
-test('Edit: with a change typed, you must finish it before changing mode or opening another editor', () => {
-  const m=editChordSetup();const input=openChord(m);input.value='Am';input.oninput();
-  assert.equal(m.view.canNavigate(),false);assert.equal(m.view.setMode('nav'),'edit');
-  chordButtons(m.root)[0].onclick();assert.equal(byClass(m.root,'chord-input').length,1);
-  press(input,'Escape');assert.equal(m.view.canNavigate(),true);assert.equal(m.view.setMode('nav'),'nav');
+test('the chord line only takes chords: a letter A to G, with # or b after it', async () => {
+  assert.deepEqual(chordTokens(' F#m7  Bb/D C♯ '),['F#m7','Bb/D','C#']);
+  assert.throws(()=>chordTokens('G H7'),/H7.*not a chord/);
+  const m=mount(fixture());typeLine(openChords(m),'G C hello C');press(chordLine(m.root),'Enter');await tick();
+  assert.equal(m.commits.length,0);assert.match(m.root.textContent,/hello/);
 });
 
-test('Edit: a second save while one is in flight is ignored, and a failed save can be retried', async () => {
-  let release,calls=0;const m=editChordSetup(fixture(),{commit:()=>{calls++;return new Promise(r=>release=r);}});
-  const input=openChord(m);input.value='D';press(input,'Enter');await tick();
+test('alignChords keeps what is unchanged and retypes, removes or adds the rest', () => {
+  const kinds=(a,b)=>alignChords(a,b).map(o=>o.type).join(' ');
+  assert.equal(kinds(['G','C','D'],['G','C','D']),'keep keep keep');
+  assert.equal(kinds(['G','C','D'],['G','Am','D']),'keep replace keep');
+  assert.equal(kinds(['G','C','D'],['G','D']),'keep delete keep');
+  assert.equal(kinds(['G','C','D'],['G','C','D','E']),'keep keep keep insert');
+  assert.equal(kinds(['G','C'],['E','G','C']),'insert keep keep');
+});
+
+test('an open edit is never lost to playback updates or a redraw of the same chart', () => {
+  const m=mount(fixture());const line=openChords(m);typeLine(line,'Am C D C');
+  m.view.updatePlayback({seconds:9,ready:true,playing:true});assert.equal(chordLine(m.root),line);
+  m.view.update({...m.data});assert.equal(chordLine(m.root),line);assert.equal(line.textContent,'Am C D C');
+});
+
+test('with a change typed, it must be finished before the view changes or another row opens', () => {
+  const m=mount(repeated());const line=openChords(m);typeLine(line,'Am C D C');
+  assert.equal(m.view.canNavigate(),false);assert.equal(m.view.setMode('timing'),'nav');
+  chordButtons(m.root).at(-1).onclick(ctrl);assert.equal(byClass(m.root,'chord-type').length,1);
+  press(line,'Escape');assert.equal(m.view.canNavigate(),true);assert.equal(m.view.setMode('timing'),'timing');
+});
+
+test('a second save while one is in flight is ignored, and a failed save can be retried', async () => {
+  let release,calls=0;const m=mount(fixture(),{commit:()=>{calls++;return new Promise(r=>release=r);}});
+  typeLine(openChords(m),'D C D C');press(chordLine(m.root),'Enter');await tick();
   assert.equal(m.view.hasPendingSave(),true);
-  const second=openChord(m,1);second?.onblur?.();assert.equal(calls,1);
+  chordButtons(m.root)[1].onclick(ctrl);assert.equal(chordLine(m.root),undefined,'nothing opens while saving');assert.equal(calls,1);
   release();await tick();await tick();assert.equal(m.view.hasPendingSave(),false);
-  const failing=editChordSetup(fixture(),{commit:async()=>{throw Error('Revision changed');}});
-  const field=openChord(failing);field.value='D';press(field,'Enter');await tick();await tick();
+  const failing=mount(fixture(),{commit:async()=>{throw Error('Revision changed');}});
+  typeLine(openChords(failing),'D C D C');press(chordLine(failing.root),'Enter');await tick();await tick();
   assert.match(failing.root.textContent,/Revision changed/);assert.equal(failing.errors.length,1);assert.equal(failing.view.hasPendingSave(),false);
-  const again=openChord(failing);assert.ok(again);                                                // free to try again
+  assert.ok(openChords(failing),'free to try again');
 });
 
-test('Edit: one line per pass; a new line starts at the chord you clicked and chords stay put', async () => {
+test('the pass pickers of an open row choose which pass a chord change applies to', async () => {
+  const m=mount(fixture());openChords(m);const pick=byClass(m.root,'pass-pick')[0];assert.equal(pick.children.length,4);
+  pick.children[2].onclick();const line=chordLine(m.root);typeLine(line,'G Fm D C');press(line,'Enter');await tick();
+  assert.deepEqual(m.commits[0].candidate.chords.filter(c=>c.label==='Fm').map(c=>c.id),['c9']);   // pass 3's chord
+});
+
+test('a break in the music (an N chord) is drawn as an empty space, not the letter N, and is typed as N',()=>{
+  const f=fixture();
+  const inner=f.content.chords.filter(c=>c.start>2).sort((a,b)=>a.start-b.start)[0];inner.label='N';  // an interior break: leading and trailing ones are hidden anyway
+  const {root,view}=mount(f);
+  const rests=byClass(root,'rest').filter(n=>n.tagName==='button');
+  assert.ok(rests.length>=1,'the break keeps its place on the chart');
+  assert.ok(rests.every(b=>b.textContent===''),'and shows nothing');
+  assert.ok(!chordButtons(root).some(b=>/^\(?N\)?$/.test(b.textContent.trim())),'no N anywhere');
+  rests[0].onclick(ctrl);assert.match(chordLine(root).textContent,/(^| )N( |$)/,'typed as N');
+});
+
+// ---- the words ----
+const wordLines=root=>byClass(root,'lyr').filter(n=>n.contentEditable==='plaintext-only');
+test('Ctrl+click under a row with no words opens one line per pass; a new line starts at the chord you clicked', async () => {
   const blank=fixture();blank.content.sections[0].lyrics='';
-  const m=editChordSetup(blank);
-  assert.equal(byClass(m.root,'add-lyrics').length,0);                                   // no per-chord boxes, no "Add lyrics" buttons
-  assert.equal(byClass(m.root,'lyr').length,4);                                          // one line per pass of the row, not one box per chord
-  const line=byClass(m.root,'lyr')[0];assert.equal(line.dataset.placeholder.startsWith('Click and type'),true);
-  line._lane.anchorKey=byClass(m.root,'chord')[2].dataset.chunk;                         // clicked under the third chord
+  const m=mount(blank);
+  const add=byClass(m.root,'lane-add')[0];assert.ok(add,'a row with no words offers a line (shown while Ctrl is held)');
+  add.onclick(ctrl);
+  assert.equal(wordLines(m.root).length,4);                                           // one line per pass of the row, not one box per chord
+  const line=wordLines(m.root)[0];assert.equal(line.dataset.placeholder.startsWith('Click and type'),true);
+  line._lane.anchorKey=byClass(m.root,'chord')[2].dataset.chunk;                       // clicked under the third chord
   line.textContent='hello world';line.oninput();press(line,'Enter');await tick();
   assert.equal(m.commits.length,1);assert.equal(m.commits[0].label,'Add lyrics');
   const c=m.commits[0].candidate;assert.equal(c.sections[0].lyrics,'hello world');
   const pin=c.layout.lines[0].words.find(w=>w.offset===0);assert.deepEqual([pin.measure_id,pin.beat],['m2',0]);   // the D chord at bar 3
 });
 
-test('Edit: a line can be retyped; a typo fix keeps the pin and Esc drops the change', async () => {
-  const f=fixture();f.content.sections[0].lyrics='hello wrold';
-  f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[{section_id:'s',line:0,start_measure:'m0',end_measure:'m3',words:[{offset:0,measure_id:'m0',beat:0},{offset:6,measure_id:'m2',beat:2}]}]};
-  const m=editChordSetup(f);const lines=byClass(m.root,'lyr').filter(n=>n.contentEditable==='plaintext-only');
+const withWords=(words='hello wrold',pins=[{offset:0,measure_id:'m0',beat:0},{offset:6,measure_id:'m2',beat:2}])=>{
+  const f=fixture();f.content.sections[0].lyrics=words;
+  f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[{section_id:'s',line:0,start_measure:'m0',end_measure:'m3',words:pins}]};return f;
+};
+const openWords=m=>{byClass(m.root,'lyr')[0].onclick(ctrl);return wordLines(m.root);};
+test('Ctrl+click on the words: a line can be retyped; a typo fix keeps the pin and Esc drops the change', async () => {
+  const m=mount(withWords());const lines=openWords(m);
   assert.equal(lines.length,4);assert.equal(lines[0].textContent,'hello wrold');
   lines[0].textContent='hello world';lines[0].oninput();press(lines[0],'Enter');await tick();
   const c=m.commits[0].candidate;assert.equal(c.sections[0].lyrics,'hello world');
   assert.deepEqual(c.layout.lines[0].words.map(w=>[w.offset,w.measure_id,w.beat]),[[0,'m0',0],[6,'m2',2]]);
-  const again=byClass(m.root,'lyr').filter(n=>n.contentEditable==='plaintext-only')[0];
-  again.textContent='goodbye';again.oninput();press(again,'Escape');await tick();assert.equal(m.commits.length,1);
+  const again=mount(withWords());const l2=openWords(again);
+  l2[0].textContent='goodbye';l2[0].oninput();press(l2[0],'Escape');await tick();assert.equal(again.commits.length,0);
+  assert.equal(wordLines(again.root).length,0,'Esc closes the row');
 });
 
-test('Edit: a section can be renamed in place', async () => {
-  const m=editChordSetup();const name=byClass(m.root,'sec-name')[0];assert.equal(name.contentEditable,'plaintext-only');
+test('a plain click on a word plays from it; only Ctrl opens the words', () => {
+  const m=mount(withWords());const word=byClass(m.root,'w')[0];
+  word.onclick({});assert.equal(m.seeks.length,1);
+  byClass(m.root,'lyr')[0].onclick({});assert.equal(wordLines(m.root).length,0);
+});
+
+test('a repeated row has one line for every pass, and a new line belongs to its pass', async () => {
+  const m=mount(withWords('first pass words',[{offset:0,measure_id:'m0',beat:0}]));
+  const lines=openWords(m);assert.equal(lines.length,4);
+  assert.deepEqual(byClass(m.root,'lane-tag').filter(t=>t.parent&&has(t.parent,'lane-edit')).map(t=>t.textContent),['1','2','3','4']);
+  assert.deepEqual(lines.map(l=>l.textContent),['first pass words','','','']);
+  lines[1].textContent='second pass words';lines[1].oninput();press(lines[1],'Enter');await tick();
+  const c=m.commits[0].candidate;assert.equal(c.sections[0].lyrics,'first pass words\nsecond pass words');
+  const pin=c.layout.lines.find(p=>p.line===1).words[0];assert.equal(pin.measure_id,'m4');          // pass 2 starts on bar 5
+  assert.equal(c.layout.lines.find(p=>p.line===1).start_measure,'m4');
+});
+
+test('several pasted lines flow into the following lines, one per pass', async () => {
+  const f=withWords('first pass words',[{offset:0,measure_id:'m0',beat:0}]);
+  const m=mount(f);const lines=openWords(m);
+  lines[1].textContent='second pass\nthird pass\n\nfourth pass';lines[1].oninput();press(lines[1],'Enter');await tick();
+  assert.equal(m.commits.length,1);
+  assert.equal(m.commits[0].candidate.sections[0].lyrics,'first pass words\nsecond pass\nthird pass\nfourth pass');
+  const toomany=mount(f);const l2=openWords(toomany);
+  l2[2].textContent='a\nb\nc';l2[2].oninput();press(l2[2],'Enter');await tick();
+  assert.equal(toomany.commits.length,0);assert.match(toomany.root.textContent,/only 2 lines/);
+});
+
+test('Enter on a line moves to the next line of the row', async () => {
+  const m=mount(withWords('first pass words',[{offset:0,measure_id:'m0',beat:0}]));let focused=null;
+  const lines=openWords(m);lines[1].focus=()=>{focused=1;};
+  press(lines[0],'Enter');await tick();
+  assert.equal(focused,1);assert.equal(m.commits.length,0);                                // nothing changed, nothing saved
+});
+
+// ---- sections ----
+test('Ctrl+click on a section name renames it in place', async () => {
+  const m=mount(fixture());const name=byClass(m.root,'sec-name')[0];
+  name.onclick(ctrl);assert.equal(name.contentEditable,'plaintext-only');
   name.textContent='Verse';name.oninput();press(name,'Enter');await tick();
   assert.equal(m.commits[0].candidate.sections[0].name,'Verse');assert.equal(m.commits[0].label,'Edit section');
-  const same=editChordSetup();const n2=byClass(same.root,'sec-name')[0];n2.textContent='Chorus';press(n2,'Enter');await tick();assert.equal(same.commits.length,0);
+  const same=mount(fixture());const n2=byClass(same.root,'sec-name')[0];n2.onclick(ctrl);n2.textContent='Chorus';press(n2,'Enter');await tick();assert.equal(same.commits.length,0);
+  const plain=mount(fixture());byClass(plain.root,'sec-name')[0].onclick({});assert.notEqual(byClass(plain.root,'sec-name')[0].contentEditable,'plaintext-only');
 });
 
-test('Edit: "+" adds a chord in the middle of the chord it follows', async () => {
-  const m=editChordSetup();const add=byClass(m.root,'add-chord');assert.equal(add.length,4);
-  add[0].onclick();await tick();
-  const c=m.commits[0].candidate;assert.equal(m.commits[0].label,'Add chord');assert.equal(c.chords.length,17);
-  const first=c.chords.find(x=>x.id==='c0'),added=c.chords.find(x=>!['c0','c1'].includes(x.id)&&x.start>=first.end-1e-9&&x.start<2);
-  assert.ok(added);assert.equal(first.end,added.start);assert.ok(added.start>0&&added.start<2);
+test('Ctrl: the strip above a section joins it with the one before, and the first section has none', async () => {
+  const m=mount(repeated());
+  const joins=byClass(m.root,'zone-join');assert.equal(joins.length,2);
+  joins[0].onclick(ctrl);await tick();
+  assert.equal(m.commits.length,1);assert.equal(m.commits[0].label,'Join sections');
+  assert.equal(m.commits[0].candidate.sections.length,2);
+  assert.equal(byClass(mount(fixture()).root,'zone-join').length,0);
 });
 
-test('Edit: the pass pickers choose which pass a chord change applies to', async () => {
-  const m=editChordSetup();const pick=byClass(m.root,'pass-pick')[0];assert.equal(pick.children.length,4);
-  pick.children[2].onclick();const input=openChord(m,1);input.value='Fm';press(input,'Enter');await tick();
-  assert.deepEqual(m.commits[0].candidate.chords.filter(c=>c.label==='Fm').map(c=>c.id),['c9']);   // pass 3's chord
+test('Ctrl: the strip above a bar starts a new section there, and the new name is ready to type', async () => {
+  const f=fixture();f.content.chords.forEach((c,i)=>{if(c.start>=16)c.label=['Am','F','C','E'][i%4];});
+  const m=mount(f);
+  const strips=byClass(m.root,'zone-split');assert.ok(strips.length>0,'split strips sit on the bars a section can start at');
+  strips[0].onclick(ctrl);await tick();
+  assert.equal(m.commits.length,1);assert.equal(m.commits[0].label,'Split section');
+  const next=m.commits[0].candidate.sections;assert.equal(next.length,2);assert.equal(next[1].name,'New section');
+  assert.equal(next[0].end,next[1].start);assert.ok(next[0].end>next[0].start&&next[1].end>next[1].start);
 });
 
-test('Edit: an unsupported saved grouping can be reset without losing lyrics or chords', async () => {
-  const f=fixture();f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[],compact:{groups:[{section_id:'s',mode:'repeat',passes:[{start:0,end:99,measure_ids:['zzz'],chord_ids:[]}]}]}};
-  const m=editChordSetup(f);m.view.setTool('repeat');const reset=byClass(m.root,'fix-link').find(n=>n.textContent==='Reset all my repeat choices');assert.ok(reset);
-  reset.onclick();await tick();assert.equal(m.commits[0].label,'Reset repeat grouping');
-  assert.equal(m.commits[0].candidate.chords.length,16);assert.equal(m.commits[0].candidate.layout.compact,undefined);
+test('Ctrl: a barline joins two bars and a beat splits a bar (the first barline of the song has none)', () => {
+  const f=fixture();installDom();const root=new Node(),edits=[];
+  const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{},onError:()=>{},onBarEdit:c=>{edits.push(c);}});
+  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});
+  const bars=byClass(root,'bar');
+  assert.equal(byClass(bars[0],'zone-barline').length,0);
+  byClass(bars[1],'zone-barline')[0].onclick(ctrl);
+  const beats=byClass(bars[1],'zone-beat');assert.equal(beats.length,3);beats[1].onclick(ctrl);
+  assert.deepEqual(edits,[{removeBars:[f.music.measures[1].start]},{addBars:[f.music.measures[1].beats[2]]}]);
+  assert.equal(byClass(mount(fixture()).root,'zone-beat').length,0,'without a barline handler there is nothing to click');
 });
 
-// ===================== modes =====================
-test('switching mode keeps the chart and shows what each mode is for', () => {
+test('every place Ctrl or Shift adds has a tooltip with a picture, and none names a key', () => {
+  const m=mount(repeated());
+  const places=[...chordButtons(m.root),...byClass(m.root,'lyr'),...byClass(m.root,'sec-name'),...byClass(m.root,'zone-join'),...byClass(m.root,'zone-split'),...byClass(m.root,'lane-add')];
+  assert.ok(places.length>5);
+  for(const node of places){assert.ok(node.dataset.tipTitle&&node.dataset.tip.length>20&&node.dataset.tipArt.includes('<svg'),node.className);assert.equal(node.dataset.tipKey,undefined);}
+  assert.equal(chordButtons(m.root)[0].dataset.tipKeys,'ctrl','on the chart itself, the tip waits for Ctrl');
+  m.view.setMode('timing');
+  for(const node of [...byClass(m.root,'wchip'),...byClass(m.root,'tno')])assert.equal(node.dataset.tipKeys,'shift');
+});
+
+// ===================== the keys you hold =====================
+function withKeys(f=fixture(),extra={}){
+  installDom();const root=new Node(),listeners={};
+  root.ownerDocument={addEventListener:(type,fn)=>{(listeners[type]??=[]).push(fn);},removeEventListener(){}};
+  const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{},onError:()=>{},...extra});
+  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});
+  const fire=(type,key,extra={})=>{for(const fn of listeners[type]||[])fn({key,target:null,repeat:false,...extra});};
+  return {root,view,fire};
+}
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+test('the note on the keys lights up "editing" while Ctrl is held and "timing" while the chart is in time', () => {
+  const legend=new Node(),k=withKeys(fixture(),{legend}),lit=()=>legend.className.split(' ').filter(Boolean).sort().join(' ');
+  assert.equal(lit(),'');
+  k.fire('keydown','Control');assert.equal(lit(),'editing');
+  k.fire('keyup','Control');assert.equal(lit(),'');
+  k.view.setMode('timing');assert.equal(lit(),'timing');
+  k.view.setMode('nav');assert.equal(lit(),'');
+});
+test('holding Ctrl marks the chart so its places show; letting go hides them', () => {
+  const k=withKeys();assert.equal(k.root.dataset.keys,'');
+  k.fire('keydown','Control');assert.equal(k.root.dataset.keys,'ctrl');
+  k.fire('keyup','Control');assert.equal(k.root.dataset.keys,'');
+});
+
+test('holding Shift draws the chart in time until it is let go; a quick tap keeps it there, Esc or another tap puts it back', async () => {
+  const k=withKeys();
+  k.fire('keydown','Shift');await wait(200);assert.equal(k.view.getMode(),'timing');assert.equal(k.root.dataset.keys,'shift');
+  await wait(150);k.fire('keyup','Shift');assert.equal(k.view.getMode(),'nav');
+  k.fire('keydown','Shift');await wait(40);k.fire('keyup','Shift');await wait(200);assert.equal(k.view.getMode(),'timing','a tap keeps it');
+  assert.equal(k.view.handleKey({key:'Escape'}),true);assert.equal(k.view.getMode(),'nav');assert.equal(k.view.handleKey({key:'Escape'}),false);
+  k.fire('keydown','Shift');await wait(40);k.fire('keyup','Shift');assert.equal(k.view.getMode(),'timing');
+  k.fire('keydown','Shift');await wait(40);k.fire('keyup','Shift');assert.equal(k.view.getMode(),'nav','another tap puts it back');
+});
+
+test('Shift as part of a shortcut (Ctrl+Shift+Z) or while typing never switches the view', async () => {
+  const k=withKeys();
+  k.fire('keydown','Control');k.fire('keydown','Shift',{ctrlKey:true});k.fire('keydown','Z',{ctrlKey:true,shiftKey:true});await wait(200);
+  k.fire('keyup','Shift');k.fire('keyup','Control');assert.equal(k.view.getMode(),'nav');
+  k.fire('keydown','Shift',{target:{isContentEditable:true}});await wait(200);k.fire('keyup','Shift',{target:{isContentEditable:true}});assert.equal(k.view.getMode(),'nav');
+});
+
+// ===================== the views =====================
+test('setMode switches between the chart as written and in time, and keeps the chart', () => {
   const m=mount(fixture());
-  assert.equal(m.root.dataset.mode,'nav');assert.equal(byClass(m.root,'add-chord').length,0);
-  m.view.setMode('edit');assert.equal(m.root.dataset.mode,'edit');assert.equal(byClass(m.root,'add-chord').length,4);
+  assert.equal(m.root.dataset.mode,'nav');
   m.view.setMode('timing');assert.equal(m.root.dataset.mode,'timing');assert.equal(byClass(m.root,'tbar').length,4);
   m.view.setMode('nav');assert.equal(chordButtons(m.root).length,4);
-  assert.equal(m.view.setMode('bogus'),'nav');
+  assert.equal(m.view.setMode('bogus'),'nav');assert.equal(m.view.setMode('edit'),'nav');
 });
 
-test('mode and zoom changes are reported so the toolbar can follow', () => {
+test('view and zoom changes are reported so the toolbar can follow', () => {
   installDom();const root=new Node(),events=[];
   const view=mountChartPage(root,{onModeChange:m=>events.push(['mode',m]),onTimingChange:s=>events.push(['timing',s.zoom,s.snap])});
   view.update({...fixture(),documentId:'d',revision:0,songId:'s',transport:{seconds:0}});
@@ -266,66 +419,36 @@ test('mode and zoom changes are reported so the toolbar can follow', () => {
   assert.equal(view.getZoom(),1);
 });
 
-test('Edit: a repeated row has one line for every pass, and a new line belongs to its pass', async () => {
-  const f=fixture();f.content.sections[0].lyrics='first pass words';
-  f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[{section_id:'s',line:0,start_measure:'m0',end_measure:'m3',words:[{offset:0,measure_id:'m0',beat:0}]}]};
-  const m=editChordSetup(f);
-  const lines=byClass(m.root,'lyr');assert.equal(lines.length,4);
-  assert.deepEqual(byClass(m.root,'lane-tag').map(t=>t.textContent),['1','2','3','4']);
-  assert.deepEqual(lines.map(l=>l.textContent),['first pass words','','','']);
-  lines[1].textContent='second pass words';lines[1].oninput();press(lines[1],'Enter');await tick();
-  const c=m.commits[0].candidate;assert.equal(c.sections[0].lyrics,'first pass words\nsecond pass words');
-  const pin=c.layout.lines.find(p=>p.line===1).words[0];assert.equal(pin.measure_id,'m4');          // pass 2 starts on bar 5
-  assert.equal(c.layout.lines.find(p=>p.line===1).start_measure,'m4');
+test('the chart has no tools: the rail is left empty and the line under the page is quiet until there is something to say', () => {
+  const f=fixture();installDom();const root=new Node(),dock=new Node(),note=new Node(),status=new Node();
+  dock.append(new Node());                                            // whatever the lead sheet left there
+  const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{},onError:()=>{},dock,note,status});
+  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});
+  assert.equal(dock.children.length,0);assert.equal(byClass(root,'tool-status').length,0,'nothing of the line sits on the chart');
+  assert.equal(status.textContent,'','the note on the keys sits in the toolbar now');assert.equal(byClass(status,'tool-put-down').length,0);
+  view.setMode('timing');assert.equal(byClass(status,'tool-put-down').length,1,'Esc leaves the kept in-time view');
 });
 
-test('Edit: several pasted lines flow into the following lines, one per pass', async () => {
-  const f=fixture();f.content.sections[0].lyrics='first pass words';
-  f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[{section_id:'s',line:0,start_measure:'m0',end_measure:'m3',words:[{offset:0,measure_id:'m0',beat:0}]}]};
-  const m=editChordSetup(f);
-  const lines=byClass(m.root,'lyr');
-  lines[1].textContent='second pass\nthird pass\n\nfourth pass';lines[1].oninput();press(lines[1],'Enter');await tick();
-  assert.equal(m.commits.length,1);
-  assert.equal(m.commits[0].candidate.sections[0].lyrics,'first pass words\nsecond pass\nthird pass\nfourth pass');
-  const toomany=editChordSetup(f);const l2=byClass(toomany.root,'lyr');
-  l2[2].textContent='a\nb\nc';l2[2].oninput();press(l2[2],'Enter');await tick();
-  assert.equal(toomany.commits.length,0);assert.match(toomany.root.textContent,/only 2 lines/);
+// ===================== Shift: fold repeats =====================
+test('Shift+click two bar numbers to fold a part that repeats; Esc drops the picks', () => {
+  const m=mount(fixture());m.view.setMode('timing');
+  byClass(m.root,'tno')[0].onclick(shift);
+  assert.match(m.root.textContent,/Bar 1 picked/);
+  byClass(m.root,'tno')[1].onclick(shift);
+  assert.ok(byClass(m.root,'fix-choice').length>=1);
+  assert.equal(m.view.handleKey({key:'Escape'}),true);assert.equal(byClass(m.root,'fix-choice').length,0);
+  byClass(m.root,'tno')[2].onclick({});assert.equal(m.seeks.at(-1),4,'a plain click plays from the bar');
 });
 
-test('Edit: Enter on a line moves to the next line', async () => {
-  const f=fixture();f.content.sections[0].lyrics='first pass words';
-  f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[{section_id:'s',line:0,start_measure:'m0',end_measure:'m3',words:[{offset:0,measure_id:'m0',beat:0}]}]};
-  const m=editChordSetup(f);let focused=null;
-  const lines=byClass(m.root,'lyr');lines[1].focus=()=>{focused=1;};
-  press(lines[0],'Enter');await tick();
-  assert.equal(focused,1);assert.equal(m.commits.length,0);                                // nothing changed, nothing saved
-});
-
-// ===================== split and join sections =====================
-test('Edit: a section can be joined with the one above it, never the first', async () => {
-  const m=editChordSetup(repeated());
-  assert.equal(byClass(m.root,'glue-able').length,0,'only the Join tool glues sections');
-  m.view.setTool('glue');
-  const joins=byClass(m.root,'glue-able');assert.equal(joins.length,2);
-  joins[0].onclick();await tick();
-  assert.equal(m.commits.length,1);assert.equal(m.commits[0].label,'Join sections');
-  assert.equal(m.commits[0].candidate.sections.length,2);
-  const one=editChordSetup(fixture());one.view.setTool('glue');assert.equal(byClass(one.root,'glue-able').length,0);
-  assert.equal(byClass(mount(repeated()).root,'glue-able').length,0);                // Edit only
-});
-
-test('Edit: a section splits at a row or bar boundary into two non-empty sections and the new name is ready to type', async () => {
-  const f=fixture();f.content.chords.forEach((c,i)=>{if(c.start>=16)c.label=['Am','F','C','E'][i%4];});
-  const m=editChordSetup(f);
-  assert.equal(byClass(m.root,'cut-half').length,0,'only the Cut tool shows cut points');
-  m.view.setTool('cut');
-  const halves=byClass(m.root,'cut-half').filter(n=>!has(n,'off'));assert.ok(halves.length>0,'cut points sit on the bar edges');
-  halves[0].onclick();await tick();
-  assert.equal(m.view.getTool(),'write','the scissors are put down so the new name can be typed');
-  assert.equal(m.commits.length,1);assert.equal(m.commits[0].label,'Split section');
-  const next=m.commits[0].candidate.sections;assert.equal(next.length,2);assert.equal(next[1].name,'New section');
-  assert.equal(next[0].end,next[1].start);assert.ok(next[0].end>next[0].start&&next[1].end>next[1].start);
-  assert.equal(byClass(mount(f).root,'cut-half').length,0);                           // Edit only
+test('Shift+click a repeat count to regroup it, and an unsupported saved grouping can be reset', async () => {
+  const m=mount(fixture());m.view.setMode('timing');
+  const count=byClass(m.root,'repeat')[0];assert.ok(count);count.onclick(shift);
+  assert.match(m.root.textContent,/grouped/);
+  const f=fixture();f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[],compact:{groups:[{section_id:'s',mode:'repeat',passes:[{start:0,end:99,measure_ids:['zzz'],chord_ids:[]}]}]}};
+  const r=mount(f);r.view.setMode('timing');byClass(r.root,'tno')[0].onclick(shift);
+  const reset=byClass(r.root,'fix-link').find(n=>n.textContent==='Reset all my repeat choices');assert.ok(reset);
+  reset.onclick();await tick();assert.equal(r.commits[0].label,'Reset repeat grouping');
+  assert.equal(r.commits[0].candidate.chords.length,16);assert.equal(r.commits[0].candidate.layout.compact,undefined);
 });
 
 // ---- repeat signs ----
@@ -339,80 +462,10 @@ test('a repeated progression starts and ends with repeat signs; a plain row has 
   assert.equal(byClass(mount(f).root,'rep-start').length,0);
 });
 
-// ===================== the tool rail (there are no modes: the tool decides) =====================
-const trayNames=root=>byClass(root,'tool-btn').map(b=>b.dataset.tool);
-const pressed=root=>byClass(root,'tool-btn').filter(b=>b.attributes['aria-pressed']==='true').map(b=>b.dataset.tool).join();
-test('tools: the rail always offers every tool, and the tool decides which view the chart is drawn in', () => {
-  const m=mount(fixture());
-  const all=['navigate','write','cut','glue','repeat','words','barlines'];
-  assert.deepEqual(trayNames(m.root),all);assert.equal(m.view.getTool(),'navigate');assert.equal(m.root.dataset.mode,'nav');
-  m.view.setTool('write');assert.equal(m.root.dataset.mode,'edit');assert.deepEqual(trayNames(m.root),all);
-  m.view.setTool('cut');assert.equal(m.root.dataset.mode,'edit');
-  m.view.setTool('words');assert.equal(m.root.dataset.mode,'timing');assert.equal(byClass(m.root,'tbar').length,4);
-  m.view.setTool('barlines');assert.equal(m.root.dataset.mode,'timing');
-  m.view.setTool('navigate');assert.equal(m.root.dataset.mode,'nav');assert.equal(chordButtons(m.root).length,4);
-  assert.equal(m.view.setTool('bogus'),'navigate');
-});
-
-test('tools: the rail, the controls bar and the status line can all live outside the chart', () => {
-  const f=fixture();installDom();const root=new Node(),dock=new Node(),note=new Node(),status=new Node();
-  const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{},onError:()=>{},dock,note,status});
-  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});
-  assert.equal(byClass(root,'tool-btn').length+byClass(root,'tool-status').length,0,'nothing of the rail or the line sits on the chart');
-  assert.equal(byClass(dock,'tool-btn').length,7);
-  assert.match(status.textContent,/play from there/);assert.equal(byClass(status,'tool-put-down').length,0);
-  view.setTool('cut');
-  assert.equal(note.children.length,0,'a tool with no controls takes no room above the chart');
-  assert.match(status.textContent,/split the section/);assert.equal(byClass(status,'tool-put-down').length,1);
-  view.setTool('repeat');
-  assert.match(status.textContent,/first bar/);
-});
-
-test('tools: every tool has a name, a tooltip, a picture and its key', () => {
-  const m=editChordSetup();
-  for(const b of byClass(m.root,'tool-btn')){
-    assert.ok(b.dataset.tipTitle&&b.dataset.tip.length>30&&b.dataset.tipKey&&b.dataset.tipArt.includes('<svg'),b.dataset.tool);
-    assert.equal(b.attributes.title,undefined,'no instant native tooltip');
-  }
-});
-
-test('tools: picking a tool changes what the chart offers; Esc puts it down to Navigate', async () => {
-  const m=editChordSetup();
-  assert.equal(m.view.getTool(),'write');assert.ok(byClass(m.root,'add-chord').length>0);
-  m.view.setTool('cut');assert.equal(m.root.dataset.tool,'cut');assert.equal(byClass(m.root,'add-chord').length,0);assert.ok(byClass(m.root,'cut-half').length>0);
-  assert.equal(pressed(m.root),'cut');assert.ok(byClass(m.root,'tool-put-down').length===1);
-  assert.equal(m.view.handleKey({key:'Escape'}),true);assert.equal(m.view.getTool(),'navigate');assert.equal(m.view.handleKey({key:'Escape'}),false);
-  assert.equal(m.view.handleKey({key:'r'}),true);assert.equal(m.view.getTool(),'repeat');
-  assert.equal(m.view.handleKey({key:'b'}),true);assert.equal(m.view.getTool(),'barlines');assert.equal(m.root.dataset.mode,'timing');
-  assert.equal(m.view.handleKey({key:'e'}),true);assert.equal(m.view.getTool(),'write','E still means Write');
-  assert.equal(m.view.handleKey({key:'q'}),false);
-});
-
-test('tools: a chord is only editable with the Write tool', async () => {
-  const m=editChordSetup();m.view.setTool('glue');
-  const chord=chordButtons(m.root)[0];chord.onclick();
-  assert.equal(byClass(m.root,'chord-input').length,0);
-  m.view.setTool('write');chordButtons(m.root)[0].onclick();
-  assert.equal(byClass(m.root,'chord-input').length,1);
-});
-
 test('repeat signs are plain shapes (a rule and two dots), never gradients that print as grey blocks', () => {
   const {root}=mount(fixture());
   const signs=byClass(root,'rep-sign');
   assert.equal(signs.length,2);                                      // one at the start and one at the end of the folded row
   assert.ok(signs.every(s=>byClass(s,'rep-dot').length===2));
   assert.ok(signs.some(s=>has(s,'start'))&&signs.some(s=>has(s,'end')));
-});
-
-test('a break in the music (an N chord) is drawn as an empty space, not the letter N, and can still be written into',()=>{
-  const f=fixture();
-  const inner=f.content.chords.filter(c=>c.start>2).sort((a,b)=>a.start-b.start)[3];inner.label='N';  // an interior break: leading and trailing ones are hidden anyway
-  const {root,view}=mount(f);
-  const rests=byClass(root,'rest').filter(n=>n.tagName==='button');
-  assert.ok(rests.length>=1,'the break keeps its place on the chart');
-  assert.ok(rests.every(b=>b.textContent===''),'and shows nothing');
-  assert.ok(!chordButtons(root).some(b=>/^\(?N\)?$/.test(b.textContent.trim())),'no N anywhere');
-  view.setTool('write');rests.length&&byClass(root,'rest').filter(n=>n.tagName==='button')[0].onclick?.({stopPropagation(){}});
-  const input=byClass(root,'chord-input')[0];
-  if(input)assert.equal(input.value,'','typing into a break starts from an empty box');
 });

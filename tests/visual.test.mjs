@@ -269,3 +269,10 @@ test('harmony: what a note means against the chord and the key', () => {
   assert.equal(scaleDegree(72,'F minor').degree,5);assert.equal(scaleDegree(69,'F minor').inScale,false);   // A natural: chromatic in F minor
   assert.equal(melodicInterval(72,79).name,'5th');assert.ok(melodicInterval(72,79).leap);assert.ok(melodicInterval(72,70).step);
 });
+
+test('a playback key pressed in a pop-out visualizer reaches the player', () => {
+  const open=fakeChannels(),actions=[];createVisualPublisher({open,onCommand:a=>actions.push(a)});
+  const receiver=createVisualReceiver({open,onScene(){},onClock(){}});
+  receiver.command({type:'bar',direction:-1});receiver.command({type:'toggle'});
+  assert.deepEqual(actions,[{type:'bar',direction:-1},{type:'toggle'}]);
+});

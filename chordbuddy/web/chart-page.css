@@ -28,7 +28,8 @@
 .chunk{display:flex;flex-direction:column;min-width:2.3em;position:relative}
 .chord-line{display:flex;align-items:flex-start}
 .chord{font:800 25px/1 var(--g);font-stretch:86%;text-align:left;padding:3px 6px 4px;margin:0 0 5px -6px;align-self:flex-start;border-radius:6px;position:relative;color:var(--ink);background:none;border:0}
-.repeat{font:800 15px/1 var(--g);background:var(--a2);color:var(--onA2);border:2px solid var(--ink);padding:5px 9px;border-radius:999px;margin:1px 0 0 8px;transform:rotate(-4deg);white-space:nowrap}
+/* the repeat count is deliberately plain: quiet ink beside the last chord, nothing to compete with the chords themselves */
+.repeat{font:600 14px/1 var(--m);color:color-mix(in srgb,var(--ink) 58%,transparent);margin:7px 0 0 4px;white-space:nowrap}
 .lane{display:flex;align-items:baseline}
 .lyr{font:400 15.5px/23px var(--type);white-space:nowrap;outline:0;border-radius:3px;min-height:23px;display:block}
 .lyr .w{border-radius:3px;transition:background .12s}

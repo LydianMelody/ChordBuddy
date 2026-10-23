@@ -9,9 +9,10 @@ export function snapGrain(duration,viewport){
   return duration/span>=BEAT_ZOOM?'beat':'bar';
 }
 
-// Sorted, de-duplicated times a loop edge may land on.
+// Sorted, de-duplicated times a loop edge may land on. grain 'free' (the magnet off): none, an edge goes exactly where it is dropped.
 export function snapPoints(measures,grain){
   const points=[];
+  if(grain==='free')return points;
   for(const measure of measures||[]){
     if(grain==='beat')points.push(...(measure.beats?.length?measure.beats:[measure.start]));
     else points.push(measure.start);
@@ -52,6 +53,14 @@ export function moveEdge(measures,range,edge,seconds,{grain,duration}){
   }
   const limit=points.find(point=>point>range.start+1e-6)??Math.min(duration,range.start+.1);
   return {start:range.start,end:Math.min(duration,Math.max(snapped,limit))};
+}
+
+// Drag one edge, and when it is pulled past the other edge the two swap roles: the start dragged beyond the end becomes the end.
+// range is the loop as it was when the drag began (its other edge stays put). Returns {range, edge} (edge: the one now being dragged).
+export function dragEdge(measures,range,edge,seconds,options){
+  const fixed=edge==='start'?range.end:range.start;
+  const now=edge==='start'?(seconds>fixed?'end':'start'):(seconds<fixed?'start':'end');
+  return {range:moveEdge(measures,{start:fixed,end:fixed},now,seconds,options),edge:now};
 }
 
 export function sectionAtSeconds(sections,seconds){

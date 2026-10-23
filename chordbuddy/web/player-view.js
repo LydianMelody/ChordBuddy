@@ -9,7 +9,7 @@ const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className
 const withIcon=(button,name)=>{button.innerHTML=icon(name);return button;};
 
 export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},loadWaveform=async()=>null}={}){
- let practice=null,waveRun=null,waveRequest=0,now={chord:'—',next:''},followingSection=null;
+ let practice=null,waveRun=null,waveRequest=0,now={chord:'—',next:''},seeksSeen=0;
  const audio=footer.querySelector('audio');audio.hidden=true;audio.removeAttribute('controls');
  const grid=el('div','nav-grid'),left=el('div','nav-left'),center=el('div','nav-center'),right=el('div','nav-right');
  const nowBox=el('div','nowbox'),nowChord=el('div','nowchord','—'),nowMeta=el('div','nowmeta'),nowLabel=el('small','','Now'),nowSection=el('b','',''),nowNext=el('span','','');
@@ -18,7 +18,7 @@ export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},lo
  const loopButton=el('button','cbtn practice-loop-toggle');const previous=el('button','cbtn player-skip'),play=el('button','cbtn play player-play'),next=el('button','cbtn player-skip');
  for(const b of [loopButton,previous,play,next])b.type='button';
  withIcon(loopButton,'loop');withIcon(previous,'rewind');withIcon(next,'ffwd');
- loopButton.title='Loop (drag on the waveform to choose a range)';loopButton.setAttribute('aria-label','Loop');previous.title='Previous section';next.title='Next section';
+ loopButton.title='Loop this section (R) · drag on the waveform to choose a range';loopButton.setAttribute('aria-label','Loop');previous.title='Previous section';next.title='Next section';
  previous.setAttribute('aria-label','Previous section');next.setAttribute('aria-label','Next section');
  controls.append(loopButton,previous,play,next);left.append(nowBox,controls);
  const timelineRoot=el('div','practice-timeline');center.append(timelineRoot);
@@ -32,14 +32,14 @@ export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},lo
  function jump(direction){const s=transport.getSnapshot(),list=sections();let index=list.findIndex(v=>s.seconds>=v.start&&s.seconds<v.end);if(index<0)index=s.seconds<(list[0]?.start??0)?-1:list.length;const target=direction<0?(index>=0&&index<list.length&&s.seconds>list[index].start+.5?list[index]:list[Math.max(0,index-1)]):list[index+1];if(target)transport.seek(target.start).catch(onError);}
  previous.onclick=()=>jump(-1);next.onclick=()=>jump(1);
  play.onclick=()=>{if(transport.getSnapshot().playIntent)transport.pause();else transport.play().catch(onError);};
- // Loop button: off keeps the chosen range for later; on with a range goes back to it; on with no range loops the current section.
- loopButton.onclick=()=>{
-  const s=transport.getSnapshot(),l=s.loop;
-  if(l.enabled){transport.setLoop({...l,enabled:false}).catch(onError);return;}
-  if(l.start!==null){transport.setLoop({...l,enabled:true,implicit:false},{seekTo:s.playIntent?l.start:undefined}).catch(onError);return;}
+ // Loop (the button or R): on loops the section you are in, off ends the loop. Its handles on the waveform then set any range.
+ function toggleLoop(){
+  const s=transport.getSnapshot();if(!s.ready)return;
+  if(s.loop.enabled){transport.setLoop(null).catch(onError);return;}
   const section=sectionAtSeconds(sections(),s.seconds)||sections()[0];
   if(section)transport.setLoop({enabled:true,start:section.start,end:section.end,implicit:true}).catch(onError);
- };
+ }
+ loopButton.onclick=toggleLoop;
  // Speed: the stepper is honest. It stays disabled until the transport can really change tempo without changing pitch.
  const canSpeed=()=>typeof transport.setRate==='function';
  const stepRate=direction=>{const s=transport.getSnapshot();transport.setRate(stepSpeed(s.rate??100,direction)).catch(onError);};
@@ -58,14 +58,17 @@ export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},lo
   slower.disabled=!s.ready||!canSpeed()||rateValue<=SPEED_MIN;faster.disabled=!s.ready||!canSpeed()||rateValue>=SPEED_MAX;
   speed.title=canSpeed()?'Practice speed':'Speed control is coming soon';
   status.textContent=!s.ready?s.readiness:s.buffering?'Buffering…':s.error?s.error:'';
-  if(!s.loop?.implicit)followingSection=null;
-  // With the loop on and no explicit range, the loop follows whichever section the playhead is in.
-  if(s.loop?.enabled&&s.loop.implicit&&section&&!s.buffering&&(s.loop.start!==section.start||s.loop.end!==section.end)&&followingSection!==section.id){
-   followingSection=section.id;transport.setLoop({enabled:true,start:section.start,end:section.end,implicit:true}).catch(onError);
+  // A section loop (not one whose handles you moved) follows you when you jump to another section. Only a seek moves it: playback itself
+  // never does (the playhead reported just after the loop wraps, or as playback starts, can sit a moment before the section's start).
+  const seeked=s.seeks!==seeksSeen;seeksSeen=s.seeks;
+  if(seeked&&s.loop?.enabled&&s.loop.implicit&&section&&(s.loop.start!==section.start||s.loop.end!==section.end)){
+   transport.setLoop({enabled:true,start:section.start,end:section.end,implicit:true}).catch(onError);
   }
  }
  const unsubscribe=transport.subscribe(paint);
  return {
+  toggleLoop,
+  sectionStarts:()=>sections().map(section=>section.start),
   setPractice(data){practice=data;timeline.update(data);paint(transport.getSnapshot());},
   setNow(value){now={chord:value?.chord||'—',next:value?.next||''};paint(transport.getSnapshot());},
   setWaveformRun(run){

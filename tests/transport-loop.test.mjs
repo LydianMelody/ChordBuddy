@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {Transport} from '../chordbuddy/web/transport.js';
+import {Transport,heardSeconds} from '../chordbuddy/web/transport.js';
 class Audio{constructor(){this.events={};}addEventListener(k,f){this.events[k]=f;}pause(){}async play(){}load(){}removeAttribute(){}}
 const manifest={run_id:'r',song_id:'s',frames:4410000,common_gain:1};   // 100 s
 function fixture(){
@@ -70,4 +70,33 @@ test('a loop that reaches past the end of the streamed audio is clipped to it', 
   const {transport,load,primes}=fixture();await load();
   await transport.setLoop({enabled:true,start:90,end:100});await transport.play();
   assert.equal(primes()[0][3].end,4410000);
+});
+
+// What is heard: the engine's frame less what is still on its way to the speakers, never before where playback started, and just after
+// a loop wraps, the end of the loop still sounding (not the bars before the loop: that made a section loop follow itself backwards).
+test('the playhead never reads earlier than where playback started, nor before a loop it has just wrapped', () => {
+  const f=s=>Math.round(s*44100),loop={start:52,end:79};
+  const at=(seconds,played,latency=.03,state='playing')=>({sourceFrame:f(seconds),played:f(played),latency,state});
+  assert.equal(+heardSeconds(at(52.01,.01),{start:52,loop}).toFixed(3),52,'starting at a section: not 30 ms before it');
+  assert.equal(+heardSeconds(at(10.01,.01),{start:10,loop:null}).toFixed(3),10);
+  assert.equal(+heardSeconds(at(60,8),{start:52,loop}).toFixed(3),59.97,'later on, the latency is taken off as before');
+  assert.equal(+heardSeconds(at(52.02,27.02,.05),{start:52,loop}).toFixed(3),78.97,'just after the wrap: the loop end still sounding');
+  assert.equal(+heardSeconds(at(52.2,27.2,.05),{start:52,loop}).toFixed(3),52.15);
+  assert.equal(+heardSeconds(at(30,0,.03,'paused'),{start:30,loop:null}).toFixed(3),30,'paused: nothing in flight');
+});
+
+test('a seek that makes a listener start another handoff (a section loop following) keeps playing, with no superseded error', async () => {
+  // like the real session: priming again cancels the request still waiting
+  let pending=null;const calls=[];
+  const pcm={prime:(...a)=>{calls.push(a);if(pending)pending.reject(Error('Playback request superseded'));return new Promise((resolve,reject)=>{pending={resolve,reject};setImmediate(()=>{if(pending?.resolve===resolve){pending=null;resolve();}});});},
+    play:()=>{},mix:()=>{},mode:()=>{},rate:()=>{},dispose:()=>{},resume:async()=>{}};
+  const transport=new Transport({audio:new Audio(),token:'t',createPcm:async()=>pcm});
+  await transport.loadSong({songId:'s'});await transport.setReadiness({song_id:'s',ready:true,active:manifest});
+  await transport.setLoop({enabled:true,start:0,end:10,implicit:true});await transport.play();
+  let followed=false;
+  transport.subscribe(s=>{if(!followed&&s.seeks===1){followed=true;transport.setLoop({enabled:true,start:40,end:60,implicit:true});}});
+  await transport.seek(45);await new Promise(r=>setTimeout(r,20));
+  const state=transport.getSnapshot();
+  assert.equal(state.error,null);assert.equal(state.playIntent,true);assert.deepEqual([state.loop.start,state.loop.end],[40,60]);
+  assert.deepEqual(calls.at(-1).slice(1),[45*44100,{start:40*44100,end:60*44100}],'the stream starts once more, at the seek, with the new loop');
 });

@@ -65,45 +65,62 @@
 .jhead .jt .jtitle:focus{border-bottom-color:var(--a1)}
 .jhead .jt .jtitle:empty::before{content:attr(data-placeholder);color:var(--faint)}
 
-/* ---------- Write: other tools leave the chart's words and chords alone ---------- */
-[data-mode="edit"][data-tool]:not([data-tool="write"]) :is(.chord,.add-chord,.lyr,.lane-tag,.pass-pick,.sec-name,.add-lyrics){pointer-events:none}
-[data-mode="edit"][data-tool]:not([data-tool="write"]) .lane-edit{opacity:.55}
-[data-mode="timing"][data-tool="barlines"] :is(.wchip,.pinb){pointer-events:none}
-[data-mode="timing"][data-tool="barlines"] .wchip{opacity:.6}
+/* ---------- the keys you hold: a click plays from there; Ctrl edits what is written; Shift works in time ---------- */
+/* the chart has no tools of its own (the lead sheet and the MIDI view still use the rail) */
+#workspace[data-kind="chart"] .tool-rail{display:none}
+.lane-add,.zone-split,.zone-join,.zone-barline,.zone-beat{display:none}
+:is(.chord,.lyr .w,.sec-head,.bar-no,.wchip,.tchord,.tno){cursor:pointer}
+.zone-split,.zone-join,.zone-barline,.zone-beat{position:absolute;z-index:6;min-width:0;min-height:0;margin:0;padding:0;border:0;border-radius:4px;background:transparent}
+[data-keys~="ctrl"] :is(.zone-split,.zone-join,.zone-barline,.zone-beat){display:block}
 
-/* ---------- Cut ---------- */
-.cut-zone{position:absolute;inset:-4px -3px -2px -3px;display:flex;z-index:6}
-.cut-half{position:relative;flex:1;min-width:0;min-height:0;padding:0;border:0;background:none;cursor:var(--cur-cut,crosshair)}
-.cut-half.off{cursor:not-allowed;pointer-events:none}
-.cut-half::before{content:'';position:absolute;top:0;bottom:0;border-left:3.5px dashed var(--a1);opacity:0;transition:opacity .1s}
-.cut-half.left::before{left:-2px}
-.cut-half.right::before{right:-2px}
-.cut-half:not(.off):hover::before,.cut-half:focus-visible::before{opacity:1}
-.cut-half:not(.off):hover.left{background:linear-gradient(90deg,color-mix(in srgb,var(--a1) 22%,transparent),transparent 65%)}
-.cut-half:not(.off):hover.right{background:linear-gradient(270deg,color-mix(in srgb,var(--a1) 22%,transparent),transparent 65%)}
-.cut-half .snip{position:absolute;top:-17px;display:grid;place-items:center;width:26px;height:26px;border:2px solid var(--ink);border-radius:50%;background:var(--hl);color:var(--ink);box-shadow:2px 2px 0 var(--ink);opacity:0;transform:scale(.6) rotate(-30deg);transition:opacity .12s,transform .16s}
-.cut-half.left .snip{left:-14px}
-.cut-half.right .snip{right:-14px}
-.cut-half:not(.off):hover .snip,.cut-half:focus-visible .snip{opacity:1;transform:none}
-.cut-half .snip .tool-ic{width:17px;height:17px}
-
-/* ---------- Join ---------- */
-[data-tool="glue"] .sec-head.glue-able{position:relative;margin-left:-8px;padding:4px 8px;border:2px dashed transparent;border-radius:12px;cursor:var(--cur-glue,pointer);transition:background .12s,border-color .12s}
-[data-tool="glue"] .sec-head.glue-able:hover,[data-tool="glue"] .sec-head.glue-able:focus-visible{border-color:var(--a1);background:color-mix(in srgb,var(--hl) 55%,transparent);outline:none}
-.glue-badge{margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 6px;border:2px solid var(--ink);border-radius:999px;background:var(--page);color:var(--ink);font:700 11px var(--m);box-shadow:2px 2px 0 var(--ink);opacity:.55;transition:opacity .12s,transform .12s}
-.glue-badge .tool-ic{width:22px;height:22px;padding:2px;border-radius:50%;background:#FBF7EE;color:#1A1C24}
-.sec-head.glue-able:hover .glue-badge,.sec-head.glue-able:focus-visible .glue-badge{opacity:1;transform:translateY(-1px)}
-
-/* ---------- Repeat ---------- */
-[data-tool="repeat"] .bar-no.pickable{cursor:var(--cur-repeat,pointer)}
-
-/* ---------- Barlines ---------- */
-[data-tool="barlines"] :is(.beat-split,.bar-handle){cursor:var(--cur-barlines,pointer)}
-[data-tool="barlines"] .bar-handle{cursor:ew-resize}
-[data-tool="barlines"] .tbar .beat-split{opacity:.45}
-[data-tool="barlines"] .tbar:hover .beat-split{opacity:.8}
-[data-tool="barlines"] .tbar .bar-handle::after{content:'';position:absolute;left:7px;top:4px;bottom:4px;width:4px;border-radius:3px;background:var(--a2);opacity:.5}
-[data-tool="barlines"] .tbar .bar-handle:hover::after{opacity:1}
+/* Ctrl: the chords and the words of a row are typed, a section name retyped */
+[data-keys~="ctrl"] :is(.chord,.lyr,.lyr .w,.sec-name){cursor:text}
+[data-keys~="ctrl"] .chord:not(.rest){outline:2px dashed color-mix(in srgb,var(--a1) 45%,transparent);outline-offset:-1px}
+[data-keys~="ctrl"] .chord-line:hover .chord{background:color-mix(in srgb,var(--a1) 16%,transparent);outline-color:var(--a1)}
+[data-keys~="ctrl"] .lyr:hover{box-shadow:inset 0 -2px 0 var(--a2);background:color-mix(in srgb,var(--a2) 10%,transparent)}
+[data-keys~="ctrl"] .sec-name:hover{outline:2px dashed var(--ink);outline-offset:2px}
+[data-keys~="ctrl"] .lane-add{display:block;margin:4px 0 2px 12px;padding:2px 6px;border:2px dashed color-mix(in srgb,var(--a2) 55%,transparent);border-radius:6px;font:italic 400 14px/20px var(--type);color:var(--faint);cursor:text}
+[data-keys~="ctrl"] .lane-add:hover{border-color:var(--a2);color:var(--soft)}
+.sec-copy{display:none}
+[data-keys~="ctrl"] .sec-copy,[data-mode="timing"] .sec-copy{display:inline-block}
+/* the row being typed into: its lines look like what they are */
+.row.editing .lyr{cursor:text;box-shadow:inset 0 -2px 0 color-mix(in srgb,var(--a1) 40%,transparent);min-width:2.3em}
+.row.editing .lyr:focus{background:color-mix(in srgb,var(--hl) 50%,transparent);box-shadow:inset 0 -2px 0 var(--a1)}
+.row.editing .lyr:empty::before{content:attr(data-placeholder);color:var(--faint);font-style:italic}
+.row.editing .lane-tag{cursor:pointer}
+.row.editing .lane-tag.target{background:var(--a1);color:var(--onA1);border-color:var(--ink)}
+.chord-edit{margin:0 0 6px}
+.chord-edit .chord-type{font:800 22px/1.2 var(--g);font-stretch:86%;letter-spacing:.02em;white-space:pre-wrap}
+/* Ctrl: the strip above a line starts a new section at the bar under it; the strip above a section joins it to the one before */
+.zone-split{left:-3px;right:0;top:-13px;height:11px;cursor:var(--cur-cut,crosshair)}
+[data-keys~="ctrl"] .zone-split{background:color-mix(in srgb,var(--hl) 30%,transparent)}
+.zone-split:hover{background:color-mix(in srgb,var(--hl) 85%,transparent)}
+.zone-split:hover::after{content:'';position:absolute;left:0;top:0;height:64px;border-left:3.5px dashed var(--a1);pointer-events:none}
+.zone-join{left:-8px;right:0;top:2px;height:13px;cursor:var(--cur-glue,pointer)}
+[data-keys~="ctrl"] .zone-join{background:color-mix(in srgb,var(--hl) 45%,transparent)}
+.zone-join:hover{background:var(--hl);box-shadow:inset 0 0 0 2px var(--a1)}
+/* Ctrl: a barline joins the bars on either side; a beat splits its bar there */
+.zone-barline{left:-8px;top:0;bottom:0;width:13px;cursor:var(--cur-glue-bars,pointer)}
+.zone-barline:hover{background:linear-gradient(90deg,transparent 4px,var(--a3) 4px 9px,transparent 9px)}
+.zone-beat{top:0;width:14px;height:16px;margin-left:-7px;cursor:var(--cur-barlines,copy)}
+.zone-beat::after{content:'';position:absolute;left:6px;top:2px;bottom:2px;width:2px;border-radius:2px;background:var(--a2);opacity:.55}
+.zone-beat:hover::after{opacity:1;width:3px;left:5.5px}
+.tbar :is(.beat-split,.bar-handle){display:none}
+[data-keys~="ctrl"] .tbar :is(.beat-split,.bar-handle){display:block}
+[data-keys~="ctrl"] .tbar .beat-split{display:grid;opacity:.45;cursor:var(--cur-barlines,copy)}
+[data-keys~="ctrl"] .tbar:hover .beat-split{opacity:.8}
+[data-keys~="ctrl"] .tbar .bar-handle::after{content:'';position:absolute;left:7px;top:4px;bottom:4px;width:4px;border-radius:3px;background:var(--a2);opacity:.5}
+[data-keys~="ctrl"] .tbar .bar-handle:hover::after{opacity:1}
+/* Shift: words and chords are dragged in time; a bar number folds a repeat, a repeat count regroups it */
+[data-mode="timing"] .wchip{cursor:pointer}
+[data-keys~="shift"] :is(.wchip,.tchord){cursor:grab}
+[data-keys~="shift"] :is(.wchip,.tchord):hover{box-shadow:0 0 0 2px var(--a1)}
+[data-keys~="shift"] :is(.tno,.tchord .repeat){cursor:var(--cur-repeat,pointer)}
+[data-keys~="shift"] .tno:hover{color:var(--a1);text-decoration:underline}
+.tchord.lifted{opacity:.6}
+.tbar.rt-sel{background:color-mix(in srgb,var(--hl) 70%,transparent);box-shadow:inset 0 0 0 2px var(--a1)}
+.pinb{cursor:default}
+[data-keys~="shift"] .pinb{cursor:pointer}
 
 /* ---------- tooltips ---------- */
 .tip{position:fixed;z-index:200;width:max-content;max-width:268px;padding:10px 13px 12px;border:var(--bd) solid var(--ink);border-radius:16px;background:var(--ink);color:var(--page);box-shadow:4px 4px 0 var(--a1);pointer-events:none;opacity:0;transform:translateY(5px) scale(.97);transition:opacity .15s,transform .15s}
@@ -207,3 +224,25 @@ body.panning,body.panning *{cursor:grabbing!important;user-select:none!important
 button.meter-box{min-height:0;border:0;border-left:var(--bd) solid var(--ink);border-radius:0;background:var(--page);color:var(--ink);cursor:pointer;box-shadow:none}
 button.meter-box:hover{background:var(--hl);color:#1A1C24}
 button.meter-box:hover hr{border-top-color:#1A1C24}
+
+/* ---------- the chart's toolbar is one line: the tabs, "Apply to" and the note on the keys, then history ---------- */
+#workspace[data-kind="chart"] .toolbar>.tool-options{order:2;flex:1 1 280px}
+#workspace[data-kind="chart"] .toolbar>.hist{order:3}
+#workspace[data-kind="chart"] .tool-options>.opt-edit{order:1}
+#workspace[data-kind="chart"] .tool-options>.key-legend{order:2}
+#workspace[data-kind="chart"] .tool-options>.opt-timing{order:3}
+#workspace[data-kind="chart"] .tool-note{order:4}
+#workspace:not([data-kind="chart"]) .key-legend{display:none}
+/* the one thing to know about editing the chart, so it gets the color: the tool that is in use lights up */
+.key-legend{margin:0;padding:4px 12px;border:2px solid var(--ink);border-radius:999px;background:var(--hl);color:#1A1C24;font:700 12px/1.5 var(--m);box-shadow:2px 2px 0 var(--ink);min-width:0;text-wrap:balance}
+.key-legend kbd{padding:0 5px;border:1.5px solid #1A1C24;border-radius:5px;background:#fff;font:800 11px var(--m);box-shadow:1px 1px 0 #1A1C24}
+.key-legend mark{display:inline-block;padding:0 5px;border-radius:6px;background:none;color:inherit;font-weight:800;text-decoration:underline 2.5px;text-underline-offset:3px;transition:background .15s,color .15s,transform .15s}
+.key-legend .k-edit{text-decoration-color:var(--a1)}
+.key-legend .k-time{text-decoration-color:var(--a2)}
+.key-legend.editing .k-edit{background:var(--a1);color:var(--onA1);text-decoration-color:transparent;transform:rotate(-3deg) scale(1.08)}
+.key-legend.timing .k-time{background:var(--a2);color:var(--onA2);text-decoration-color:transparent;transform:rotate(3deg) scale(1.08)}
+@media (prefers-reduced-motion:reduce){.key-legend mark{transition:none;transform:none!important}}
+/* with everything on that one line, the chart sits closer to the top */
+#app:has(#workspace[data-kind="chart"]:not(.hidden)) .top{padding-bottom:2px}
+#workspace[data-kind="chart"] .toolbar{padding-bottom:4px}
+#workspace[data-kind="chart"] #desk{padding-top:2px}

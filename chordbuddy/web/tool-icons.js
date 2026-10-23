@@ -60,8 +60,10 @@ export const toolIcon=(name,cls='')=>`<svg class="tool-ic ${cls}" viewBox="0 0 3
 
 // Cursors: the tool's own icon, in plain ink and yellow so it reads on any theme.
 const CURSOR_HOT={navigate:[6,4],cut:[16,6],glue:[16,16],repeat:[16,16],barlines:[16,16],words:[16,16],write:[16,16]};
-export function toolCursor(name){
-  const body=(TOOL_ICONS[name]||'').replace(/var\(--hl\)/g,'#FFD84A').replace(/var\(--page\)/g,'#FBF7EE').replace(/currentColor/g,'#1A1C24').replace(/style="[^"]*"/g,'');
+// `turn` rotates the icon (in degrees): the glue cards pressing side by side are joining bars, not sections.
+export function toolCursor(name,turn=0){
+  const icon=(TOOL_ICONS[name]||'').replace(/var\(--hl\)/g,'#FFD84A').replace(/var\(--page\)/g,'#FBF7EE').replace(/currentColor/g,'#1A1C24').replace(/style="[^"]*"/g,'');
+  const body=turn?`<g transform="rotate(${turn} 16 16)">${icon}</g>`:icon;
   const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="#1A1C24" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
   const [x,y]=CURSOR_HOT[name]||[16,16];
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${x} ${y}, crosshair`;

@@ -204,6 +204,7 @@ export function mountVisualizer(container){
   raf=requestAnimationFrame(draw);
   return {
     toolbar,
+    command:action=>receiver.command(action),           // a playback key, for the player (a pop-out window has no player of its own)
     dispose(){disposed=true;cancelAnimationFrame(raf);clearTimeout(idleTimer);receiver.dispose();try{active?.dispose?.();}catch{}mixer.dispose();
       container.ownerDocument.removeEventListener('keydown',keys,true);container.removeEventListener('pointermove',wake);canvas.remove();toolbar.remove();},
   };

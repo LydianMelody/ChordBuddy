@@ -15,24 +15,26 @@ export function zoomForRange(range,span,zoom,[lowest,highest]){
 }
 
 /**
- * One zoom for the bottom bar made of two: the beat grid's own zoom, and below its smallest, the page shrinking as a whole (chord names and
- * all) down to `floor`, so a row of bars can always be seen whole. Zooming back in, or release(), gives the page back its own zoom.
- * timing, page: {get(), set(value)}; timing also has limits [lowest, highest].
+ * One zoom for the bottom bar made of two: the beat grid's own zoom, and beyond its limits the page itself growing or shrinking (chord names
+ * and all). Below the smallest grid the page shrinks down to `floor`, so a row of bars can always be seen whole; above the largest grid it
+ * grows up to `ceiling` (null: never), so pulling the bar's grips reaches exactly as far as Ctrl+wheel does. Zooming back, or release(),
+ * gives the page back its own zoom. timing, page: {get(), set(value)}; timing also has limits [lowest, highest].
  */
-export function combinedZoom(timing,page,floor=.5){
-  let own=null;                                                     // the page's zoom before the bar shrank it (null: not shrunk)
+export function combinedZoom(timing,page,floor=.5,ceiling=null){
+  let own=null;                                                     // the page's zoom before the bar changed it (null: not changed)
   const base=()=>own??page.get();
   const api={
-    get limits(){return [timing.limits[0]*floor,timing.limits[1]*base()];},
+    get limits(){return [timing.limits[0]*floor,timing.limits[1]*(ceiling??base())];},
     get:()=>timing.get()*page.get(),
     set(value){
-      const lowest=timing.limits[0],natural=base();
-      if(value>=lowest*natural){
+      const [lowest,highest]=timing.limits,natural=base();
+      if(value>=lowest*natural&&(ceiling===null||value<=highest*natural)){
         if(own!==null){page.set(own);own=null;}
-        timing.set(Math.min(timing.limits[1],value/natural));
+        timing.set(Math.min(highest,value/natural));
       }else{
         if(own===null)own=page.get();
-        timing.set(lowest);page.set(Math.max(floor,value/lowest));
+        if(value<lowest*natural){timing.set(lowest);page.set(Math.max(floor,value/lowest));}
+        else{timing.set(highest);page.set(Math.min(ceiling,value/highest));}
       }
     },
     release(){if(own!==null){page.set(own);own=null;}},

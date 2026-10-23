@@ -108,9 +108,24 @@ test('an existing loop shows its range and bar label, and the clear button remov
  root.querySelector('.practice-loop-clear').onclick();assert.deepEqual(loops,[[null,undefined]]);
 });
 
-test('a disabled loop is drawn dimmed so it is clearly not active',()=>{
+test('a loop that is off is not drawn at all',()=>{
  const {root}=nav({loopState:{enabled:false,start:4,end:8}});
- assert.match(pick(root,'practice-loop')[0].className,/off/);assert.match(root.querySelector('.practice-loop-text').textContent,/Loop off/);
+ assert.doesNotMatch(pick(root,'practice-loop')[0].className,/\bshow\b/);assert.equal(pick(root,'practice-overview-loop')[0].style.display,'none');
+ const on=nav({loopState:{enabled:true,start:4,end:8}});assert.match(pick(on.root,'practice-loop')[0].className,/\bshow\b/);
+});
+
+test('dragging the start handle past the end swaps them, and the magnet off places an edge freely',()=>{
+ const {root,loops,e,mounted}=nav({loopState:{enabled:true,start:4,end:8}});
+ const surface=pick(root,'practice-scrubber')[0];surface.getBoundingClientRect=()=>({left:0,width:160});
+ const start=pick(root,'practice-loop-handle').find(n=>n.className.includes('start'));start.setPointerCapture=()=>{};start.releasePointerCapture=()=>{};
+ start.onpointerdown(e(40));start.onpointermove(e(122));start.onpointerup(e(122));
+ assert.deepEqual(loops.at(-1)[0],{enabled:true,start:8,end:12});
+ const magnet=pick(root,'practice-loop-magnet')[0];assert.match(magnet.className,/\bon\b/);
+ magnet.onclick({stopPropagation(){}});assert.doesNotMatch(magnet.className,/\bon\b/);
+ const end=pick(root,'practice-loop-handle').find(n=>n.className.includes('end'));end.setPointerCapture=()=>{};end.releasePointerCapture=()=>{};
+ end.onpointerdown(e(80));end.onpointermove(e(113));end.onpointerup(e(113));
+ assert.ok(Math.abs(loops.at(-1)[0].end-11.3)<1e-9,'exactly where it was dropped');
+ magnet.onclick({stopPropagation(){}});mounted.dispose();
 });
 
 test('dragging a loop handle moves only that edge, snapped, without seeking',()=>{

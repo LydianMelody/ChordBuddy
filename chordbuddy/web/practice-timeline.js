@@ -1,6 +1,7 @@
 import {musicalPosition} from './musical-grid.js';
 import {buildPracticeMarkers} from './practice-state.js';
-import {snapGrain,snapRange,moveEdge,describeRange,BEAT_ZOOM} from './loop-range.js';
+import {snapGrain,snapRange,dragEdge,describeRange,BEAT_ZOOM} from './loop-range.js';
+import {icon} from './icons.js';
 import {createZoomBar} from './zoom-bar.js';
 import {prefs} from './prefs.js';
 
@@ -65,8 +66,9 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
  const canvas=node('canvas','practice-waveform-canvas'),played=node('canvas','practice-waveform-canvas played'),notice=node('span','practice-waveform-notice');
  canvas.setAttribute('aria-label','Recording waveform');wave.append(canvas,played,notice);
  const seek=node('input','practice-seek');seek.type='range';seek.min=0;seek.max=0;seek.step=.001;seek.value=0;seek.setAttribute('aria-label','Playback position');wave.append(seek);
- const loop=node('div','practice-loop'),loopStart=node('i','practice-loop-handle start'),loopEnd=node('i','practice-loop-handle end'),tag=node('span','practice-loop-tag'),tagText=node('span','practice-loop-text','Loop'),clear=node('button','practice-loop-clear','×');
- clear.type='button';clear.title='Clear loop';clear.setAttribute('aria-label','Clear loop');loopStart.setAttribute('aria-label','Loop start');loopEnd.setAttribute('aria-label','Loop end');tag.append(tagText,clear);loop.append(loopStart,loopEnd,tag);
+ const loop=node('div','practice-loop'),loopStart=node('i','practice-loop-handle start'),loopEnd=node('i','practice-loop-handle end'),tag=node('span','practice-loop-tag'),tagText=node('span','practice-loop-text','Loop'),clear=node('button','practice-loop-clear','×'),magnet=node('button','practice-loop-magnet');
+ clear.type='button';clear.title='Clear loop';clear.setAttribute('aria-label','Clear loop');loopStart.setAttribute('aria-label','Loop start');loopEnd.setAttribute('aria-label','Loop end');magnet.type='button';magnet.innerHTML=icon('magnet');
+ tag.append(tagText,magnet,clear);loop.append(loopStart,loopEnd,tag);
  const playhead=node('div','practice-playhead'),grip=node('i','practice-playhead-grip'),position=node('span','practice-position');playhead.setAttribute('aria-label','Playhead');playhead.append(grip);
  surface.append(band,sections,wave,loop,playhead,position);container.append(surface);
 
@@ -115,7 +117,13 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
   const half=width/2+4;position.style.left=Math.max(half,Math.min(lane-half,lane*percent/100))+'px';
  }
  const timeAt=(clientX,axis,element=seek)=>{const rect=element.getBoundingClientRect();return axis.start+Math.max(0,Math.min(1,(clientX-rect.left)/Math.max(1,rect.width)))*(axis.end-axis.start);};
- const grain=()=>snapGrain(duration(),visible());
+ // The loop's magnet: on, its edges snap to bars (or beats when zoomed in); off, they go exactly where they are dropped.
+ let snapping=prefs.get('cb-loop-snap','1')!=='0';
+ const paintMagnet=()=>{magnet.classList.toggle('on',snapping);magnet.setAttribute('aria-pressed',String(snapping));magnet.title=snapping?'Snapping to the grid (click to place freely)':'Placing freely (click to snap to the grid)';magnet.setAttribute('aria-label','Snap the loop to the grid');};
+ paintMagnet();
+ magnet.onpointerdown=e=>e.stopPropagation?.();
+ magnet.onclick=e=>{e.stopPropagation?.();snapping=!snapping;prefs.set('cb-loop-snap',snapping?'1':'0');paintMagnet();};
+ const grain=()=>snapping?snapGrain(duration(),visible()):'free';
  const currentLoop=()=>{const l=transport.getSnapshot().loop;return l&&l.start!==null&&l.end!==null?l:null;};
 
  function drawWave(active){
@@ -148,14 +156,15 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
  }
 
  function paintLoop(s,v){
-  const l=draft||currentLoop(),shown=!!l&&l.end>v.start&&l.start<v.end;
-  loop.classList.toggle('show',shown);loop.classList.toggle('off',!!l&&!draft&&!s.loop?.enabled);loop.classList.toggle('draft',!!draft);
+  // a loop that is off is not drawn at all (turning it on again loops the section you are in)
+  const l=draft||(s.loop?.enabled?currentLoop():null),shown=!!l&&l.end>v.start&&l.start<v.end;
+  loop.classList.toggle('show',shown);loop.classList.toggle('draft',!!draft);
   overviewLoop.style.display=l?'block':'none';
   if(!l)return;
   const b=bounds(),left=Math.max(0,percentOf(l.start,v)),right=Math.min(100,percentOf(l.end,v));
   loop.style.left=left+'%';loop.style.width=Math.max(0,right-left)+'%';
   loopStart.style.display=percentOf(l.start,v)>=0?'block':'none';loopEnd.style.display=percentOf(l.end,v)<=100?'block':'none';
-  tagText.textContent=(draft?'':s.loop?.enabled?'Loop · ':'Loop off · ')+describeRange(numbered(),l);
+  tagText.textContent=(draft?'':'Loop · ')+describeRange(numbered(),l);
   overviewLoop.style.left=percentOf(l.start,b)+'%';overviewLoop.style.width=Math.max(.5,percentOf(l.end,b)-percentOf(l.start,b))+'%';
  }
 
@@ -209,9 +218,10 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
  grip.onpointerup=e=>{if(gesture?.kind!=='scrub'||e.pointerId!==gesture.pointer)return;previewSeek(e);grip.releasePointerCapture?.(e.pointerId);commitSeek();};
  grip.onpointercancel=e=>{if(gesture?.kind!=='scrub'||e.pointerId!==gesture.pointer)return;grip.releasePointerCapture?.(e.pointerId);draggingSeek=false;finishGesture();paint(transport.getSnapshot());};
  for(const [handle,edge] of [[loopStart,'start'],[loopEnd,'end']]){
-  handle.onpointerdown=e=>{const l=currentLoop();if(e.button!==0||!l)return;e.preventDefault();e.stopPropagation?.();gesture={kind:'edge',edge,pointer:e.pointerId,axis:{...visible()},grain:grain(),range:{start:l.start,end:l.end}};seekAxis=gesture.axis;handle.setPointerCapture(e.pointerId);};
-  handle.onpointermove=e=>{if(gesture?.kind!=='edge'||gesture.edge!==edge||e.pointerId!==gesture.pointer)return;draft=moveEdge(measures(),gesture.range,edge,timeAt(e.clientX,gesture.axis,surface),options());paint(transport.getSnapshot());};
-  handle.onpointerup=e=>{if(gesture?.kind!=='edge'||gesture.edge!==edge||e.pointerId!==gesture.pointer)return;handle.releasePointerCapture?.(e.pointerId);const range=draft;finishGesture();if(range)applyLoop(range);};
+  // the handle keeps the pointer for the whole drag, even after its edge swaps roles with the other one
+  handle.onpointerdown=e=>{const l=currentLoop();if(e.button!==0||!l)return;e.preventDefault();e.stopPropagation?.();gesture={kind:'edge',edge,handle,pointer:e.pointerId,axis:{...visible()},grain:grain(),range:{start:l.start,end:l.end}};seekAxis=gesture.axis;handle.setPointerCapture(e.pointerId);};
+  handle.onpointermove=e=>{if(gesture?.kind!=='edge'||gesture.handle!==handle||e.pointerId!==gesture.pointer)return;draft=dragEdge(measures(),gesture.range,edge,timeAt(e.clientX,gesture.axis,surface),options()).range;paint(transport.getSnapshot());};
+  handle.onpointerup=e=>{if(gesture?.kind!=='edge'||gesture.handle!==handle||e.pointerId!==gesture.pointer)return;handle.releasePointerCapture?.(e.pointerId);const range=draft;finishGesture();if(range)applyLoop(range);};
   handle.onpointercancel=e=>{if(gesture?.kind!=='edge'||e.pointerId!==gesture.pointer)return;handle.releasePointerCapture?.(e.pointerId);finishGesture();paint(transport.getSnapshot());};
  }
  clear.onclick=()=>{transport.setLoop(null).catch(onError);};

@@ -53,13 +53,16 @@
 /* loop range */
 .practice-loop{position:absolute;top:24px;bottom:0;display:none;z-index:3;background:color-mix(in srgb,var(--violet) 22%,transparent);border-left:3px solid var(--violet);border-right:3px solid var(--violet);pointer-events:none}
 .practice-loop.show{display:block}
-.practice-loop.off{opacity:.5;filter:grayscale(.7)}
 .practice-loop.draft{background:color-mix(in srgb,var(--violet) 30%,transparent);border-style:dashed}
 .practice-loop-handle{position:absolute;top:-2px;width:14px;height:20px;background:var(--violet);border:2px solid var(--ink);border-radius:4px;cursor:ew-resize;pointer-events:auto;box-sizing:border-box}
 .practice-loop-handle.start{left:-9px}.practice-loop-handle.end{right:-9px}
 .practice-loop-tag{position:absolute;bottom:4px;left:6px;display:flex;align-items:center;gap:4px;white-space:nowrap;background:var(--violet);color:#fff;font:700 10px var(--m);padding:2px 4px 2px 7px;border:2px solid var(--ink);border-radius:6px;pointer-events:auto}
 .practice-loop-clear{width:16px;height:16px;display:grid;place-items:center;border-radius:4px;color:#fff;background:none;padding:0;font:800 14px/1 var(--g);min-width:0;min-height:0}
 .practice-loop-clear:hover{background:rgba(255,255,255,.25)}
+.practice-loop-magnet{width:18px;height:16px;display:grid;place-items:center;border-radius:4px;color:#fff;background:none;padding:0;min-width:0;min-height:0;opacity:.55}
+.practice-loop-magnet svg{width:12px;height:12px}
+.practice-loop-magnet.on{opacity:1;background:var(--hl);color:var(--ink)}
+.practice-loop-magnet:hover{outline:1px solid rgba(255,255,255,.6)}
 
 /* pan / zoom strip */
 .practice-overview-loop{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--violet) 45%,transparent);display:none}

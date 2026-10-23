@@ -26,7 +26,8 @@ function setup(extra={}){
 }
 const chipOf=(s,text)=>s.chips().find(c=>c.textContent.trim()===text);
 const barLeft=(s,i)=>s.bars[i].getBoundingClientRect().left,barWidth=(s,i)=>s.bars[i].getBoundingClientRect().width;
-const down=(chip,x=0)=>{chip.setPointerCapture=()=>{};chip.releasePointerCapture=()=>{};chip.onpointerdown({button:0,pointerId:1,clientX:x,clientY:50,preventDefault(){}});};
+// words and chords move with Shift held (a plain click plays from there)
+const down=(chip,x=0,shiftKey=true)=>{chip.setPointerCapture=()=>{};chip.releasePointerCapture=()=>{};chip.onpointerdown({button:0,pointerId:1,clientX:x,clientY:50,shiftKey,preventDefault(){}});};
 const move=(chip,x,y=50)=>chip.onpointermove({pointerId:1,clientX:x,clientY:y});
 const up=(chip,x)=>chip.onpointerup({pointerId:1,clientX:x,clientY:50});
 const drag=async(s,text,toBar,beat)=>{
@@ -99,18 +100,19 @@ test('Timing: Esc during a drag drops it', async () => {
   two.onkeydown({key:'Escape'});await tick();assert.equal(s.commits.length,0);assert.equal(byClass(s.root,'ghost').length,0);
 });
 
-test('Timing: clicking a pin releases the word; the other pins stay', async () => {
+test('Timing: Shift+clicking a pin releases the word; the other pins stay', async () => {
   const s=setup();const one=chipOf(s,'one'),pin=one.children.find(c=>has(c,'pinb'));
-  pin.onclick();await tick();await tick();
+  pin.onclick({stopPropagation(){}});await tick();assert.equal(s.commits.length,0,'a plain click on a pin does not release it');
+  pin.onclick({shiftKey:true,stopPropagation(){}});await tick();await tick();
   assert.equal(s.commits.length,1);assert.equal(s.commits[0].label,'Release word');
   assert.deepEqual(wordsOf(s.commits[0].candidate),[[14,'m3',0]]);
   assert.match(s.root.textContent,/Released/);
 });
 
-test('Timing: double-clicking a pinned word also releases it, but a spread word has nothing to release', async () => {
-  const s=setup();chipOf(s,'four').ondblclick();await tick();await tick();
+test('Timing: Shift+double-clicking a pinned word also releases it, but a spread word has nothing to release', async () => {
+  const s=setup();chipOf(s,'four').ondblclick({shiftKey:true});await tick();await tick();
   assert.equal(s.commits.length,1);assert.deepEqual(wordsOf(s.commits[0].candidate),[[0,'m0',0]]);
-  const again=setup();chipOf(again,'two').ondblclick();await tick();assert.equal(again.commits.length,0);
+  const again=setup();chipOf(again,'two').ondblclick({shiftKey:true});await tick();assert.equal(again.commits.length,0);
 });
 
 test('Timing: the first word is not special: it can be dragged off its chord like any other', async () => {
@@ -151,7 +153,7 @@ function withBarEdits(){
   const f=fixture();f.content.sections[0].lyrics='';f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[]};
   installDom();const root=new Node(),edits=[];
   const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{},onError:()=>{},onBarEdit:async c=>{edits.push(c);}});
-  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});view.setMode('timing');view.setTool('barlines');
+  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});view.setMode('timing');
   const bars=byClass(root,'tbar');let x=0;
   for(const b of bars){const w=parseFloat(b.style.width),left=x;b.getBoundingClientRect=()=>({left,right:left+w,top:0,bottom:100,width:w,height:100});x+=w;}
   return {f,root,view,edits,bars};
@@ -164,11 +166,11 @@ test('Timing: a "+" on every beat inside a bar starts a new bar there', () => {
   assert.deepEqual(s.edits,[{addBars:[s.f.music.measures[1].beats[2]]}]);
 });
 
-test('Timing: double-clicking a barline joins the bar with the one before it, and the first barline of the song has no handle', () => {
+test('Timing: clicking a barline (with Ctrl) joins the bar with the one before it, and the first barline of the song has no handle', () => {
   const s=withBarEdits();
   assert.equal(byClass(s.bars[0],'bar-handle').length,0);
   const handle=byClass(s.bars[1],'bar-handle')[0];
-  handle.ondblclick();
+  handle.onclick({stopPropagation(){}});
   assert.deepEqual(s.edits,[{removeBars:[s.f.music.measures[1].start]}]);
 });
 
@@ -191,15 +193,41 @@ test('Timing: without a barline handler there are no barline controls', () => {
   const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{},onError:()=>{}});
   view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});view.setMode('timing');
   assert.equal(byClass(root,'beat-split').length+byClass(root,'bar-handle').length,0);
-  view.setTool('barlines');
-  assert.equal(byClass(root,'beat-split').length+byClass(root,'bar-handle').length,0);
 });
 
-test('Timing: the barline controls only show while the Barlines tool is picked', () => {
+test('Timing: the barline controls are always drawn (the page shows them only while Ctrl is held), and a drag ends without a join', () => {
   const s=withBarEdits();
-  assert.ok(byClass(s.root,'beat-split').length>0);
-  s.view.setTool('words');
-  assert.equal(byClass(s.root,'beat-split').length+byClass(s.root,'bar-handle').length,0);
+  assert.ok(byClass(s.root,'beat-split').length>0&&byClass(s.root,'bar-handle').length>0);
+  const handle=byClass(s.bars[1],'bar-handle')[0],left=barLeft(s,1),w=barWidth(s,1);
+  document.body={append(){}};handle.setPointerCapture=()=>{};
+  handle.onpointerdown({button:0,pointerId:1,clientX:left});handle.onpointermove({pointerId:1,clientX:left+w*.5});handle.onpointerup({pointerId:1,clientX:left+w*.5});
+  handle.onclick({stopPropagation(){}});                                          // the click that ends the drag
+  assert.equal(s.edits.length,1,'one move, not a move and a join');
+});
+
+test('Timing: a plain click on a word plays from it, and pressing without Shift starts no drag', async () => {
+  installDom();const f=fixture();f.content.sections[0].lyrics='one two three four';
+  f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[place([{offset:0,measure_id:'m0',beat:0},{offset:14,measure_id:'m3',beat:0}])]};
+  const root=new Node(),seeks=[];const view=mountChartPage(root,{onSeek:t=>{seeks.push(t);return Promise.resolve();},onCommit:async()=>{}});
+  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});view.setMode('timing');
+  const four=byClass(root,'wchip').find(c=>c.textContent.trim()==='four');
+  down(four,10,false);assert.equal(byClass(root,'ghost').length,0);
+  four.onclick({});assert.deepEqual(seeks,[6]);
+  four.onclick({shiftKey:true});assert.equal(seeks.length,1,'Shift+click is for moving, not playing');
+});
+
+test('Timing: Shift+dragging a chord moves where it starts, and the chord before it holds on until then', async () => {
+  const s=setup();const cell=byClass(s.root,'tchord').find(c=>c.dataset.chunk&&c.textContent.startsWith('C'));
+  down(cell,barLeft(s,1)+2);move(cell,barLeft(s,0)+.5*barWidth(s,0));
+  assert.ok(byClass(s.root,'drop-mark').length,'a marker shows where it lands');
+  up(cell,barLeft(s,0)+.5*barWidth(s,0));await tick();await tick();
+  assert.equal(s.commits.length,1);assert.equal(s.commits[0].label,'Move chord');
+  const chords=s.commits[0].candidate.chords;
+  assert.equal(chords.find(c=>c.id==='c1').start,1);assert.equal(chords.find(c=>c.id==='c0').end,1);
+  assert.equal(chords.find(c=>c.id==='c1').end,4,'its end stays');
+  const back=setup();const c2=byClass(back.root,'tchord').find(c=>c.dataset.chunk&&c.textContent.startsWith('C'));
+  down(c2,barLeft(back,1)+2);move(c2,barLeft(back,2)+.5*barWidth(back,2));up(c2,barLeft(back,2)+.5*barWidth(back,2));await tick();
+  assert.equal(back.commits.length,0,'never past its own end');
 });
 
 test('Timing: with the magnet off, a word lands exactly where it is dropped instead of on the grid', async () => {

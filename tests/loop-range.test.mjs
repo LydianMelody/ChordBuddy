@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {snapGrain,snapPoints,snapTime,snapRange,moveEdge,sectionAtSeconds,describeRange,stepSpeed,BEAT_ZOOM} from '../chordbuddy/web/loop-range.js';
+import {snapGrain,snapPoints,snapTime,snapRange,moveEdge,dragEdge,sectionAtSeconds,describeRange,stepSpeed,BEAT_ZOOM} from '../chordbuddy/web/loop-range.js';
 
 // Four 4/4 bars at 120 BPM: 2 s per bar, 0.5 s per beat.
 const measures=[0,1,2,3].map(i=>({id:'m'+i,number:i+1,start:i*2,end:i*2+2,beats:[0,.5,1,1.5].map(b=>i*2+b),meter:[4,4],quarter_positions:[0,1,2,3,4]}));
@@ -65,4 +65,16 @@ test('range labels name bars', () => {
 test('speed steps in fives and stays between 50% and 125%', () => {
   assert.equal(stepSpeed(100,-1),95);assert.equal(stepSpeed(100,1),105);
   assert.equal(stepSpeed(50,-1),50);assert.equal(stepSpeed(125,1),125);assert.equal(stepSpeed(102,1),105);
+});
+
+test('an edge dragged past the other one swaps roles with it', () => {
+  assert.deepEqual(dragEdge(measures,{start:2,end:4},'start',5.1,opts('bar')),{range:{start:4,end:6},edge:'end'});
+  assert.deepEqual(dragEdge(measures,{start:2,end:4},'end',0.9,opts('bar')),{range:{start:0,end:2},edge:'start'});
+  assert.deepEqual(dragEdge(measures,{start:2,end:4},'start',0.4,opts('bar')),{range:{start:0,end:4},edge:'start'},'not crossing: as before');
+});
+
+test('with the magnet off, a loop edge goes exactly where it is dropped', () => {
+  assert.deepEqual(snapPoints(measures,'free'),[]);
+  assert.deepEqual(moveEdge(measures,{start:2,end:4},'end',5.37,opts('free')),{start:2,end:5.37});
+  assert.deepEqual(dragEdge(measures,{start:2,end:4},'start',4.6,opts('free')).range,{start:4,end:4.6});
 });

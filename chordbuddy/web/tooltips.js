@@ -1,6 +1,7 @@
 // Slow, friendly tooltips. Rest the mouse on anything with a data-tip for about a second and a sticker appears next to it.
 //   data-tip="What it does"   data-tip-title="Name"   data-tip-key="W"   data-tip-art="<svg …>" (a tiny how-it-works picture)
-// It never shows while a button is held, and goes away on click, scroll, key press or when the mouse leaves.
+//   data-tip-keys="ctrl" (or "shift"): only while that key is held, for what a click does with it (the chart's Ctrl and Shift places)
+// It never shows while a button is held, and goes away on click, scroll, a key press (holding Ctrl or Shift is not one) or when the mouse leaves.
 const DELAY=1000;
 let installed=false;
 
@@ -38,10 +39,12 @@ export function installTooltips(root=document){
     }
     tip.classList.add('show');owner=node;
   }
+  const keysHeld=(node,e)=>{const keys=node.dataset.tipKeys;return !keys||keys.split(' ').every(k=>k==='ctrl'?e.ctrlKey:k==='shift'?e.shiftKey:true);};
   root.addEventListener('pointerover',e=>{
     if(e.buttons)return;
     const node=e.target?.closest?.('[data-tip]');
     if(!node||node===owner)return;
+    if(!keysHeld(node,e)){hide();return;}
     hide();timer=setTimeout(()=>show(node),DELAY);
     owner=node;
   });
@@ -56,6 +59,9 @@ export function installTooltips(root=document){
     hide();show(node);node.setAttribute('aria-describedby','cb-tip');
   });
   root.addEventListener('focusout',e=>e.target?.removeAttribute?.('aria-describedby'));
-  for(const type of ['pointerdown','keydown','wheel','scroll','blur'])root.addEventListener(type,hide,true);
+  for(const type of ['pointerdown','wheel','scroll','blur'])root.addEventListener(type,hide,true);
+  root.addEventListener('keydown',e=>{if(!['Control','Shift','Alt','Meta'].includes(e.key))hide();},true);
+  // letting go of the key a tip belongs to puts the tip away
+  root.addEventListener('keyup',e=>{if(owner?.dataset?.tipKeys&&!keysHeld(owner,e))hide();},true);
   window.addEventListener('blur',hide);
 }

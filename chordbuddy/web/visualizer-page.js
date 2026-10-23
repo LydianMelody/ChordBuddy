@@ -2,6 +2,7 @@
 // In the desktop app the window itself goes full screen (the page cannot do that inside WebView2); in a browser, the page does.
 import {mountVisualizer} from './visualizer-view.js';
 import {desktopWindow} from './visual-bridge.js';
+import {playbackAction} from './playback-keys.js';
 
 // The main window's theme and light/dark look, so the mixer and controls match it (the main window keeps them in this origin's
 // storage, and the storage event follows a change made there while this window is open).
@@ -25,3 +26,8 @@ document.addEventListener('keydown',async event=>{
   else if(event.key==='Escape'&&desktopWindow()&&await isFull())toggle();     // the browser handles Esc itself
 });
 document.addEventListener('fullscreenchange',()=>label(!!document.fullscreenElement));
+// Space, R and the arrows work here too: the player in the main window carries them out.
+document.addEventListener('keydown',event=>{
+  const action=playbackAction(event);if(!action)return;
+  event.preventDefault();if(!action.repeat)view.command(action);
+});

@@ -80,7 +80,7 @@ button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
 .seg button{padding:5px 10px;font:700 12px var(--g);border-right:2px solid var(--ink);text-transform:none;color:var(--ink)}
 .seg button:last-child{border-right:0}
 .seg button.on{background:var(--hl)}
-[data-tool="write"] .opt-edit,[data-mode="timing"] .opt-timing{display:flex}
+[data-kind="chart"][data-repeats="1"] .opt-edit,[data-mode="timing"] .opt-timing{display:flex}
 .hist{margin-left:auto;display:flex;align-items:center;gap:6px}
 .hist button{width:34px;height:34px;border:2px solid var(--ink);border-radius:10px;display:grid;place-items:center;background:var(--page)}
 .hist .ic{width:16px}

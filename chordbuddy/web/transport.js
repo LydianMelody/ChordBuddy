@@ -1,7 +1,17 @@
 import {defaultMix,PcmMixer} from './pcm-mixer-core.js';
 import {createPcmSession} from './pcm-session.js';
 const noLoop=()=>({enabled:false,start:null,end:null,implicit:false});
-const initialState=songId=>({songId,runId:null,ready:false,readiness:'Analyze this song to enable playback.',mode:'stems',stems:true,sourceRunId:null,seconds:0,duration:0,playing:false,playIntent:false,buffering:false,error:null,mix:defaultMix(),loop:noLoop(),rate:100,levels:null});
+// What is being heard: the frame the engine is at, less what is still on its way to the speakers. That can never be earlier than where
+// playback started (nothing before it was sent), and just after a loop wraps it is the end of the loop still sounding, not the bars
+// before the loop's start. primed: {start, loop:{start,end}|null} in seconds, as the stream was started (loop only when it wraps).
+export function heardSeconds(m,primed,rate=1){
+ const at=m.sourceFrame/44100,raw=at-(m.state==='playing'?(m.latency||0)*rate:0);
+ if(!primed)return raw;
+ const loop=primed.loop,wrapped=!!loop&&(m.played||0)/44100>=loop.end-primed.start;
+ if(wrapped&&raw<loop.start&&at>=loop.start)return raw+(loop.end-loop.start);
+ return wrapped?raw:Math.max(primed.start,raw);
+}
+const initialState=songId=>({songId,runId:null,ready:false,readiness:'Analyze this song to enable playback.',mode:'stems',stems:true,sourceRunId:null,seconds:0,duration:0,playing:false,playIntent:false,buffering:false,error:null,mix:defaultMix(),loop:noLoop(),rate:100,levels:null,seeks:0});
 export class Transport{
  constructor({audio,token,createPcm=createPcmSession}){
   this.audio=audio;this.token=token;this.factory=createPcm;this.listeners=new Set();this.serial=0;this.pcm=null;this.active=false;this.separation=null;this.sessionEpoch=null;
@@ -60,9 +70,10 @@ export class Transport{
   this.emit();
  }
  pause(){this.state.playIntent=false;this.state.playing=false;this.state.levels=null;this.pcm?.play(false);this.audio.pause();this.emit();}
+ // `seeks` counts the times someone moved the playhead, so a loop that follows the section you are in moves only when you do.
  async seek(seconds){
   if(!this.state.ready||!Number.isFinite(seconds))return;
-  const target=Math.max(0,Math.min(this.state.duration,seconds));
+  const target=Math.max(0,Math.min(this.state.duration,seconds));this.state.seeks++;
   if(!this.active&&!this.state.buffering){this.state.seconds=target;this.emit();return;}
   await this.handoff(this.pendingManifest||this.currentManifest||this.separation,target);
  }
@@ -98,6 +109,9 @@ export class Transport{
   const serial=++this.serial;this.pendingManifest=manifest;
   this.state.seconds=seconds;this.state.buffering=true;this.state.playing=false;this.state.error=null;
   this.audio.pause();this.pcm?.play(false);this.emit();
+  // A listener can start another handoff from inside emit() (a section loop following a seek): that one replaces this one, which must
+  // not go on to prime the stream and cancel the newer request.
+  if(serial!==this.serial)return;
   try{
    if(!this.pcm){
     const songId=this.state.songId,epoch={};this.sessionEpoch=epoch;
@@ -105,7 +119,7 @@ export class Transport{
     const pcm=await this.factory({token:this.token,onPosition:m=>{
      if(!current()||!this.state.ready||!this.active||m.runId!==this.state.runId||this.state.buffering&&this.priming)return;
      this.diagnostics={...m,wall:performance.now()};
-     this.state.seconds=Math.min(this.state.duration,Math.max(0,m.sourceFrame/44100-(m.state==='playing'?m.latency||0:0)));
+     this.state.seconds=Math.min(this.state.duration,Math.max(0,heardSeconds(m,this.primed,this.state.rate/100)));
      this.state.levels=this.state.playIntent&&Array.isArray(m.levels)?m.levels:null;
      this.state.playing=this.state.playIntent&&m.state==='playing'&&m.contextState!=='suspended';this.state.buffering=m.state==='buffering';
      if(m.state==='ended')this.state.playIntent=false;this.emit();
@@ -113,7 +127,9 @@ export class Transport{
     if(serial!==this.serial){pcm.dispose();return;}this.pcm=pcm;
    }
    this.priming=true;
-   await this.pcm.prime(manifest,Math.min(manifest.frames,Math.floor(seconds*44100)),this.loopFrames(manifest));
+   const startFrame=Math.min(manifest.frames,Math.floor(seconds*44100)),loop=this.loopFrames(manifest);
+   this.primed={start:startFrame/44100,loop:loop&&startFrame<loop.end?{start:loop.start/44100,end:loop.end/44100}:null};
+   await this.pcm.prime(manifest,startFrame,loop);
    if(serial!==this.serial)return;
    this.currentManifest=manifest;this.active=true;this.state.runId=manifest.run_id;this.state.duration=manifest.frames/44100;this.state.seconds=Math.min(seconds,this.state.duration);
    this.state.buffering=false;this.priming=false;this.pendingManifest=null;this.pcm.mix(this.state.mix);this.pcm.mode(manifest.stems===false?'original':'stems');this.pcm.rate?.(this.state.rate/100);

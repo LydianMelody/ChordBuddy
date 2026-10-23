@@ -38,3 +38,12 @@ test('a page zoom of your own is kept: the grid zooms within it, and it comes ba
   z.set(.6);assert.equal(t,.75);assert.ok(p<1.5);
   z.set(4.5);assert.deepEqual([t,p],[3,1.5]);
 });
+
+test('with a ceiling, pulling the grips in past the largest grid grows the page, as far as Ctrl+wheel goes', () => {
+  let t=2,p=1;const z=combinedZoom({get:()=>t,set:v=>{t=v;},limits:[.75,6]},{get:()=>p,set:v=>{p=v;}},.5,2.5);
+  assert.deepEqual(z.limits,[.375,15]);
+  z.set(12);assert.deepEqual([t,p],[6,2]);
+  z.set(99);assert.deepEqual([t,p],[6,2.5],'never past the largest page zoom');
+  z.set(3);assert.deepEqual([t,p],[3,1],'zooming back out gives the page its own zoom back');
+  z.set(9);z.release();assert.equal(p,1);
+});

@@ -1,6 +1,7 @@
-// Timing mode: the same chart, drawn true to time. Each bar gets its own width (wide enough that nothing overlaps), chords sit
-// at their onsets, and every lyric line is a lane of word chips you can drag to any beat between its pinned neighbours.
-// A dragged word becomes a pin; the unpinned words between its neighbours slide with it. Click a pin to release the word.
+// The in-time view: the same chart, drawn true to time. Each bar gets its own width (wide enough that nothing overlaps), chords sit
+// at their onsets, and every lyric line is a lane of word chips. A click plays from there; with Shift a word or a chord can be dragged
+// to another beat (a dragged word becomes a pin, and the unpinned words between its neighbours slide with it; Shift+click a pin to
+// release the word). With Ctrl the barlines can be moved, removed (click) or added (a beat's +).
 import {addressAtSeconds,secondsAtAddress,musicalPosition} from './musical-grid.js';
 import {mapToDisplay,sourceMeasureFor} from './chart-model.js';
 import {placeWord} from './chart-layout.js';
@@ -21,7 +22,9 @@ function textWidth(text,font,padding){
   return Array.from(text).length*(font.includes('25px')?15:9.2)+padding;
 }
 
-// env: {getData, getModel, getSnap, getZoom, refs, commit(candidate,label), fail(error), say(text), blocked()}
+// env: {getData, getModel, getSnap, getZoom, refs, commit(candidate,label), fail(error), say(text), blocked(), rerender(), editBars(change),
+//       seek(seconds,group,pass), seekChunk(group,chunk), moveChord(group,chunk,address), pickBar(group,bar), regroup(group),
+//       splitZone(barNode,group,bar), zone(node,name,keys), dragEnded()}  (all but the first eight are optional)
 export function createTiming(env){
   let drag=null;
 
@@ -83,17 +86,23 @@ export function createTiming(env){
     const barEls=[];
     g.bars.forEach((bar,index)=>{
       const n=bar.measure?.beats?.length||0,width=widths.get(bar.id)||perBeat*4,node=el('div','bar tbar'+(index===g.bars.length-1?' last':''));
-      node.dataset.bar=bar.id;node.style.width=width+'px';
+      node.dataset.bar=bar.id;node.style.width=width+'px';if(env.picked?.(bar.id))node.classList.add('rt-sel');   // picked to fold a repeat
       const bp=n?width/n:width/4;node.style.setProperty?.('--bp',bp+'px');node.style.setProperty?.('--sp',bp*stepBeats(gridSnap())+'px');
       const offset=env.getModel().barOffset||0,numbers=g.passes.map(p=>measures.find(m=>m.id===p.measureIds[g.bars.indexOf(bar)])?.number).filter(v=>v!==undefined).map(v=>v-offset);
-      node.append(el('span','tno',numbers.length>1?numbers.join(' · '):String(bar.number)));
-      if(env.editBars&&env.tool?.()==='barlines'&&bar.measure&&bar.mapped&&n)addBarControls(node,bar,width,n,measures);
+      // the bar number plays from the bar; Shift+click picks it as one end of a part that repeats
+      const no=el('span','tno',numbers.length>1?numbers.join(' · '):String(bar.number));
+      env.zone?.(no,'fold','shift');no.onclick=e=>{if(e?.shiftKey)env.pickBar?.(g,bar);else if(!e?.ctrlKey)env.seek?.(bar.start);};
+      node.append(no);
+      env.splitZone?.(node,g,bar);
+      if(env.editBars&&bar.measure&&bar.mapped&&n)addBarControls(node,bar,width,n,measures);
       const chords=el('div','tchords');
       for(const chunk of bar.chunks){
         const a=beatOfSeconds(measures,chunk.start,rowIds),cell=el('span','chunk tchord');cell.dataset.chunk=chunk.key;
         cell.style.left=(n&&a?beatToX(a.beat,width,n):0)+'px';
         const chord=el('span','chord',chunk.continued?'('+spellChord(chunk.label)+')':spellChord(chunk.label));cell.append(chord);
-        if(chunk.repeat>1)cell.append(el('span','repeat','(×'+chunk.repeat+')'));
+        if(chunk.repeat>1){const count=el('span','repeat','(×'+chunk.repeat+')');env.zone?.(count,'regroup','shift');count.onclick=e=>{if(e?.shiftKey){e.stopPropagation?.();env.regroup?.(g);}};cell.append(count);}
+        if(!chunk.continued&&chunk.chordId)wireChord(cell,g,chunk);
+        else cell.onclick=e=>{if(!e?.shiftKey&&!e?.ctrlKey)env.seekChunk?.(g,chunk);};
         chords.append(cell);refs.chunks.push({node:cell,group:g,chunk});
       }
       node.append(chords);
@@ -105,7 +114,7 @@ export function createTiming(env){
         if(g.passCount>1){laneEl.dataset.label='Pass '+lane.passNumber;laneEl.dataset.slot=String((lane.passNumber-1)%PASS_COLORS+1);}
         if(!laneEls.has(i))laneEls.set(i,new Map());laneEls.get(i).set(bar.id,laneEl);node.append(laneEl);
       });
-      bars.append(node);barEls.push({node,bar,width,n,id:bar.id});
+      bars.append(node);barEls.push({node,bar,width,n,id:bar.id,chords});
       // a long row (a repeat folded over eight bars, say) wraps like the chart: bars-per-line to a line, so no row is wider than the rest
       // (each line is its own box: a wrapping row would still count as one long line when the page measures its width)
       if((index+1)%perLine===0&&index<g.bars.length-1){bars=el('div','bars');lines.push(bars);}
@@ -148,9 +157,9 @@ export function createTiming(env){
     }
     if(at<=0)return;                                         // the first barline of the song stays where the recording starts
     const handle=el('button','bar-handle');handle.type='button';
-    handle.dataset.tipTitle='Barline';handle.dataset.tip='Drag to move this barline to another beat. Double-click it to join this bar with the one before.';
+    handle.dataset.tipTitle='Barline';handle.dataset.tip='Drag to move this barline to another beat. Click it to join this bar with the one before.';
     handle.setAttribute('aria-label','Barline before bar '+bar.number);
-    handle.ondblclick=e=>{e?.stopPropagation?.();if(!env.blocked())env.editBars({removeBars:[measure.start]});};
+    handle.onclick=e=>{e?.stopPropagation?.();if(handle._dragged){handle._dragged=false;return;}if(!env.blocked())env.editBars({removeBars:[measure.start]});};
     let drag=null;
     const candidates=()=>{
       // every beat of this bar (and of the bar before it when it sits on the same line), as {time,x} on screen
@@ -172,6 +181,7 @@ export function createTiming(env){
     };
     const finish=async()=>{
       const d=drag;drag=null;d?.mark?.remove();
+      if(d?.moved)handle._dragged=true;                          // the click that ends a drag does not also remove the barline
       if(!d||!d.moved||!d.target||Math.abs(d.target.time-measure.start)<1e-6||env.blocked())return;
       env.editBars({removeBars:[measure.start],addBars:[d.target.time]});
     };
@@ -186,13 +196,15 @@ export function createTiming(env){
   function makeChip(g,lane,laneIndex,token,tokenIndex){
     const chip=el('span','wchip'+(token.pinned?' pinned':'')+(token.kind==='chord'?' anchor':'')+(token.kind==='suggest'?' guess':''));
     chip.dataset.line=String(token.line);chip.dataset.offset=String(token.offset);
-    chip.title=token.pinned?'Pinned. Drag to move it, or click the pin to release it.':token.kind==='chord'?'Tied to a chord. Drag to move it.':token.kind==='suggest'?'A rough guess from the melody. Drag it to pin it to a beat.':'Spreads out on its own. Drag to pin it to a beat.';
-    const pin=el('span','pinb');pin.innerHTML=icon('pin');pin.title='Release the pin';
-    pin.onpointerdown=e=>{e?.stopPropagation?.();};
-    pin.onclick=e=>{e?.stopPropagation?.();release(g,lane,token);};
+    env.zone?.(chip,'word','shift');
+    const pin=el('span','pinb');pin.innerHTML=icon('pin');pin.title='Shift+click to release the pin';
+    pin.onpointerdown=e=>{if(e?.shiftKey)e.stopPropagation?.();};
+    pin.onclick=e=>{if(!e?.shiftKey)return;e.stopPropagation?.();release(g,lane,token);};
     chip.append(pin,document.createTextNode?document.createTextNode(token.text):token.text);
-    chip.ondblclick=()=>{if(token.pinned)release(g,lane,token);};
-    chip.onpointerdown=e=>startDrag(e,chip,g,lane,laneIndex,token,tokenIndex);
+    chip.ondblclick=e=>{if(e?.shiftKey&&token.pinned)release(g,lane,token);};
+    // a click plays from the word; Shift+drag moves it
+    chip.onclick=e=>{if(e?.shiftKey||e?.ctrlKey||drag?.moved)return;if(finite(token.seconds))env.seek?.(token.seconds,g,token.passNumber);};
+    chip.onpointerdown=e=>{if(e?.shiftKey)startDrag(e,chip,g,lane,laneIndex,token,tokenIndex);};
     chip.onpointermove=moveDrag;chip.onpointerup=endDrag;chip.onpointercancel=cancelDrag;
     chip.onkeydown=e=>{if(e.key==='Escape')cancelDrag(e);};
     return chip;
@@ -290,15 +302,59 @@ export function createTiming(env){
     if(!drag||e.pointerId!==drag.pointer)return;
     const d=drag;drag=null;d.chip.releasePointerCapture?.(e.pointerId);
     finishVisuals();
-    if(!d.moved||!d.drop){env.rerender?.();return;}
+    if(!d.moved||!d.drop){env.rerender?.();env.dragEnded?.();return;}
     const {measures}=env.getModel(),data=env.getData();
     try{
       const next=placeWord(data.content,d.token.sectionId,d.token.line,d.token.offset,d.drop.address.measure_id,d.drop.address.beat,measures);
       await env.commit(next,'Move word');
     }catch(error){env.fail(error);env.rerender?.();}
+    env.dragEnded?.();
   }
   function cancelDrag(e){
-    if(!drag)return;const d=drag;drag=null;d.chip.releasePointerCapture?.(d.pointer);finishVisuals();env.rerender?.();
+    if(!drag)return;const d=drag;drag=null;d.chip.releasePointerCapture?.(d.pointer);finishVisuals();env.rerender?.();env.dragEnded?.();
+  }
+
+  // ---------------- Shift+drag a chord to another beat ----------------
+  // The chord's start moves (the chord before it holds on until then). It stays after the start of the chord before it and before its
+  // own end, inside its row, and lands on the grid (or anywhere, with the magnet off).
+  function wireChord(cell,g,chunk){
+    env.zone?.(cell,'chord','shift');
+    cell.onclick=e=>{if(e?.shiftKey||e?.ctrlKey||cell._dragged){cell._dragged=false;return;}env.seekChunk?.(g,chunk);};
+    cell.onpointerdown=e=>{
+      if(e.button!==0||!e.shiftKey||env.blocked())return;
+      const ctx=findCtx(g);if(!ctx)return;e.preventDefault?.();
+      const {projection}=env.getModel(),o=chunk.occurrence,mine=projection.occurrences.filter(x=>x.groupId===g.id&&x.passNumber===o.passNumber).sort((a,b)=>a.start-b.start);
+      const before=mine[mine.indexOf(o)-1];
+      drag={kind:'chord',cell,g,chunk,ctx,pointer:e.pointerId,x0:e.clientX,y0:e.clientY,moved:false,drop:null,targetsByBar:new Map(),
+        lo:before?before.start+1e-3:g.start-1e-6,hi:o.end-1e-3,lane:{tokens:[]}};
+      cell.setPointerCapture?.(e.pointerId);
+    };
+    cell.onpointermove=e=>{
+      if(drag?.kind!=='chord'||drag.cell!==cell||e.pointerId!==drag.pointer)return;
+      if(!drag.moved){if(Math.hypot(e.clientX-drag.x0,e.clientY-drag.y0)<DRAG_PIXELS)return;drag.moved=true;cell.classList.add('lifted');}
+      const hit=hitBar(drag.ctx,e);if(!hit)return;
+      const {b,rect}=hit,unit=b.node.offsetWidth?rect.width/b.node.offsetWidth:1,x=(e.clientX-rect.left)/unit;
+      const target=env.getSnap()==='free'&&b.n?{beat:Math.max(0,Math.min(b.n,x/b.width*b.n))}:nearestTarget(targetsFor(b),x,b.width,b.n);if(!target)return;
+      let seconds;try{seconds=secondsAtAddress(env.getModel().measures,{measure_id:b.id,beat:target.beat});}catch{return;}
+      if(!(seconds>drag.lo&&seconds<drag.hi)){drag.drop=null;drag.mark?.remove?.();env.say?.('A chord moves between the start of the chord before it and its own end.');return;}
+      drag.drop={address:{measure_id:b.id,beat:target.beat},bar:b};
+      // the chord follows, and the marker says where it lands
+      if((cell.parentNode||cell.parent)!==b.chords&&b.chords?.append)b.chords.append(cell);
+      cell.style.left=beatToX(target.beat,b.width,b.n)+'px';
+      drag.mark?.remove?.();const mark=el('i','drop-mark');mark.style.left=beatToX(target.beat,b.width,b.n)+'px';
+      const pos=musicalPosition(env.getModel().measures,seconds);mark.dataset.t=pos&&finite(pos.beat)?'Bar '+(pos.bar-(env.getModel().barOffset||0))+' · beat '+Number(pos.beat.toFixed(2)):'Bar '+b.bar.number;
+      b.chords?.append?.(mark);drag.mark=mark;
+    };
+    const end=async e=>{
+      if(drag?.kind!=='chord'||drag.cell!==cell||e.pointerId!==drag.pointer)return;
+      const d=drag;drag=null;cell.releasePointerCapture?.(e.pointerId);d.mark?.remove?.();cell.classList.remove('lifted');
+      if(d.moved)cell._dragged=true;
+      if(!d.moved||!d.drop){if(d.moved)env.rerender?.();env.dragEnded?.();return;}
+      await env.moveChord?.(g,chunk,d.drop.address);
+      env.dragEnded?.();
+    };
+    cell.onpointerup=end;
+    cell.onpointercancel=e=>{if(drag?.kind!=='chord'||drag.cell!==cell)return;drag.mark?.remove?.();drag=null;cell.classList.remove('lifted');env.rerender?.();env.dragEnded?.();};
   }
 
   // ---------------- pins and unplaced lines ----------------

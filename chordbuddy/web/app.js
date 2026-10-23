@@ -12,10 +12,11 @@ import {ProposalGuard,renderRhythmPreview} from './rhythm-view.js';
 import {Transport} from './transport.js';
 import {mountMixer} from './mixer-rack.js';
 import {mountPlayer} from './player-view.js';
+import {playbackAction,targetSeconds} from './playback-keys.js';
 import {activeChord, editChordContent, isJobActive, jobProgress, validateChart, displayChordLabel, settleHistoryResult} from './editor.js';
 import {renderLeadSheet,updateLeadSheetPlayback,markCurrentChord,followPlayback} from './lead-sheet.js';
 import {renderMidiRoll} from './midi-view.js';
-import {installPageNav,MIN_ZOOM as MIN_PAGE_ZOOM} from './page-nav.js';
+import {installPageNav,MIN_ZOOM as MIN_PAGE_ZOOM,MAX_ZOOM as MAX_PAGE_ZOOM} from './page-nav.js';
 import {openSongTiming,openReprocess,openModelAttribution} from './settings-view.js';
 import {effectiveMeasures, isNoChordLabel} from './chart-layout.js';
 import {icon} from './icons.js';
@@ -91,19 +92,28 @@ const practiceView=mountChartPage($('chart-sections'),{
  onViewportChange:updatePracticeViewport,onRhythm:()=>rhythmButton.click(),onTimingSettings:()=>$('song-timing').click(),
  onDraftChange:info=>{const r=currentRecord();if(r&&!info.failed&&!info.saving)r.practiceSaveError=null;renderDocument();},
  onModeChange:()=>syncModeUi(),onToolChange:()=>syncModeUi(),onScopeChange:()=>syncModeUi(),onTimingChange:()=>syncModeUi(),
- dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),
+ isActive:()=>currentRecord()?.doc.kind==='chart'&&!$('chart-editor').classList.contains('hidden'),onZoomWheel:event=>zoomChartAt(event.deltaY<0?1.15:1/1.15,event.clientX),
+ dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),legend:$('key-legend'),
 });
-// There are no chart modes: the tool you hold (Navigate, Write, Cut, Join, Repeat, Time, Barlines) decides what a click means and how the chart is drawn.
-// The page owns the tool; the rail and the N W S J R T B keys only ask it to change.
-// The Time tool draws the chart on a beat grid wider than the desk: it gets cassette bars (scroll and zoom) instead of scroll bars.
-// Pulling the bottom bar out past the smallest beat grid shrinks the page as well (to 50%), so a whole row can always be seen.
+// The chart has no tools: a click plays from there, Ctrl edits what is written and Shift draws it in time (chart-page.js).
+// In time, the chart is drawn on a beat grid wider than the desk: it gets cassette bars (scroll and zoom) instead of scroll bars.
+// The bottom bar's grips and Ctrl+wheel share one zoom: the beat grid's own, and past either end of it the page shrinking (to 50%) or
+// growing (to the page zoom's largest), so both reach exactly as far.
 let pageNav=null;
-const deskBars=mountDeskBars(document.querySelector('.stage'),$('desk'),combinedZoom(
+const chartZoom=combinedZoom(
  {get:()=>practiceView.getZoom(),set:value=>practiceView.setZoom(value),limits:[ZOOM_LEVELS[0],ZOOM_LEVELS.at(-1)]},
- {get:()=>pageNav?.getZoom()??1,set:value=>pageNav?.setZoom(value)},MIN_PAGE_ZOOM));
+ {get:()=>pageNav?.getZoom()??1,set:value=>pageNav?.setZoom(value)},MIN_PAGE_ZOOM,MAX_PAGE_ZOOM);
+const deskBars=mountDeskBars(document.querySelector('.stage'),$('desk'),chartZoom);
+// Zoom the in-time chart by `factor`, keeping the part of the page under the pointer (or the middle) where it was.
+function zoomChartAt(factor,clientX){
+ const desk=$('desk'),box=desk.getBoundingClientRect(),px=Number.isFinite(clientX)?clientX-box.left:box.width/2,at=(desk.scrollLeft+px)/Math.max(1,desk.scrollWidth);
+ const [lowest,highest]=chartZoom.limits;chartZoom.set(Math.max(lowest,Math.min(highest,chartZoom.get()*factor)));
+ desk.scrollTo({left:at*desk.scrollWidth-px,behavior:'instant'});deskBars.refresh();
+}
 function syncModeUi(){
  const mode=practiceView.getMode(),workspace=$('workspace');
  workspace.dataset.mode=mode;workspace.dataset.tool=practiceView.getTool();workspace.dataset.kind=currentRecord()?.doc.kind||'';
+ workspace.dataset.repeats=practiceView.hasRepeats?.()?'1':'';           // "Apply to this pass / all matching" matters only with repeats
  for(const button of document.querySelectorAll('#scope button'))button.classList.toggle('on',button.dataset.scope===practiceView.getScope());
  const snapping=practiceView.isSnapping();$('snap-toggle').classList.toggle('on',snapping);$('snap-toggle').setAttribute('aria-pressed',String(snapping));
  deskBars.show(mode==='timing'&&workspace.dataset.kind==='chart');deskBars.refresh();
@@ -127,8 +137,8 @@ document.addEventListener('keydown',event=>{
  if(currentRecord()?.doc.kind==='abc'){if(leadView?.handleKey(event))event.preventDefault();return;}
  if(currentRecord()?.doc.kind!=='chart')return;
  if(practiceView.handleKey?.(event)){event.preventDefault();return;}
- if(practiceView.getMode()==='timing'&&(event.key==='+'||event.key==='=')){event.preventDefault();practiceView.zoomBy(1);}
- else if(practiceView.getMode()==='timing'&&(event.key==='-'||event.key==='_')){event.preventDefault();practiceView.zoomBy(-1);}
+ if(practiceView.getMode()==='timing'&&(event.key==='+'||event.key==='=')){event.preventDefault();zoomChartAt(1.25);}
+ else if(practiceView.getMode()==='timing'&&(event.key==='-'||event.key==='_')){event.preventDefault();zoomChartAt(.8);}
 });
 // The space bar plays and pauses from anywhere: except while typing, or while one of our dialogs is open (the browser's own print and
 // save windows take the keys themselves). It also wins over a focused button, so a button you just clicked is not pressed a second time.
@@ -153,6 +163,22 @@ document.addEventListener('keydown',event=>{
  const button=$(redo?'redo':'undo');event.preventDefault();if(!button.disabled)button.click();
 });
 document.addEventListener('keyup',event=>{if(spaceHandled&&(event.key===' '||event.code==='Space')){event.preventDefault();spaceHandled=false;}},true);
+// R loops the section you are in, the arrows step a bar and Ctrl+arrows a section (playback-keys.js). A pop-out visualizer sends the same.
+function runPlaybackAction(action){
+ const s=transport.getSnapshot();if(!s.ready)return;
+ if(action.type==='toggle'){if(s.playIntent)transport.pause();else transport.play().catch(showError);}
+ else if(action.type==='loop')player.toggleLoop();
+ else if(action.type==='bar'||action.type==='section'){
+  const starts=action.type==='section'?player.sectionStarts():(practiceView.getModel()?.measures||practiceData?.music?.measures||[]).map(m=>m.start);
+  const to=targetSeconds(starts,s.seconds,action.direction);if(to!==null)transport.seek(to).catch(showError);
+ }
+}
+document.addEventListener('keydown',event=>{
+ // (the space bar has its own handler above; a key the chart or lead sheet used itself, like an arrow moving a selected note, arrives handled)
+ if(event.key===' '||event.code==='Space'||document.querySelector('dialog[open]'))return;
+ const action=playbackAction(event);if(!action)return;
+ event.preventDefault();if(!action.repeat)runPlaybackAction(action);
+});
 // Export PDF prints the Navigate page: the finished, readable chart.
 window.addEventListener('beforeprint',()=>{if(practiceView.getMode()!=='nav')practiceView.setMode('nav');});
 function updatePracticeViewport(action){
@@ -199,7 +225,7 @@ async function reloadPracticeChart(){
 
 transport.subscribe(()=>{if(model.detail)updatePlayback();renderLock();});
 // ---- Visualizer: a pop-out window or this page in full screen, following the player over the visual bridge (visual-bridge.js). ----
-const visuals=createVisualPublisher({onListen:()=>publishVisualScene(),
+const visuals=createVisualPublisher({onListen:()=>publishVisualScene(),onCommand:action=>runPlaybackAction(action),
   onMix:mix=>{try{transport.setMix(mix);}catch(error){showError(error);}}});        // a visualizer's mixer drawer (the transport checks it)
 function publishVisualScene(){
   const song=currentSong(),record=chartRecord();
