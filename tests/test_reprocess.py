@@ -179,3 +179,19 @@ def test_cannot_activate_another_songs_registered_run(tmp_path):
         db.execute('INSERT INTO songs(id,title,artist,filename,duration,folder,status,error,active_run,created) VALUES(?,?,?,?,?,?,?,?,?,?)',('other','Other','','other.mp3',20,'Other','imported',None,None,now()))
     with pytest.raises(ValueError):lib.activate_run('other',run)
     assert lib.song('other')['active_run'] is None
+
+
+def test_song_detail_chords_come_from_the_kept_chart(tmp_path):
+    # a new analysis adds a blank chart beside the kept one; the song's chords are the kept chart's
+    lib=Library(tmp_path); seed(lib); store=DocumentStore(lib)
+    old=ingest(store)
+    doc=next(d for d in store.for_song('song') if d['kind']=='chart')
+    full=store.get(doc['id'])
+    full['content']['sections'][0]['lyrics']='Kept words'
+    full['content']['chords']=[{'id':'c0','label':'F#m7','start':0.0,'end':2.0,'section_id':full['content']['sections'][0]['id'],'line':None,'offset':None}]
+    edited=store.save(doc['id'],full['content'],'Paste lyrics',full['revision'])
+    ingest(store,policy='keep',previous=old)
+    blank=next(d for d in store.for_song('song') if d['kind']=='chart' and not d['kept'])
+    store.save(blank['id'],{**store.get(blank['id'])['content'],'chords':[]},'Clear',store.get(blank['id'])['revision'])
+    detail=store.song_detail('song')
+    assert detail['chords'] and detail['chords']==store.get(edited['id'])['content']['chords']

@@ -364,7 +364,9 @@ class DocumentStore:
         with self.library.lock:
             song=self.library.song(song_id)
             docs=self.for_song(song_id)
-            score=next((d for d in docs if d['kind']=='chart'),None) or next((d for d in docs if d['kind']=='abc'),None)
+            # the chart with kept edits over the blank one a newer analysis added
+            score=(next((d for d in docs if d['kind']=='chart' and d['kept']),None) or next((d for d in docs if d['kind']=='chart'),None)
+                   or next((d for d in docs if d['kind']=='abc'),None))
             if score:
                 chords=self._get(score['id'])['content']['chords']
             elif song['active_run']:

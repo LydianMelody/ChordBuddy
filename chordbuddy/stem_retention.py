@@ -1,6 +1,6 @@
 """Per-song retirement of superseded generated stems after valid publication.
 
-Only seven named stem WAVs and the generated guitar intermediate are removed.
+Only seven named stem WAVs and the generated guitar intermediate (already gone after newer splits) are removed.
 Source MP3, decoded original WAV, manifests, logs, caches and all history remain.
 Interrupted purges resume only after another successful, validated publication.
 """
@@ -105,6 +105,8 @@ def _purge_reserved(project, separation, row, replacement, source_hash):
         # Verify the complete plan before removing even its first file.
         for asset in assets:
             path = checked_path(root / asset['name'], project)
+            if asset['name'] == 'guitar.wav' and not path.exists():
+                continue  # the intermediate is no longer kept after a split
             if file_hash(path) != asset['sha256']:
                 raise ValueError('Obsolete generated stem changed; retained')
         entry = {'version':2, 'id':row['id'], 'song_id':row['song_id'], 'path':str(root),

@@ -1,9 +1,10 @@
 """Moving one song between libraries (another computer, a USB stick): a zip with the song's folder and its database rows.
 
-The zip holds chordbuddy-song.json (the song's rows from library.sqlite3) and song/... (its recording, analysis, transcriptions and,
-when asked for, the stems). Importing unpacks into a staging folder inside the library, renames anything whose ID is already taken
-here (another copy of the same song, say), fixes the checksums that cover the files it had to rewrite, moves the files into place and
-adds the rows in one transaction.
+The zip holds chordbuddy-song.json (the song's rows from library.sqlite3, and how each file was stored) and song/... (its recording,
+analysis, transcriptions and, when asked for, the stems). The float WAVs travel as 24-bit FLAC, about a third of their size, and come
+back as float WAVs with their original headers; identical files (the decoded recording kept twice, the MP3 snapshots) travel once.
+Importing unpacks into the song folder, renames anything whose ID is already taken here (another copy of the same song, say), fixes
+the checksums that cover the files it rewrote or decoded, and adds the rows in one transaction.
 
 Updating a song that is already here only adds: an overwritten analysis stays under Previous transcriptions. The one exception is
 overwritten stems, which are retired by the same rule as splitting them again (stem_retention), since they can be split again.
@@ -11,22 +12,27 @@ overwritten stems, which are retired by the same rule as splitting them again (s
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import base64
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import secrets
 import shutil
+import subprocess
 import threading
 import zipfile
+
+import numpy
 
 from .analysis_contract import digest
 from .filenames import safe_stem
 from .path_policy import new_id, validate_paths, validate_song
+from .separation_audio import index_wav
 from .separation_contract import file_hash
 
 FORMAT = 'chordbuddy-song'
-VERSION = 1
+VERSION = 2   # 2: chordbuddy-song.json lists every file (FLAC audio, files stored once); version 1 zips still import
 MANIFEST = 'chordbuddy-song.json'
 PARTS = ('runs', 'analysis', 'separation')
 # Audio is stored as it is (deflate barely shrinks it and is slow); everything else is compressed.
@@ -78,8 +84,45 @@ def _song_files(folder, stems_id):
                 path = Path(base) / name
                 if path.is_symlink() or not path.is_file():
                     continue
+                if name == 'guitar.wav' and Path(base).parent.name == 'separation':
+                    continue   # the splitter's intermediate: nothing plays it (newer splits no longer keep it)
                 files.append((path.relative_to(folder).as_posix(), path))
     return files
+
+
+def _unique(files):
+    """The files with every identical copy left out (the decoded recording is kept twice, the MP3 snapshots three times)."""
+    by_size = {}
+    for name, path in files:
+        by_size.setdefault(path.stat().st_size, []).append((name, path))
+    unique = []
+    for group in by_size.values():
+        seen = set()
+        for name, path in group:
+            key = file_hash(path) if len(group) > 1 else name
+            if key not in seen:
+                seen.add(key)
+                unique.append((name, path))
+    return unique
+
+
+def _float_wav(path):
+    """How a float WAV is rebuilt from FLAC: its header and trailer bytes, its frames and the scale that keeps it inside full scale.
+    None for anything that is not a stereo float WAV (stored as it is)."""
+    try:
+        info = index_wav(path)
+    except (OSError, ValueError):
+        return None
+    end = info['data_offset'] + info['frames'] * 8
+    with open(path, 'rb') as stream:
+        header = stream.read(info['data_offset'])
+        stream.seek(end)
+        trailer = stream.read()
+    samples = numpy.memmap(path, dtype='<f4', mode='r', offset=info['data_offset'], shape=(info['frames'] * 2,))
+    peak = float(numpy.abs(samples).max()) if len(samples) else 0.0
+    del samples
+    return {'header': base64.b64encode(header).decode(), 'trailer': base64.b64encode(trailer).decode(),
+            'frames': info['frames'], 'scale': peak if peak > 1 else 1.0}
 
 
 class SongTransfer:
@@ -107,9 +150,11 @@ class SongTransfer:
                 raise ValueError('Restore this song from the Trash before exporting it.')
             stems = self._active_stems(song_id)
             folder = self.library.folder(song_id)
-        everything = sum(p.stat().st_size for _, p in _song_files(folder, stems['id'] if stems else None))
-        without = sum(p.stat().st_size for _, p in _song_files(folder, None))
-        return {'bytes': without, 'stems_bytes': everything - without, 'title': song['title']}
+        # About: float WAVs shrink to roughly 25-45% as FLAC; 40% keeps the estimate on the safe side.
+        size = lambda files: sum(p.stat().st_size * (.4 if p.suffix.lower() == '.wav' else 1) for _, p in _unique(files))
+        everything = size(_song_files(folder, stems['id'] if stems else None))
+        without = size(_song_files(folder, None))
+        return {'bytes': round(without), 'stems_bytes': round(everything - without), 'title': song['title']}
 
     def export_plan(self, song_id, stems):
         """The manifest, the files to add and the zip's file name. Taken under the library lock, so the rows are one consistent moment."""
@@ -159,9 +204,18 @@ class SongTransfer:
                     'stems': bool(active), 'song': song, 'tables': tables}
         return manifest, _song_files(folder, active['id'] if active else None), safe_stem(song['title'], 'Song') + '.zip'
 
-    @staticmethod
-    def write_zip(manifest, files, write):
-        """Stream the zip to `write` (an HTTP response): the rows first, then every file."""
+    def _ffmpeg(self):
+        bundled = self.app.separation.project / 'tools' / 'ffmpeg.exe'
+        return str(bundled) if bundled.is_file() else (shutil.which('ffmpeg') or 'ffmpeg')
+
+    def _run_ffmpeg(self, *args):
+        flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+        done = subprocess.run([self._ffmpeg(), '-nostdin', '-v', 'error', '-y', *args], capture_output=True, creationflags=flags)
+        if done.returncode:
+            raise ValueError('Could not convert the audio: ' + done.stderr.decode('utf-8', 'replace').strip()[-300:])
+
+    def write_zip(self, manifest, files, write):
+        """Stream the zip to `write` (an HTTP response) as it is made: every file, then the rows and how each file was stored."""
         class Sink:
             def write(self, data):
                 write(data)
@@ -169,10 +223,36 @@ class SongTransfer:
 
             def flush(self):
                 pass
-        with zipfile.ZipFile(Sink(), 'w', allowZip64=True) as archive:
-            archive.writestr(MANIFEST, json.dumps(manifest, ensure_ascii=False, allow_nan=False), compress_type=zipfile.ZIP_DEFLATED)
-            for name, path in files:
-                archive.write(path, 'song/' + name, compress_type=zipfile.ZIP_STORED if path.suffix.lower() in STORED else zipfile.ZIP_DEFLATED)
+        self.staging.mkdir(exist_ok=True)
+        work = self.staging / ('export-' + secrets.token_hex(6))
+        work.mkdir()
+        entries, stored = [], {}
+        try:
+            with zipfile.ZipFile(Sink(), 'w', allowZip64=True) as archive:
+                for name, path in files:
+                    sha = file_hash(path)
+                    if sha in stored:
+                        entries.append({'path': name, 'sha256': sha, 'same': stored[sha]})
+                        continue
+                    stored[sha] = name
+                    entry = {'path': name, 'sha256': sha}
+                    flac = _float_wav(path) if path.suffix.lower() == '.wav' else None
+                    if flac:
+                        temp = work / 'audio.flac'
+                        level = ['-af', f'volume={1 / flac["scale"]!r}'] if flac['scale'] > 1 else []
+                        self._run_ffmpeg('-i', str(path), *level, '-c:a', 'flac', '-sample_fmt', 's32', '-bits_per_raw_sample', '24',
+                                         '-compression_level', '5', str(temp))
+                        entry.update(zip='song/' + name + '.flac', flac=flac)
+                        archive.write(temp, entry['zip'], compress_type=zipfile.ZIP_STORED)
+                        temp.unlink()
+                    else:
+                        entry['zip'] = 'song/' + name
+                        archive.write(path, entry['zip'], compress_type=zipfile.ZIP_STORED if path.suffix.lower() in STORED else zipfile.ZIP_DEFLATED)
+                    entries.append(entry)
+                archive.writestr(MANIFEST, json.dumps(dict(manifest, files=entries), ensure_ascii=False, allow_nan=False),
+                                 compress_type=zipfile.ZIP_DEFLATED)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
 
     # ---------------------------------------------------------------- import
     def receive(self, read, size):
@@ -231,8 +311,6 @@ class SongTransfer:
                 manifest = json.loads(archive.read(MANIFEST).decode('utf-8'))
             except (ValueError, UnicodeDecodeError) as exc:
                 raise ValueError('This song zip is damaged.') from exc
-            if 'song/source.mp3' not in names:
-                raise ValueError('This song zip has no recording in it.')
         if not isinstance(manifest, dict) or manifest.get('format') != FORMAT:
             raise ValueError('This file is not a song exported from Chord Buddy.')
         if not isinstance(manifest.get('version'), int) or manifest['version'] > VERSION:
@@ -245,7 +323,31 @@ class SongTransfer:
             raise ValueError('This song zip is damaged.')
         for table in TABLES:
             tables.setdefault(table, [])
-        manifest['names'] = sorted(names)
+        if manifest['version'] < 2:   # version 1 stored every file as it is, under its own name
+            manifest['files'] = [{'path': n[5:], 'zip': n} for n in sorted(names) if n.startswith('song/') and not n.endswith('/')]
+        files = manifest.get('files')
+        if not isinstance(files, list) or any(not isinstance(f, dict) for f in files):
+            raise ValueError('This song zip is damaged.')
+        paths = set()
+        for entry in files:
+            path = entry.get('path')
+            parts = PurePosixPath(path).parts if isinstance(path, str) else ()
+            if (not parts or path.startswith('/') or '\\' in path or ':' in path or '..' in parts or path in paths
+                    or (entry.get('zip') is None) == (entry.get('same') is None)
+                    or (entry.get('zip') is not None and entry['zip'] not in names)
+                    or (entry.get('sha256') is not None and not (isinstance(entry['sha256'], str) and HASH.fullmatch(entry['sha256'])))):
+                raise ValueError('This song zip is damaged.')
+            flac = entry.get('flac')
+            if flac is not None and (not isinstance(flac, dict) or not isinstance(flac.get('header'), str) or not isinstance(flac.get('trailer'), str)
+                                     or type(flac.get('frames')) is not int or flac['frames'] <= 0 or type(flac.get('scale')) not in (int, float)
+                                     or not 1 <= flac['scale'] < 1e6 or entry.get('sha256') is None):
+                raise ValueError('This song zip is damaged.')
+            paths.add(path)
+        origins = {f['path'] for f in files if f.get('zip')}
+        if any(f.get('same') is not None and f['same'] not in origins for f in files):
+            raise ValueError('This song zip is damaged.')
+        if 'source.mp3' not in paths:
+            raise ValueError('This song zip has no recording in it.')
         return manifest
 
     def _matches(self, manifest):
@@ -384,14 +486,15 @@ class SongTransfer:
         if local and not (take_analysis and take_stems) and 'analysis_jobs' in rows:
             rows['analysis_jobs'] = [dict(j, snapshot=json.dumps(_stems_of(json.loads(j['snapshot'])))) for j in rows['analysis_jobs']]
         parts = {p for p, wanted in (('runs', take_analysis), ('analysis', take_analysis), ('separation', take_stems)) if wanted}
-        names = [n for n in manifest['names'] if n.startswith('song/') and not n.endswith('/')]
         replace_recording = bool(local) and not local['same_recording'] and (take_analysis or take_stems)
-        names = [n for n in names if (n == 'song/source.mp3' and (not local or replace_recording))
-                 or (len(n.split('/')) > 2 and n.split('/')[1] in parts)]
+        files = [f for f in manifest['files'] if (f['path'] == 'source.mp3' and (not local or replace_recording))
+                 or (len(f['path'].split('/')) > 1 and f['path'].split('/')[0] in parts)]
         if local:
             # Unchanged transcriptions are already here, and an analysis folder is never changed once written: keep the copy here.
-            names = [n for n in names if not (n.split('/')[1] == 'runs' and n.split('/')[2] in same_runs)
-                     and not (n.split('/')[1] == 'analysis' and len(n.split('/')) > 3 and (folder / 'analysis' / n.split('/')[2]).is_dir())]
+            files = [f for f in files if not (f['path'].split('/')[0] == 'runs' and f['path'].split('/')[1] in same_runs)
+                     and not (f['path'].split('/')[0] == 'analysis' and len(f['path'].split('/')) > 2
+                              and (folder / 'analysis' / f['path'].split('/')[1]).is_dir())]
+        names = ['song/' + f['path'] for f in files]
 
         def taken(table, ident):
             return db.execute(f'SELECT 1 FROM {table} WHERE id=?', (ident,)).fetchone() is not None
@@ -422,23 +525,25 @@ class SongTransfer:
                 mapping[ident] = replacement
                 fresh.add(replacement)
         song_id = local['id'] if local else mapping.get(song['id'], song['id'])
-        return {'manifest': manifest, 'local': local, 'rows': rows, 'names': names, 'mapping': mapping, 'song_id': song_id,
+        return {'manifest': manifest, 'local': local, 'rows': rows, 'files': files, 'mapping': mapping, 'song_id': song_id,
                 'take_analysis': take_analysis, 'take_stems': take_stems, 'replace_recording': replace_recording}
 
     def _unpack(self, path, plan, created):
-        """Extract the wanted files into the song folder, renamed and rewritten where an ID changed. Records the checksums that change,
-        and in `created` each new folder it made."""
+        """Extract the wanted files into the song folder, renamed and rewritten where an ID changed, float WAVs rebuilt from FLAC.
+        Records the checksums that change, and in `created` each new folder or file it made."""
         mapping, rename = plan['mapping'], plan['mapping'].get
         plan['hashes'] = {}
+        by_path = {f['path']: f for f in plan['manifest']['files']}
         target_root = self.library.root / plan['song_id']
         validate_song(self.library.root, target_root)
-        files = [(name, Path(*[rename(part, part) for part in name.split('/')[1:]])) for name in plan['names']]
+        files = [(entry, Path(*[rename(part, part) for part in entry['path'].split('/')])) for entry in plan['files']]
         validate_paths([target_root / relative for _, relative in files])
         if not plan['local']:
             target_root.mkdir()   # FileExistsError if the name was taken meanwhile: nothing is overwritten
             created.append(target_root)
+        written, texts = {}, []
         with zipfile.ZipFile(path) as archive:
-            for name, relative in files:
+            for entry, relative in files:
                 out = target_root / relative
                 if plan['local'] and relative == Path('source.mp3'):
                     out = plan['new_source'] = target_root / ('source-import-' + secrets.token_hex(4) + '.mp3')
@@ -450,18 +555,58 @@ class SongTransfer:
                         top.mkdir()
                         created.append(top)
                 out.parent.mkdir(parents=True, exist_ok=True)
-                with archive.open(name) as src, open(out, 'wb') as dst:
-                    shutil.copyfileobj(src, dst, 1 << 20)
-                if mapping and out.suffix.lower() in TEXT:
-                    data = out.read_bytes()
+                origin = by_path[entry['same']] if entry.get('same') else entry
+                text = out.suffix.lower() in TEXT
+                if origin['path'] in written and not text:
+                    # The same file again: one copy on disk under both names, as the splitter keeps it.
                     try:
-                        text = data.decode('utf-8')
-                    except UnicodeDecodeError:
-                        continue
-                    changed = _swap_text(text, mapping)
-                    if changed != text:
-                        out.write_bytes(changed.encode('utf-8'))
-                        plan['hashes'][file_hash_bytes(data)] = file_hash(out)
+                        os.link(written[origin['path']], out)
+                    except OSError:
+                        shutil.copyfile(written[origin['path']], out)
+                else:
+                    self._extract(archive, origin, out)
+                    written.setdefault(origin['path'], out)
+                if origin.get('flac') and origin['path'] == entry['path']:
+                    plan['hashes'][origin['sha256']] = file_hash(out)   # rebuilt from 24-bit: the samples differ inaudibly
+                if text:
+                    texts.append(out)
+        # Text files name IDs and the checksums of the audio (the stems' manifest.json): rewritten once all of those are known.
+        for out in texts:
+            swap = {**mapping, **plan['hashes']}
+            data = out.read_bytes()
+            try:
+                text = data.decode('utf-8')
+            except UnicodeDecodeError:
+                continue
+            changed = _swap_text(text, swap) if swap else text
+            if changed != text:
+                out.write_bytes(changed.encode('utf-8'))
+                plan['hashes'][file_hash_bytes(data)] = file_hash(out)
+
+    def _extract(self, archive, entry, out):
+        flac = entry.get('flac')
+        if not flac:
+            with archive.open(entry['zip']) as src, open(out, 'wb') as dst:
+                shutil.copyfileobj(src, dst, 1 << 20)
+            return
+        packed, raw = out.with_name(out.name + '.flac-part'), out.with_name(out.name + '.raw-part')
+        try:
+            with archive.open(entry['zip']) as src, open(packed, 'wb') as dst:
+                shutil.copyfileobj(src, dst, 1 << 20)
+            self._run_ffmpeg('-i', str(packed), '-f', 'f32le', '-c:a', 'pcm_f32le', '-ac', '2', '-ar', '44100', str(raw))
+            if raw.stat().st_size != flac['frames'] * 8:
+                raise ValueError('The audio in this song zip is damaged.')
+            with open(out, 'wb') as dst:
+                dst.write(base64.b64decode(flac['header']))
+                if flac['scale'] == 1:
+                    with open(raw, 'rb') as src:
+                        shutil.copyfileobj(src, dst, 1 << 20)
+                else:
+                    (numpy.fromfile(raw, dtype='<f4') * numpy.float32(flac['scale'])).astype('<f4').tofile(dst)
+                dst.write(base64.b64decode(flac['trailer']))
+        finally:
+            packed.unlink(missing_ok=True)
+            raw.unlink(missing_ok=True)
 
     def _commit(self, plan, setlist):
         library, db = self.library, self.library.db

@@ -1,15 +1,21 @@
 """Moving a song between libraries as a zip: everything arrives linked up, IDs already taken are renamed, nothing here is lost."""
 import io
 import json
+import math
+import os
+import shutil
 import threading
 import zipfile
+from pathlib import Path
 from types import SimpleNamespace
+import numpy
 import pytest
 from chordbuddy.library import Library
 from chordbuddy.documents import DocumentStore
 from chordbuddy.analysis_store import AnalysisStore
 from chordbuddy.analysis_contract import digest
 from chordbuddy.separation_store import SeparationStore
+from chordbuddy.separation_audio import index_wav, write_float
 from chordbuddy.separation_contract import file_hash
 from chordbuddy.song_transfer import SongTransfer, MANIFEST
 
@@ -20,7 +26,8 @@ def make_app(root):
     lib = Library(root)
     store = AnalysisStore(lib)
     app = SimpleNamespace(library=lib, documents=DocumentStore(lib), job_lock=threading.Lock(), _song_busy=lambda song_id: False,
-                          separation_store=SeparationStore(lib), analysis=SimpleNamespace(store=store), playback=SimpleNamespace(light={}))
+                          separation_store=SeparationStore(lib), analysis=SimpleNamespace(store=store), playback=SimpleNamespace(light={}),
+                          separation=SimpleNamespace(project=Path(__file__).resolve().parent.parent))
     app.transfer = SongTransfer(app)
     return app
 
@@ -95,7 +102,7 @@ def test_the_zip_is_named_after_the_song_and_holds_the_rows_and_files(two):
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         names = archive.namelist()
         manifest = json.loads(archive.read(MANIFEST))
-    assert names[0] == MANIFEST and f'song/source.mp3' in names and any(n.startswith('song/runs/') for n in names)
+    assert names[-1] == MANIFEST and 'song/source.mp3' in names and any(n.startswith('song/runs/') for n in names)
     assert manifest['song']['id'] == SONG and len(manifest['tables']['edits']) == 2 and manifest['stems'] is False
 
 
@@ -225,3 +232,30 @@ def test_import_as_new_song_leaves_the_song_with_the_same_title_alone(two):
     mine = other_copy(there)
     _, result = bring_in(there, export(here)[0], 'new')
     assert result['song_id'] == SONG and there.library.song(mine)['active_run'] is None
+
+
+def test_float_audio_travels_as_flac_once_and_comes_back_with_its_own_header(two):
+    here, there = two
+    add_song(here)
+    folder = here.library.root / SONG / 'analysis' / ('c' * 32)
+    folder.mkdir()
+    wav, copy = folder / 'original.wav', folder / 'again.wav'
+    write_float(wav, [math.sin(i / 7) * .5 for i in range(44100 * 2)] + [1.6, -1.6])   # one peak above full scale
+    shutil.copyfile(wav, copy)
+    (folder / 'index.json').write_text(json.dumps({'sha256': file_hash(wav)}))
+    assets = [{'path': str(Path(SONG, 'analysis', 'c' * 32, name)), 'sha256': file_hash(folder / name)} for name in ('original.wav', 'index.json')]
+    here.analysis.store.publish(SONG, 'source', {'source_sha256': file_hash(here.library.source_path(SONG))}, {'assets': assets})
+    data, _ = export(here)
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        stored = [n for n in archive.namelist() if 'c' * 32 in n]
+    assert sorted(stored) == [f'song/analysis/{"c" * 32}/again.wav.flac', f'song/analysis/{"c" * 32}/index.json']   # the copy travels once
+    bring_in(there, data)
+    back = there.library.root / SONG / 'analysis' / ('c' * 32)
+    assert index_wav(back / 'original.wav') == index_wav(wav)
+    assert os.path.samefile(back / 'original.wav', back / 'again.wav')
+    info = index_wav(wav)
+    before = numpy.fromfile(wav, dtype='<f4', offset=info['data_offset'])
+    after = numpy.fromfile(back / 'original.wav', dtype='<f4', offset=info['data_offset'])
+    assert numpy.abs(before - after).max() < 1e-6 and abs(after.max() - 1.6) < 1e-6
+    assert json.loads((back / 'index.json').read_text())['sha256'] == file_hash(back / 'original.wav')
+    stages_are_valid(there, SONG)

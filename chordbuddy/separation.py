@@ -1,5 +1,6 @@
 """Serialized, persisted fixed-chain separation independent of chart edits."""
 import json
+import os
 import shutil
 import threading
 import time
@@ -9,6 +10,22 @@ from .separation_recipe import build_recipe,model_root,separation_home,MODELS
 from .path_policy import worker_environment as environment, validate_project
 from .separation_checks import validate_mix
 from .owned_process import OwnedProcess
+
+def link_identical(path,candidates):
+    """Make `path` a hard link to an identical existing file (one copy on disk, two names) instead of a second copy. False if none."""
+    path=Path(path);size=path.stat().st_size;digest=None
+    for other in candidates:
+        try:
+            if other.stat().st_size!=size or os.path.samefile(other,path):continue
+            digest=digest or file_hash(path)
+            if file_hash(other)!=digest:continue
+            temp=path.with_name(path.name+'.link')
+            os.link(other,temp);os.replace(temp,path)
+            return True
+        except OSError:continue
+    return False
+
+
 class Cancelled(Exception):pass
 class SeparationManager:
     def __init__(self,project,store,gate,pipeline=None,recipe_factory=None):
@@ -116,9 +133,12 @@ class SeparationManager:
         if run.get('prepared'):
             prepared=Path(run['prepared']).resolve()
             if not prepared.is_relative_to(self.project):raise ValueError('Prepared audio escapes project')
-            shutil.copyfile(prepared,root/'original.wav')
+            # The analysis' own decoded recording: a hard link, one copy on disk under both names (it is never written again).
+            try:os.link(prepared,root/'original.wav')
+            except OSError:shutil.copyfile(prepared,root/'original.wav')
         else:
             self._process([str(self.project/'tools/ffmpeg.exe'),'-nostdin','-v','error','-n','-i',str(snapshot),'-ar','44100','-ac','2','-c:a','pcm_f32le',str(root/'original.wav')],run,'preparing')
+            link_identical(root/'original.wav',sorted((self.store.library.folder(run['song_id'])/'analysis').glob('*/original.wav')))
         for stage,status in [('base','separating'),('guitar','refining')]:
             self._process([str(separation_home(self.project)/'runtime/python.exe'),'-B',str(self.project/'chordbuddy/separation_worker.py'),'--project',str(self.project),'--run',str(root),'--stage',stage,'--device',run['device']],run,status)
         self.store.update_progress(run['id'],'validating');self.check_cancel()
@@ -127,4 +147,8 @@ class SeparationManager:
         manifest=validate_mix(root,self.check_cancel)
         manifest.update(source_sha256=source_hash,recipe=run['recipe'],recipe_sha256=run['recipe_sha256'])
         self.check_cancel();self.store.activate_validated(run['id'],manifest)
+        # Lead and Rhythm are made from guitar.wav and were just checked against it. Nothing plays it, so it is not kept (a 3-minute
+        # song's guitar.wav is 65 MB). Stem cleanup accepts it being gone.
+        try:(root/'guitar.wav').unlink()
+        except OSError:pass
 

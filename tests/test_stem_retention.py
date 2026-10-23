@@ -96,3 +96,11 @@ def test_one_live_set_does_not_create_journal_or_write_database(tmp_path):
  result=prune(tmp_path,store,analysis,runs)
  assert not result['purged'] and lib.db.total_changes==changes
  assert not (tmp_path/'retention').exists();lib.close()
+
+def test_old_stems_are_still_retired_when_the_guitar_intermediate_was_never_kept(tmp_path):
+ lib,store,analysis,runs=setup(tmp_path)
+ for run in runs:(tmp_path/run['folder']/'guitar.wav').unlink()   # newer splits delete it once Lead and Rhythm are checked
+ result=prune(tmp_path,store,analysis,runs)
+ assert len(result['purged'])==2 and not result['warning']
+ assert not (tmp_path/runs[0]['folder']/'bass.wav').exists() and (tmp_path/runs[0]['folder']/'original.wav').exists()
+ lib.close()

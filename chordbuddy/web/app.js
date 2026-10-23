@@ -524,9 +524,11 @@ function renderDocument(){
   else if(record.doc.kind==='abc'){$('abc-editor').classList.remove('hidden');renderAbc();}
   else if(record.doc.kind==='midi'){$('midi-editor').classList.remove('hidden');renderMidi();}
 }
-function chartRecord(){const id=model.detail?.documents?.find(doc=>doc.kind==='chart')?.id;return id?model.documents.get(id):null;}
+// The song's chart: the one on screen, else the one with kept edits (a new analysis adds a blank chart beside it), as the Chart tab picks.
+function chartDoc(){const charts=(model.detail?.documents||[]).filter(doc=>doc.kind==='chart');return charts.find(doc=>doc.id===model.document)||charts.find(doc=>doc.kept)||charts[0]||null;}
+function chartRecord(){const id=chartDoc()?.id;return id?model.documents.get(id):null;}
 async function loadChartRecord(){
-  const id=model.detail?.documents?.find(doc=>doc.kind==='chart')?.id;if(!id||model.documents.has(id))return;
+  const id=chartDoc()?.id;if(!id||model.documents.has(id))return;
   try{const doc=await api(`/api/document/${encodeURIComponent(id)}`);if(!model.documents.has(id))model.documents.set(id,{doc,draft:clone(doc.content),dirty:false,saving:false,error:null,version:0,timer:null});}catch(error){showError(error);}
 }
 function renderAbc(){
@@ -744,7 +746,7 @@ async function exportSong(song){
   if(info.stems_bytes){
     stems=prefs.get('cb-export-stems','0')==='1';
     const answer=await askChoice({title:'Export “'+song.title+'”',message:['One zip with the recording, the analysis and every edit, ready to import on another computer.'],
-      checkbox:{label:'Include the stems',hint:'Adds '+sizeLabel(info.stems_bytes)+'. Without them the zip is about '+sizeLabel(info.bytes)+', and the stems can be split again on the other computer.',checked:stems,onChange:value=>{stems=value;}},
+      checkbox:{label:'Include the stems',hint:'Adds about '+sizeLabel(info.stems_bytes)+'. Without them the zip is about '+sizeLabel(info.bytes)+', and the stems can be split again on the other computer.',checked:stems,onChange:value=>{stems=value;}},
       choices:[{id:'export',label:'Export',kind:'primary'}]});
     if(answer!=='export')return;
     prefs.set('cb-export-stems',stems?'1':'0');
@@ -768,7 +770,7 @@ async function exportPdf(which){
    try{await new Promise(resolve=>setTimeout(resolve,80));window.print();}finally{leadView.printMode(false);}
    return;
   }
-  const chart=model.detail?.documents.find(doc=>doc.kind==='chart');if(!chart)throw new Error('This song has no chart to export yet.');
+  const chart=chartDoc();if(!chart)throw new Error('This song has no chart to export yet.');
   if(currentRecord()?.doc.kind!=='chart'||model.document!==chart.id)await selectDocument(chart.id);
   if(currentRecord()?.doc.kind!=='chart')return;
   practiceView.setMode('nav');await new Promise(resolve=>setTimeout(resolve,60));window.print();
