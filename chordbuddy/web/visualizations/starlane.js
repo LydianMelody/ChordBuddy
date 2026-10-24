@@ -484,22 +484,46 @@ export default {
           X0=px;Y0=py;}}
       x.globalCompositeOperation='source-over';x.lineCap='butt';
     }
-    function drawShip(x,X,Y,s,ang,heat,bloom=0,dim=0){
+    let parX=0,parY=0,eS=0,ePk=0.05;
+    // low-poly 3D ship: x right, y up, z forward (nose away from camera). Yaw/pitch come from screen position + turning; roll stays a canvas rotate.
+    const SV={N:[0,0,2.1],C:[0,0.23,0.7],RT:[0,0.2,0],RL:[-0.3,0,0],RR:[0.3,0,0],RB:[0,-0.15,0],ML:[-0.24,0,1.0],MR:[0.24,0,1.0],MB:[0,-0.1,1.0],
+      WL:[-1.05,-0.03,0.2],WR:[1.05,-0.03,0.2],WLb:[-0.92,-0.03,-0.12],WRb:[0.92,-0.03,-0.12],FT:[0,0.68,-0.06],FF:[0,0.22,0.5]};
+    const SF=[
+      ['N','C','ML','g'],['N','MR','C','g'],['C','RL','ML','h'],['C','RT','RL','h'],['C','MR','RR','h'],['C','RR','RT','h'],
+      ['N','ML','MB','h'],['N','MB','MR','h'],['ML','RL','MB','h'],['RL','RB','MB','h'],['MR','MB','RR','h'],['RR','MB','RB','h'],
+      ['RL','RT','RR','r'],['RL','RR','RB','r'],
+      ['WL','ML','RL','w'],['WL','RL','WLb','w'],['WR','RR','MR','w'],['WR','WRb','RR','w'],['FT','FF','RT','f']];
+    const SHC=[0,0.03,0.7],LIT=(()=>{const v=[0.35,0.85,-0.45],m=Math.hypot(...v);return v.map(q=>q/m);})();
+    const mixc=(a,b,t)=>`rgb(${a.map((q,i)=>Math.round(q+(b[i]-q)*t)).join(',')})`;
+    const PAL={h:[[30,22,52],[214,204,248]],w:[[36,26,62],[190,176,236]],r:[[22,15,36],[120,104,170]],g:[[0,60,90],[120,245,255]],f:[[40,30,72],[170,160,220]]};
+    function drawShip(x,X,Y,s,ang,heat,bloom=0,dim=0,yaw=0,pitch=0.15){
       x.save();x.translate(X,Y);x.rotate(ang);x.scale(s,s);const lw=1/s;
       if(vocS>0.05||heat>0.01){x.globalCompositeOperation='lighter';x.globalAlpha=Math.min(1,0.25*vocS+heat*0.8);x.drawImage(glow.warm,-2.2,-1.6,4.4,3.2);x.globalAlpha=1;x.globalCompositeOperation='source-over';}
-      // tail fin
-      x.fillStyle='#3a2f5a';x.beginPath();x.moveTo(-0.07,-0.04);x.lineTo(0,-0.6);x.lineTo(0.07,-0.04);x.closePath();x.fill();x.strokeStyle=CYAN;x.lineWidth=1.3*lw;x.stroke();
-      // wings + body
-      const gr=x.createLinearGradient(0,-0.2,0,0.3);gr.addColorStop(0,'#f1ecff');gr.addColorStop(0.45,'#8d7fbc');gr.addColorStop(1,'#241c3d');
-      x.fillStyle=gr;x.beginPath();x.moveTo(-1.02,0.16);x.lineTo(-0.26,-0.06);x.lineTo(0,-0.2);x.lineTo(0.26,-0.06);x.lineTo(1.02,0.16);x.lineTo(0.32,0.22);x.lineTo(0,0.3);x.lineTo(-0.32,0.22);x.closePath();x.fill();
-      x.strokeStyle=PINK;x.lineWidth=1.5*lw;x.stroke();
-      x.fillStyle='rgba(0,229,255,0.75)';x.beginPath();x.ellipse(0,-0.1,0.11,0.06,0,0,TAU);x.fill();
-      // engines (flare with kicks)
-      for(const ex of [-0.24,0.24]){x.fillStyle='#160f24';x.beginPath();x.arc(ex,0.12,0.11,0,TAU);x.fill();
-        const th=thrust*(1-0.8*dim),gs=(0.45+th*0.75)*(1-0.45*dim)+bloom*1.4;x.globalCompositeOperation='lighter';x.drawImage(glow.pink,ex-gs,0.12-gs,gs*2,gs*2);x.drawImage(glow.warm,ex-gs*0.5,0.12-gs*0.5,gs,gs);
-        if(bloom>0.02){const bs=0.6+bloom*1.8;x.globalAlpha=bloom;x.drawImage(glow.white,ex-bs/2,0.12-bs/2,bs,bs);x.globalAlpha=1;}x.globalCompositeOperation='source-over';
-        x.fillStyle=dim>0.3?'#ff9a8a':'#fff6e0';x.beginPath();x.arc(ex,0.12,0.04+0.03*th+0.05*bloom,0,TAU);x.fill();}
-      x.fillStyle=CYAN;for(const sd of [-1,1]){x.beginPath();x.arc(sd*1.02,0.16,0.045,0,TAU);x.fill();}
+      const cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);
+      const rot=v=>{const x1=v[0]*cy+v[2]*sy,z1=-v[0]*sy+v[2]*cy,y2=v[1]*cp+z1*sp,z2=-v[1]*sp+z1*cp;return [x1,y2,z2];};
+      const R={},Pj={};for(const k in SV){const r=rot(SV[k]);R[k]=r;const f=1/(1+Math.max(-0.5,r[2])*0.1);Pj[k]=[r[0]*f,-r[1]*f+0.06];}
+      const hc=rot(SHC),faces=[];
+      for(const F of SF){const A=R[F[0]],B=R[F[1]],C=R[F[2]],t=F[3];
+        const u=[B[0]-A[0],B[1]-A[1],B[2]-A[2]],v=[C[0]-A[0],C[1]-A[1],C[2]-A[2]];let n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
+        const m=Math.hypot(...n)||1;n=n.map(q=>q/m);const cz=(A[2]+B[2]+C[2])/3,ctr=[(A[0]+B[0]+C[0])/3,(A[1]+B[1]+C[1])/3,cz];
+        const two=t==='w'||t==='f';
+        if(!two){if((ctr[0]-hc[0])*n[0]+(ctr[1]-hc[1])*n[1]+(ctr[2]-hc[2])*n[2]<0)n=n.map(q=>-q);if(n[2]>0.02)continue;}
+        else if(n[2]>0)n=n.map(q=>-q);
+        faces.push({F,t,n,z:cz});}
+      faces.sort((p,q)=>q.z-p.z);
+      x.lineJoin='round';
+      for(const fc of faces){const [a0,b0,c0]=fc.F.map(k=>Pj[k]),d=Math.max(0,fc.n[0]*LIT[0]+fc.n[1]*LIT[1]+fc.n[2]*LIT[2]),pl=PAL[fc.t];
+        x.beginPath();x.moveTo(a0[0],a0[1]);x.lineTo(b0[0],b0[1]);x.lineTo(c0[0],c0[1]);x.closePath();
+        x.fillStyle=mixc(pl[0],pl[1],0.15+0.85*d);x.fill();
+        x.strokeStyle=fc.t==='g'||fc.t==='f'?'rgba(0,229,255,0.9)':'rgba(255,63,164,0.85)';x.lineWidth=(fc.t==='r'?1:1.4)*lw;x.stroke();}
+      // engines on the rear plate
+      const rv=-rot([0,0,-1])[2];
+      if(rv>0.05)for(const ex of [-0.15,0.15]){const e=rot([ex,0.03,-0.01]),f=1/(1+e[2]*0.1),EX=e[0]*f,EY=-e[1]*f+0.06;
+        x.fillStyle='#160f24';x.beginPath();x.ellipse(EX,EY,0.1*Math.abs(cy),0.1*cp,0,0,TAU);x.fill();
+        const th=thrust*(1-0.8*dim),gs=(0.45+th*0.75)*(1-0.45*dim)+bloom*1.4;x.globalCompositeOperation='lighter';x.drawImage(glow.pink,EX-gs,EY-gs,gs*2,gs*2);x.drawImage(glow.warm,EX-gs*0.5,EY-gs*0.5,gs,gs);
+        if(bloom>0.02){const bs=0.6+bloom*1.8;x.globalAlpha=bloom;x.drawImage(glow.white,EX-bs/2,EY-bs/2,bs,bs);x.globalAlpha=1;}x.globalCompositeOperation='source-over';
+        x.fillStyle=dim>0.3?'#ff9a8a':'#fff6e0';x.beginPath();x.arc(EX,EY,0.035+0.03*th+0.05*bloom,0,TAU);x.fill();}
+      x.fillStyle=CYAN;for(const k of ['WL','WR']){x.beginPath();x.arc(Pj[k][0],Pj[k][1],0.05,0,TAU);x.fill();}
       x.restore();
     }
 
@@ -651,11 +675,13 @@ export default {
         const wt=s=>s===seg.scene?(tp<1?tpE:1):(tp<1&&s===seg.from?1-tpE:0);
         // smoothing + reactions
         const sm=(v,x,r)=>v+((x??0)-v)*Math.min(1,dt*r);
+        {let e=0;for(const k in tr)e+=tr[k]?.level||0;eS=sm(eS,e,4);ePk=Math.max(eS,ePk*Math.exp(-dt/25),0.05);}
+        const ampI=clamp(eS/ePk,0,1),amp=0.15+0.85*ampI*ampI;
         bassS=sm(bassS,tr.bass?.level,10);vocS=sm(vocS,tr.vocals?.level,8);leadS=sm(leadS,tr.lead?.level,8);otherS=sm(otherS,tr.other?.level,3);
         const dec=r=>Math.exp(-dt*r);thrust*=dec(7);gridPulse*=dec(5);shake*=dec(14);for(let i=0;i<12;i++)pcFlash[i]*=dec(2.6);
         const br=tr.drums?.brightness??0.5;
-        for(const s of ev.hits?.drums||[]){const kick=br<0.45||s>=info.thr;if(kick)thrust=Math.max(thrust,0.4+0.6*s);if((seg.scene==='hyper'||seg.scene==='solo')&&!calm&&(kick||s>=info.thr))shake=Math.max(shake,u*(s>=info.thr?0.012:0.007)*s*(seg.scene==='solo'?0.6:1));}
-        if(!jumped&&playing&&!calm)for(let q=after(info.K,lastT);q<info.K.length&&info.K[q].t<=t;q++)if(!info.K[q].survivor)shake=Math.max(shake,u*0.007);
+        for(const s of ev.hits?.drums||[]){const kick=br<0.45||s>=info.thr;if(kick)thrust=Math.max(thrust,(0.4+0.6*s)*(0.5+0.5*amp));if((seg.scene==='hyper'||seg.scene==='solo')&&!calm&&(kick||s>=info.thr))shake=Math.max(shake,u*(s>=info.thr?0.012:0.007)*s*(seg.scene==='solo'?0.6:1)*amp);}
+        if(!jumped&&playing&&!calm)for(let q=after(info.K,lastT);q<info.K.length&&info.K[q].t<=t;q++)if(!info.K[q].survivor)shake=Math.max(shake,u*0.007*(0.4+0.6*amp));
         if(!tr.drums&&ev.beat)thrust=Math.max(thrust,ev.beat.downbeat?0.9:0.5);
         if(ev.beat){if(ev.beat.downbeat)gridPulse=1;
           if((seg.scene==='hyper'||seg.scene==='ufo'||seg.scene==='solo')&&tp>0.5){const sp=shipAt(t);for(const sd of [-1,1])if(bolts.length<40)bolts.push({x:sp.x+sd*0.95,y:sp.y+0.12,z:SZ,col:seg.scene==='ufo'?'pink':seg.scene==='solo'?'warm':'cyan'});}}
@@ -670,7 +696,7 @@ export default {
         V.camX=base.x*0.5;V.camY=3.2+(base.y-3.2)*0.5;const bob=Math.sin(wall*1.7)*0.06;
         const ang=clamp(vx*0.07,-0.6,0.6)+sp.roll;
         const sd0=t-seg.start,sb=seg.changed&&sd0>=0&&sd0<1.8?ease(sd0/0.35)*(1-ease((sd0-0.45)/1.3)):0;
-        const fast=seg.scene==='hyper'||seg.scene==='solo',surge=fast?7*sb:seg.scene==='atmo'?-3.2*sb:0,bloom=fast?sb*(calm?0.4:1):0,dim=seg.scene==='atmo'?sb:0;
+        const fast=seg.scene==='hyper'||seg.scene==='solo',surge=fast?7*sb:seg.scene==='atmo'?-3.2*sb:0,bloom=fast?sb*(calm?0.4:1)*(0.4+0.6*amp):0,dim=seg.scene==='atmo'?sb:0;
         V.surge=surge;V.ship=sp;
         // ---------- scene buffer
         c.setTransform(sc,0,0,sc,0,0);c.globalAlpha=1;c.globalCompositeOperation='source-over';
@@ -695,7 +721,9 @@ export default {
             for(let q=0;q<18;q++){const an=hsh(q,3)*TAU,rr=((t*1.7+hsh(q,4))%1),r0=sk*(1.1+rr*2.2);c.strokeStyle=`rgba(255,${q%2?209:120},${q%2?102:90},${heat*(1-rr)*0.8})`;c.lineWidth=Math.max(1,sk*0.06);
               c.beginPath();c.moveTo(sx+Math.cos(an)*r0,sy+Math.sin(an)*r0*0.7);c.lineTo(sx+Math.cos(an)*(r0+sk*0.6),sy+Math.sin(an)*(r0+sk*0.6)*0.7);c.stroke();}
             c.globalCompositeOperation='source-over';c.lineCap='butt';}
-          drawShip(c,sx,sy,sk,ang,heat,bloom,dim);
+          {const ox=clamp((sx-L.cx)/(w*0.5),-1.2,1.2),oy=clamp((sy-L.hy)/(h*0.5),-1,1),tx=clamp(-ox*0.8+clamp(vx*0.07,-0.55,0.55),-1.1,1.1),ty=clamp(0.1+oy*0.7,-0.25,0.7);
+            parX+=(tx-parX)*Math.min(1,dt*6);parY+=(ty-parY)*Math.min(1,dt*6);}
+          drawShip(c,sx,sy,sk,ang,heat,bloom,dim,parX,parY);
           // note and chord pass flares
           c.globalCompositeOperation='lighter';
           for(let j=flares.length-1;j>=0;j--){const f=flares[j];f.age+=dt;const life=f.big?0.6:0.4;if(f.age>life){flares.splice(j,1);continue;}const q=f.age/life,col=RGB[f.col]||RGB.white;
