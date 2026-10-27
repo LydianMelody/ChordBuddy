@@ -363,7 +363,9 @@ export function mountChartPage(root,handlers={}){
     if(again&&desk&&desk.scrollTop!==undefined)desk.scrollTo?.({top:desk.scrollTop+again.node.getBoundingClientRect().top-top-offset,left:left??0,behavior:'instant'});
   }
   // Every redraw keeps the chart where it is on screen: rebuilding empties the page for a moment, which would otherwise scroll it to the top.
-  function render(){keepPlace(draw);paintLegend();}
+  // While the page is rebuilt, the line being typed in is removed and the browser reports it as left: that is not the player leaving it.
+  let drawing=false;
+  function render(){drawing=true;try{keepPlace(draw);}finally{drawing=false;}paintLegend();}
   function draw(){
     if(!data)return;
     model=buildChartModel(data.content,data.music,{onsets:data.suggest?data.onsets:null});
@@ -409,7 +411,8 @@ export function mountChartPage(root,handlers={}){
     if(pendingName){const node=page.querySelector?.('[data-section="'+pendingName+'"] .sec-name');const section=model.sections.find(s=>s.id===pendingName);pendingName=null;if(node&&section)renameSection(node,section);}
     root.dataset.mode=mode;last=null;paintTargets();updatePlayback(data.transport);positionEditors();
     const focus=editing&&refs.editors.find(r=>r.id===editing.focus)||refs.editors[0];
-    if(editing&&focus){focus.node.focus?.();if(editing.kind==='chords')globalThis.getSelection?.()?.selectAllChildren?.(focus.node);}
+    // a chord line is selected whole (to retype); a line of words gets the cursor at its end, ready to go on typing
+    if(editing&&focus){focus.node.focus?.();const sel=globalThis.getSelection?.();sel?.selectAllChildren?.(focus.node);if(editing.kind!=='chords')sel?.collapseToEnd?.();}
   }
 
   // A recording that fades out says so after its last bar, and where the fade begins; a click plays from there.
@@ -660,6 +663,9 @@ export function mountChartPage(root,handlers={}){
       ref.line.style?.setProperty?.('--start',x+'px');
     }
   }
+  let laneSaves=Promise.resolve();                       // lines are saved one after another, in the order they were left
+  // a line of words takes the keyboard with the cursor at its end, ready to go on typing
+  function focusEnd(node){if(!node)return;node.focus?.();const sel=globalThis.getSelection?.();sel?.selectAllChildren?.(node);sel?.collapseToEnd?.();}
   function wireLane(ref){
     const editor=ref.node;let done=false;
     editor.onfocus=()=>{draft={kind:'lyric',node:editor,dirty:false,failed:false};done=false;notify();};
@@ -677,23 +683,40 @@ export function mountChartPage(root,handlers={}){
       const raw=editor.textContent;draft=null;
       if(!save||raw.replace(/\s+/g,' ').trim()===ref.original.trim()){
         editor.textContent=ref.original;
-        if(keep){editing={...editing,focus:keep};refs.editors.find(r=>r.id===keep)?.node.focus?.();notify();}
+        if(keep){editing={...editing,focus:keep};focusEnd(refs.editors.find(r=>r.id===keep)?.node);notify();}
         else stopEditing();
         return false;
       }
-      try{await commitLanes(ref,raw);}catch(e){fail(e);}
-      if(keep)editing={...editing,focus:keep};else editing=null;
-      render();notify();if(!editing)refreshView();
+      // The next line takes the keyboard at once, so typing straight on is never lost to the save. Saves queue up in order (Tab, type,
+      // Tab again before the first save is done), and whatever is being typed in the line that has the keyboard is put back after
+      // each redraw with the saved words.
+      const next=keep?refs.editors.find(r=>r.id===keep):null;
+      if(keep){editing={...editing,focus:keep};focusEnd(next?.node);}
+      const run=laneSaves.then(async()=>{
+        try{await commitLanes(ref,raw);}catch(e){fail(e);}
+        const live=refs.editors.find(r=>r.node===globalThis.document?.activeElement)||next;
+        const typed=live&&live.node.textContent!==live.original?{id:live.id,text:live.node.textContent}:null;
+        if(!keep&&laneSaves===run)editing=null;
+        render();
+        const again=typed&&refs.editors.find(r=>r.id===typed.id);
+        if(again){
+          again.node.textContent=typed.text;if(draft?.node===again.node)draft.dirty=typed.text.trim()!==again.original.trim();
+          if(again.id===editing?.focus)focusEnd(again.node);
+        }
+        notify();if(!editing)refreshView();
+      });
+      laneSaves=run;await run;
       return true;
     };
     editor.onkeydown=async e=>{
-      if(e.key==='Enter'||e.key==='Tab'&&!e.shiftKey){
+      // Enter or Tab: keep it and go to the next pass's line; Shift+Tab: back to the one before
+      if(e.key==='Enter'||e.key==='Tab'){
         e.preventDefault?.();
-        const mine=refs.editors.filter(r=>r.group===ref.group),next=mine[mine.indexOf(ref)+1]?.id||null;
+        const mine=refs.editors.filter(r=>r.group===ref.group),next=mine[mine.indexOf(ref)+(e.key==='Tab'&&e.shiftKey?-1:1)]?.id||null;
         await finish(true,next);
       }else if(e.key==='Escape'){e.preventDefault?.();finish(false);}
     };
-    editor.onblur=()=>finish(true);
+    editor.onblur=()=>{if(!drawing)finish(true);};
   }
   // Every line of words in the chart, in order (a row with no words offers a new line for each pass): where pasted lines flow to.
   function allLines(){

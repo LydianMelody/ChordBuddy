@@ -330,6 +330,30 @@ test('Enter on a line moves to the next line of the row', async () => {
   assert.equal(focused,1);assert.equal(m.commits.length,0);                                // nothing changed, nothing saved
 });
 
+test('Tab saves a typed line and goes on to the next pass, even when the app redraws the chart while it saves; Shift+Tab goes back', async () => {
+  // like the app: every change of the editing state redraws from the latest saved chart (which can land mid-save)
+  installDom();const root=new Node();let data,view,revision=0;
+  view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onError:()=>{},
+    onCommit:async candidate=>{data={...data,content:candidate,revision:++revision};view.update(data);},
+    onDraftChange:()=>view.update(data)});
+  // like a browser: one element has the focus, and removing it from the page reports it as left (blur)
+  let focused=null;const inside=(n,t)=>n===t||n.children.some(c=>inside(c,t));
+  const replace=Node.prototype.replaceChildren,focus=Node.prototype.focus;
+  Node.prototype.focus=function(){if(focused===this)return;const was=focused;focused=this;was?.onblur?.();this.onfocus?.();};
+  Node.prototype.replaceChildren=function(...nodes){const was=focused;if(was&&inside(this,was)){focused=null;was.onblur?.();}return replace.apply(this,nodes);};
+  try{
+    data={...withWords('first pass words',[{offset:0,measure_id:'m0',beat:0}]),documentId:'d',revision,songId:'s',transport:{seconds:0,ready:true}};view.update(data);
+    openWords({root});
+    wordLines(root)[0].textContent='first pass changed';wordLines(root)[0].oninput();
+    await wordLines(root)[0].onkeydown({key:'Tab',preventDefault(){}});await tick();
+    assert.equal(revision,1,'saved');
+    let lines=wordLines(root);assert.equal(lines.length,4,'the row stays open');
+    assert.equal(lines.indexOf(focused),1,'the cursor is on pass 2');assert.match(lines[0].textContent,/first pass changed/);
+    await lines[1].onkeydown({key:'Tab',shiftKey:true,preventDefault(){}});await tick();
+    lines=wordLines(root);assert.equal(lines.length,4);assert.equal(lines.indexOf(focused),0,'Shift+Tab goes back to pass 1');
+  }finally{Node.prototype.replaceChildren=replace;if(focus)Node.prototype.focus=focus;else delete Node.prototype.focus;}
+});
+
 // ---- sections ----
 test('Ctrl+click on a section name renames it in place', async () => {
   const m=mount(fixture());const name=byClass(m.root,'sec-name')[0];
