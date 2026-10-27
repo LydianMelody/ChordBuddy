@@ -67,3 +67,19 @@ def test_malformed_reorder_is_a_validation_error_and_keeps_order(tmp_path, mp3_b
     with pytest.raises(ValueError):
         library.reorder_setlist('default', [[song['id']]])
     assert library.setlist('default')['song_ids'] == [song['id']]
+
+
+def test_a_song_leaves_a_set_list_but_never_the_library(tmp_path, mp3_bytes):
+    library = Library(tmp_path)
+    gig = library.create_setlist('Gig')
+    a = library.import_audio('First.mp3', mp3_bytes, gig['id'])
+    b = library.import_audio('Second.mp3', mp3_bytes, gig['id'])
+    assert library.remove_from_setlist(gig['id'], a['id'])['song_ids'] == [b['id']]
+    library.reorder_setlist(gig['id'], [b['id']])
+    library.add_to_setlist(gig['id'], a['id'])
+    assert library.setlist(gig['id'])['song_ids'] == [b['id'], a['id']]
+    assert library.setlist('default')['song_ids'] == [a['id'], b['id']]
+    with pytest.raises(ValueError):
+        library.remove_from_setlist('default', a['id'])
+    with pytest.raises(KeyError):
+        library.remove_from_setlist('nope', a['id'])

@@ -16,7 +16,7 @@ import {addChartChord,deleteChartChord,editChartChord,validateChart} from './edi
 import {spellChord} from './spelling.js';
 import {applyCompactFold,applyCompactRange,compactRangeChoices,compactEditTargets,compactFoldChoices,compactJumpTargets,hasCompactPreferences,resetCompactPreferences} from './compact-chart.js';
 import {planPageEdit} from './chart-edits.js';
-import {copyTargets,copyGroup,copySectionLyrics} from './chart-copy.js';
+import {copyTargets,copyGroup,copySectionLyrics,chordCopyTargets,copySectionChords} from './chart-copy.js';
 import {applyRows} from './row-layout.js';
 import {beatsLabel} from './bar-lengths.js';
 import {createTiming} from './chart-timing.js';
@@ -459,8 +459,7 @@ export function mountChartPage(root,handlers={}){
       if(r.pick)for(const b of r.pick.children)b.classList.toggle('on',passForEdit(r.group)===Number(b.dataset.pass));
     }
   }
-  // A thin line where the music is, in every mode (reading, typing a row, timing), paused too. Reading, it moves across the chord that is
-  // playing; in timing, whose bars are drawn to time, across the bar's beats. A repeated row shows it in the pass being played.
+  // A thin line where the music is, in every mode (reading, typing a row, timing), paused too, moving across the bar by its beats. A repeated row shows it in the pass being played.
   let playMark=null,markIn=null;
   const findBar=(node,id)=>{if(node?.dataset?.bar===id)return node;for(const child of node?.children||[]){const hit=findBar(child,id);if(hit)return hit;}return null;};
   function paintPlayMark(seconds,target,occ){
@@ -471,14 +470,12 @@ export function mountChartPage(root,handlers={}){
     if(!bar){playMark?.remove?.();markIn=null;return;}
     if(!playMark){playMark=el('i','playmark');playMark.setAttribute?.('aria-hidden','true');}
     if(markIn!==bar||!(bar.children&&[...bar.children].includes(playMark))){bar.append(playMark);markIn=bar;}
-    const chunk=mode==='timing'?null:refs.chunks.find(r=>r.chunk.key===target.chunkKey&&[...(bar.children||[])].includes(r.node))?.node;
-    if(chunk&&occ.end>occ.start&&finite(chunk.offsetLeft)&&chunk.offsetWidth){
-      const part=Math.max(0,Math.min(1,(seconds-occ.start)/(occ.end-occ.start)));
-      playMark.style.left=Math.round(chunk.offsetLeft+part*chunk.offsetWidth)+'px';return;
-    }
+    // across the whole bar by its beats (beat 4 of 4 is three quarters of the way), in reading as in timing; a reading bar's padding
+    // (12px before its first chord, 18px after its last) is left out, so beat 1 is at its first chord and the end at its barline
     const beats=[...(measure.beats?.length?measure.beats:[measure.start]),measure.end];let beat=0;
     for(let i=0;i<beats.length-1;i++)if(seconds<beats[i+1]){beat=i+Math.max(0,(seconds-beats[i])/((beats[i+1]-beats[i])||1));break;}
-    playMark.style.left=(Math.min(1,beat/(beats.length-1))*100)+'%';
+    const part=Math.min(1,beat/(beats.length-1));
+    playMark.style.left=mode==='timing'?(part*100)+'%':`calc(12px + ${part.toFixed(4)} * (100% - 30px))`;
   }
   function updatePlayback(transport){
     if(!data)return;data.transport=transport;if(!model)return;
@@ -502,6 +499,10 @@ export function mountChartPage(root,handlers={}){
       const here=target?.groupId===r.model.id;
       if(here)r.node.dataset.cur=String(target.passNumber);else delete r.node.dataset.cur;
       r.node.classList.toggle('now',here);
+      // timing: the melody of the pass being played is drawn strongest (chart-timing.js draws one per pass)
+      for(const layer of r.node.querySelectorAll?.('.tmelody')||[])layer.classList.toggle('cur',here&&layer.dataset.pass===String(target.passNumber));
+      // and the words of the other passes step back too, as their lines do when reading
+      for(const lane of r.node.querySelectorAll?.('.tlane')||[])lane.classList.toggle('dim',here&&r.model.passCount>1&&lane.dataset.pass!==String(target.passNumber));
       if(here&&r.model.passCount>1)seekPass[r.model.id]=target.passNumber;
     }
     for(const r of refs.chunks)r.node.classList.toggle('now',!!target&&!alt&&r.chunk.key===target.chunkKey);
@@ -577,7 +578,7 @@ export function mountChartPage(root,handlers={}){
   }
   function renderChordEditor(g,row){
     const items=rowChords(g),text=items.map(i=>i.text).join(' '),line=el('div','lane-edit chord-edit'),editor=el('span','lyr chord-type');
-    editor.contentEditable='plaintext-only';editor.spellcheck=false;editor.dataset.placeholder='Type the chords: E A B E';
+    editor.contentEditable='plaintext-only';editor.spellcheck=false;editor.dataset.placeholder='Type the chords: E A B E (N for a rest)';
     editor.append(document.createTextNode?document.createTextNode(text):text);
     const ref={id:g.id+'|chords',group:g,node:editor,line,row,original:text,anchorKey:null};refs.editors.push(ref);
     let done=false;
@@ -610,8 +611,22 @@ export function mountChartPage(root,handlers={}){
     let next=structuredClone(data.content),after=null;
     const chordOf=id=>next.chords.find(c=>c.id===id);
     const splitAfter=(list,label)=>list.map(id=>{const c=chordOf(id),fresh=crypto.randomUUID();next=addChartChord(next,splitTime(c,data.music),fresh,label);return fresh;});
-    for(const op of ops){
+    // A rest (N) typed in takes one beat, a quarter rest in 4/4, not half a chord: typed before a chord it takes that chord's first beat
+    // (the band breaks, then plays it), typed after the row's last chord it takes that chord's last beat. Shift+drag makes it longer.
+    const beatsInside=c=>(data.music?.measures||[]).flatMap(m=>m.beats||[]).filter(t=>t>c.start+1e-6&&t<c.end-1e-6);
+    const restAt=(c,side)=>{const beats=beatsInside(c);return beats.length?(side==='start'?beats[0]:beats.at(-1)):splitTime(c,data.music);};
+    for(const [k,op] of ops.entries()){
       const label=op.to!==undefined?tokens[op.to]:null;
+      if(op.type==='insert'&&isNoChordLabel(label)){
+        const following=ops.slice(k+1).find(o=>o.from!==undefined&&o.type!=='delete');
+        if(following){
+          const old=ids[following.from],moved=old.map(id=>chordOf(id).label);
+          const second=old.map((id,j)=>{const c=chordOf(id),fresh=crypto.randomUUID();next=addChartChord(next,restAt(c,'start'),fresh,moved[j]);return fresh;});
+          for(const id of old)next=editChartChord(next,id,{label});
+          ids[following.from]=second;after=old;continue;
+        }
+        if(after){after=after.map(id=>{const c=chordOf(id),fresh=crypto.randomUUID();next=addChartChord(next,restAt(c,'end'),fresh,label);return fresh;});continue;}
+      }
       if(op.type==='keep')after=ids[op.from];
       else if(op.type==='replace'){for(const id of ids[op.from])next=editChartChord(next,id,{label});after=ids[op.from];}
       else if(op.type==='delete'){for(const id of ids[op.from])next=deleteChartChord(next,id);}
@@ -633,8 +648,12 @@ export function mountChartPage(root,handlers={}){
   async function moveChord(g,chunk,address){
     if(blocked())return;
     try{
-      const occ=chunk.occurrence;                              // the in-time view draws a repeated row's first pass
-      const result=planChartChordEdit(data.content,data.music,{chordId:occ.chordId,label:data.content.chords.find(c=>c.id===occ.chordId)?.label??chunk.label,startAddress:address,scope,
+      // The in-time view draws a repeated row's first pass. "This pass" moves the chord of the pass being edited (the one playing, unless
+      // one was picked), at the same place in its own bars; "All matching" moves it in every pass.
+      const shown=chunk.occurrence,pass=scope==='all-matching'?shown.passNumber:passForEdit(g);
+      const occ=occurrenceFor(g.id,chunk.slotId,pass)||shown,rep=g.passes?.[0],own=g.passes?.find(p=>p.number===occ.passNumber);
+      const at=rep?rep.measureIds.indexOf(address.measure_id):-1,moved=own&&at>=0&&own.measureIds[at]?{...address,measure_id:own.measureIds[at]}:address;
+      const result=planChartChordEdit(data.content,data.music,{chordId:occ.chordId,label:data.content.chords.find(c=>c.id===occ.chordId)?.label??chunk.label,startAddress:moved,scope,
         selection:{groupId:g.id,slotId:chunk.slotId,passNumber:occ.passNumber,chordId:occ.chordId},view:model.projection});
       if(result.conflicts.length){fail(Error(result.conflicts[0].message));render();return;}
       await commitPlain(result.candidate,'Move chord');
@@ -828,6 +847,21 @@ export function mountChartPage(root,handlers={}){
           const {candidate,dropped}=copySectionLyrics(data.content,data.music,section.id,target.id);
           await commitPlain(candidate,'Copy lyrics to '+target.name);
           if(dropped)message.textContent=dropped+(dropped===1?' timed word was':' timed words were')+' left unpinned: '+target.name+' has no matching place for '+(dropped===1?'it':'them')+'.';
+        }catch(e){fail(e);}
+      };
+      head.append(b);
+    }
+    // and its chords (rests included), bar for bar and beat for beat, so a chorus fixed once can be fixed everywhere
+    for(const target of chordCopyTargets(data.content,section.id)){
+      const label=copyName(section,target);
+      const b=el('button','sec-copy','Copy chords to '+label+' (replaces)');b.type='button';
+      b.title='Copies these chords and rests onto '+target.name+', each on the same bar and beat. The chords already there are replaced. Undo puts them back.';
+      b.onclick=async event=>{
+        event.stopPropagation?.();
+        try{
+          const {candidate,dropped}=copySectionChords(data.content,data.music,section.id,target.id);
+          await commitPlain(candidate,'Copy chords to '+target.name);
+          if(dropped)message.textContent=dropped+(dropped===1?' chord was':' chords were')+' left out: '+target.name+' has no matching place for '+(dropped===1?'it':'them')+'.';
         }catch(e){fail(e);}
       };
       head.append(b);

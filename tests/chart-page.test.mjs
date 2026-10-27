@@ -555,6 +555,9 @@ test('a thin playhead line sits in the bar being played, in reading and in timin
   m.view.updatePlayback({seconds:c.start+.25,ready:true,playing:false});
   assert.equal(mark().length,1,'paused too');
   const bar=mark()[0].parent;assert.ok(bar.dataset.bar,'inside a bar');
+  const m0=f.music.measures.find(x=>x.id===bar.dataset.bar);
+  m.view.updatePlayback({seconds:m0.beats[3]+.001,ready:true,playing:false});
+  assert.match(mark()[0].style.left,/^calc\(12px \+ 0\.75\d* \* \(100% - 30px\)\)$/,'on beat 4 of 4: three quarters across the bar, whatever chord fills it');
   m.view.setMode('timing');m.view.updatePlayback({seconds:c.start+.25,ready:true,playing:true});
   assert.equal(mark().length,1);assert.ok(mark()[0].parent.dataset.bar);assert.match(mark()[0].style.left,/%$/,'timing: by the beats of the bar');
   m.view.updatePlayback({seconds:-5,ready:true,playing:true});assert.equal(mark().length,0,'before the music: no line');
@@ -567,4 +570,23 @@ test('passes are listed in pass order, not in the order their lines were typed',
   assert.deepEqual(byClass(m.root,'lane-tag').map(t=>t.textContent).slice(0,2),['1','2']);
   const lines=openWords(m);
   assert.deepEqual(lines.map(l=>l.textContent).slice(0,2),['one two','three four'],'and Tab goes from pass 1 to pass 2');
+});
+
+test('a rest typed into the chord line takes one beat: before a chord its first beat, after the last chord its last beat', async () => {
+  const before=mount(fixture());typeLine(openChords(before),'G N C D C');press(chordLine(before.root),'Enter');await tick();
+  const a=before.commits[0].candidate.chords.filter(c=>c.start>=2&&c.end<=4).map(c=>[c.label,c.start,c.end]);
+  assert.deepEqual(a,[['N',2,2.5],['C',2.5,4]],'a quarter rest, then the chord');
+  const after=mount(fixture());typeLine(openChords(after),'G C D C N');press(chordLine(after.root),'Enter');await tick();
+  const b=after.commits[0].candidate.chords.filter(c=>c.start>=6&&c.end<=8).map(c=>[c.label,c.start,c.end]);
+  assert.deepEqual(b,[['C',6,7.5],['N',7.5,8]]);
+});
+
+test('timing: the words of the passes not being played step back', () => {
+  const f=fixture();f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[['m0',0],['m4',1]].map(([m,line])=>({section_id:'s',line,start_measure:m,end_measure:'m'+(Number(m.slice(1))+3),words:[{offset:0,measure_id:m,beat:0}]}))};
+  const m=mount(f);m.view.setMode('timing');
+  const proj=m.view.getProjection(),g=proj.groups.find(x=>x.passes?.length>1);
+  m.view.updatePlayback({seconds:g.passes[1].start+.1,ready:true,playing:true});
+  const lanes=byClass(m.root,'tlane').filter(l=>l.dataset.pass);
+  assert.ok(lanes.some(l=>has(l,'dim')),'other passes dim');
+  assert.ok(lanes.filter(l=>l.dataset.pass==='2').every(l=>!has(l,'dim')),'the pass being played does not');
 });

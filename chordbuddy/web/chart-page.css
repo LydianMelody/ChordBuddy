@@ -193,7 +193,14 @@
 
 /* Overlay melody: the sung notes, faint, behind each bar's chords and words (high notes near the top) */
 .tmelody{position:absolute;left:0;right:0;top:34px;bottom:10px;pointer-events:none}
-.tmelody i{position:absolute;height:5px;margin-top:-2.5px;border-radius:3px;background:var(--a2);opacity:.3}
+/* every pass's melody in its lane's color; in the row being played, the pass being played stands out and the others step back */
+.tmelody i{position:absolute;height:5px;margin-top:-2.5px;border-radius:3px;background:var(--pc,var(--a2));opacity:.3;transition:opacity .2s}
+.tmelody[data-slot="1"]{--pc:var(--a2)}.tmelody[data-slot="2"]{--pc:var(--a1)}.tmelody[data-slot="3"]{--pc:var(--a3)}.tmelody[data-slot="4"]{--pc:var(--hl)}
+.trow.now .tmelody i{opacity:.12}
+.trow.now .tmelody.cur i{opacity:.7}
+/* the words of the passes not being played step back, until you reach for one */
+.tlane.dim .wchip{opacity:.4;transition:opacity .2s}
+.tlane.dim:hover .wchip,.tlane.dim .wchip:focus-visible{opacity:1}
 
 /* Timing: a long row is split into lines of bars, each its own box */
 .trow .bars+.bars{margin-top:20px}

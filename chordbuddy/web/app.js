@@ -15,6 +15,8 @@ import {mountMixer} from './mixer-rack.js';
 import {mountPlayer} from './player-view.js';
 import {playbackAction,targetSeconds} from './playback-keys.js';
 import {SHORTCUTS} from './shortcuts.js';
+import {renderLibraryPage} from './library-page.js';
+import {createSongFacts,shortKey,totalLabel} from './song-facts.js';
 import {activeChord, editChordContent, isJobActive, jobProgress, validateChart, displayChordLabel, settleHistoryResult} from './editor.js';
 import {renderLeadSheet,updateLeadSheetPlayback,markCurrentChord,followPlayback} from './lead-sheet.js';
 import {renderMidiRoll} from './midi-view.js';
@@ -35,7 +37,7 @@ import {mountVisualizer} from './visualizer-view.js';
 const $ = id => document.getElementById(id);
 document.querySelector('.chart-intro h2')?.remove();
 const token = new URLSearchParams(location.hash.slice(1)).get('token') || '';
-const model = {state:null,setlist:null,song:null,detail:null,document:null,documents:new Map(),loadingSong:0,polling:false,importing:false,pendingTitle:false,titleSave:null,dragSong:null,chartSection:null,chartChord:null,pendingChart:null};
+const model = {view:'song',libraryQuery:'',libraryKey:'',state:null,setlist:null,song:null,detail:null,document:null,documents:new Map(),loadingSong:0,polling:false,importing:false,pendingTitle:false,titleSave:null,dragSong:null,chartSection:null,chartChord:null,pendingChart:null};
 const clone = value => structuredClone(value);
 const mediaUrl = path => `${path}?token=${encodeURIComponent(token)}`;
 const timeLabel = seconds => `${Math.floor(Math.max(0,seconds)/60)}:${String(Math.floor(Math.max(0,seconds)%60)).padStart(2,'0')}`;
@@ -288,35 +290,89 @@ function currentSong(){return model.state?.songs.find(song=>song.id===model.song
 function currentRecord(){return model.documents.get(model.document);}
 function currentContent(){const record=currentRecord();return record?.draft || record?.doc.content;}
 function currentChords(){const record=currentRecord();if(record?.doc.kind==='abc'&&leadView?.chords)return leadView.chords();return ['abc','chart'].includes(record?.doc.kind) ? currentContent()?.chords || [] : model.detail?.chords || [];}
+// Tempo and key badges for a song in the lists (song-facts.js), and what a list adds up to.
+const songFacts=createSongFacts({api:(path,...rest)=>api(path,...rest),savedKey:id=>prefs.get('cb-key:'+id,''),onChange:()=>{model.libraryKey='';renderLibrary();}});
+function factBadges(song){
+  const facts=songFacts.get(song.id),box=element('span','song-facts');
+  if(facts?.bpm)box.append(Object.assign(element('b','fact-badge tempo','♩'+facts.bpm),{title:facts.bpm+' beats per minute'}));
+  if(facts?.key)box.append(Object.assign(element('b','fact-badge key',shortKey(facts.key)),{title:facts.key}));
+  return box;
+}
+// the line under a song's title: what is wrong or happening with it, or else its tempo and key ("Transcribed" goes without saying)
+function songLine(song,busy){
+  if(busy)return element('small','song-note','Analyzing…');
+  const label=songStatusLabel(song);
+  return label==='Transcribed'?factBadges(song):element('small','song-note',label);
+}
+const listLength=songs=>songs.reduce((sum,song)=>sum+(Number(song.duration)||0),0);
 function renderLibrary() {
   const state=model.state;if(!state)return;
-  if(!state.setlists.some(list=>list.id===model.setlist))model.setlist=state.setlists[0]?.id;
+  if(!state.setlists.some(list=>list.id===model.setlist))model.setlist='default';
+  // "All songs" is the library itself (the set list every import joins); the set lists below it are the ones you make, and a song
+  // dragged onto one of them (from All songs or from the list in the sidebar) is added to it.
+  const library=state.setlists.find(list=>list.id==='default');
+  $('all-songs').classList.toggle('selected',model.setlist==='default');$('all-count').textContent=library?.song_ids.length??state.songs.length;
   const nav=$('setlists');nav.replaceChildren();
-  for(const list of state.setlists){const button=element('button',`setlist-item${list.id===model.setlist?' selected':''}`);const listIcon=element('span','setlist-icon');listIcon.innerHTML=icon('list');button.append(listIcon,element('span','',list.name),element('span','setlist-count',list.song_ids.length));button.onclick=()=>{model.setlist=list.id;renderLibrary();};nav.append(button);}
+  for(const list of state.setlists.filter(item=>item.id!=='default')){
+    const button=element('button',`setlist-item${list.id===model.setlist?' selected':''}`);const listIcon=element('span','setlist-icon');listIcon.innerHTML=icon('list');
+    button.append(listIcon,element('span','',list.name),element('span','setlist-count',list.song_ids.length));
+    button.onclick=()=>{model.setlist=list.id;if(model.song)model.view='song';renderLibrary();renderView();};
+    button.ondragover=event=>{if(!model.dragSong)return;event.preventDefault();event.dataTransfer.dropEffect='copy';button.classList.add('drop-target');};
+    button.ondragleave=()=>button.classList.remove('drop-target');
+    button.ondrop=event=>{if(!model.dragSong)return;event.preventDefault();button.classList.remove('drop-target');const id=model.dragSong;model.dragSong=null;addToSetlist(list,id,button);};
+    nav.append(button);
+  }
   const list=state.setlists.find(item=>item.id===model.setlist);
-  $('library-heading').textContent=list?.name==='Default'?'ALL SONGS':`${list?.name || 'SONGS'}`.toUpperCase();
+  $('library-heading').textContent=list?.id==='default'?'ALL SONGS':`${list?.name || 'SONGS'}`.toUpperCase();
   const query=$('song-search').value.trim().toLowerCase();
   const songs=(list?.song_ids || []).map(id=>state.songs.find(song=>song.id===id)).filter(Boolean);
-  $('song-count').textContent=songs.length;
+  $('song-count').textContent=songs.length;$('list-total').textContent=songs.length?totalLabel(listLength(songs))+' total':'';songFacts.want(state.songs);
   const container=$('songs');container.replaceChildren();
   for(const [index,song] of songs.entries()){
     if(query && !`${song.title} ${song.artist || ''}`.toLowerCase().includes(query))continue;
-    const row=element('div',`song-row${song.id===model.song?' selected':''}`);const busySong=isJobActive(state.job)&&state.job.song_id===song.id;row.dataset.status=busySong?'busy':song.active_run?'ready':'new';const handle=element('span','song-number drag-handle','⠿');handle.draggable=true;handle.title='Drag to reorder in this set list';handle.setAttribute('aria-label',handle.title);handle.ondragstart=event=>{model.dragSong=song.id;event.dataTransfer.setData('text/plain',song.id);event.dataTransfer.effectAllowed='move';row.classList.add('dragging');};handle.ondragend=()=>{model.dragSong=null;row.classList.remove('dragging');for(const item of container.children)item.classList.remove('drop-target');};row.ondragover=event=>{if(model.dragSong && model.dragSong!==song.id){event.preventDefault();event.dataTransfer.dropEffect='move';row.classList.add('drop-target');}};row.ondragleave=()=>row.classList.remove('drop-target');row.ondrop=event=>{if(!model.dragSong)return;event.preventDefault();event.stopPropagation();row.classList.remove('drop-target');moveSongBefore(model.dragSong,song.id);};row.append(handle);
-    const button=element('button','song-main');button.append(element('strong','',song.title),element('small','',busySong?'Analyzing…':songStatusLabel(song)));button.onclick=()=>selectSong(song.id);row.append(button);if(!song.active_run){const lock=element('span','song-lock');lock.title='Not analyzed yet';lock.innerHTML=icon('lock');row.append(lock);}else if(song.duration)row.append(element('span','song-len',timeLabel(song.duration)));
+    const row=element('div',`song-row${song.id===model.song?' selected':''}`);const busySong=isJobActive(state.job)&&state.job.song_id===song.id;row.dataset.status=busySong?'busy':song.active_run?'ready':'new';const handle=element('span','song-number drag-handle','⠿');handle.draggable=true;handle.title='Drag to reorder, or onto a set list to add it there';handle.setAttribute('aria-label',handle.title);handle.ondragstart=event=>{model.dragSong=song.id;event.dataTransfer.setData('text/plain',song.id);event.dataTransfer.effectAllowed='copyMove';row.classList.add('dragging');};handle.ondragend=()=>{model.dragSong=null;row.classList.remove('dragging');for(const item of container.children)item.classList.remove('drop-target');};row.ondragover=event=>{if(model.dragSong && model.dragSong!==song.id && list?.song_ids.includes(model.dragSong)){event.preventDefault();event.dataTransfer.dropEffect='move';row.classList.add('drop-target');}};row.ondragleave=()=>row.classList.remove('drop-target');row.ondrop=event=>{if(!model.dragSong)return;event.preventDefault();event.stopPropagation();row.classList.remove('drop-target');moveSongBefore(model.dragSong,song.id);};row.append(handle);
+    const button=element('button','song-main');button.append(element('strong','',song.title),songLine(song,busySong));button.onclick=()=>selectSong(song.id);row.append(button);if(!song.active_run){const lock=element('span','song-lock');lock.title='Not analyzed yet';lock.innerHTML=icon('lock');row.append(lock);}else if(song.duration)row.append(element('span','song-len',timeLabel(song.duration)));
+    if(list?.id!=='default'){const out=element('button','song-remove');out.type='button';out.innerHTML=icon('x');out.title=`Take ${song.title} out of ${list.name}`;out.setAttribute('aria-label',out.title);out.onclick=()=>removeFromSetlist(list.id,song.id);row.append(out);}
     const order=element('div','song-order');for(const [symbol,direction] of [['▲',-1],['▼',1]]){const move=element('button','',symbol);move.title=`Move ${song.title} ${direction<0?'up':'down'}`;move.setAttribute('aria-label',move.title);move.disabled=index+direction<0 || index+direction>=songs.length;move.onclick=()=>reorderSong(song.id,direction);order.append(move);}row.append(order);container.append(row);
   }
-  if(!container.children.length)container.append(element('p','sidebar-empty',query?'No songs match your search.':list?.name==='Default'?'Your song library starts with an MP3. Import one to get going.':'This set list is ready for songs. Import an MP3 or add a song from your library.'));
+  if(!container.children.length)container.append(element('p','sidebar-empty',query?'No songs match your search.':list?.id==='default'?'Your song library starts with an MP3. Import one to get going.':'This set list is ready for songs. Import an MP3 or add a song from your library.'));
+  renderView();
   const trashed=state.trash||[];$('trash-open').classList.toggle('hidden',!trashed.length);$('trash-open').textContent='Trash ('+trashed.length+')';
   $('engine-status').textContent=state.engine.ready?'Transcription engine ready':state.engine.message || 'Transcription engine needs setup';
   $('engine-dot').classList.toggle('ready',!!state.engine.ready);
 }
+// The main area shows either the open song or All songs (library-page.js). All songs is drawn again only when something in it changed,
+// so the regular refresh never interrupts a drag or the search field.
+function renderView(){
+  $('app').dataset.view=model.view;
+  if(model.view!=='library'||!model.state)return;
+  const state=model.state,library=state.setlists.find(list=>list.id==='default'),lists=state.setlists.filter(list=>list.id!=='default');
+  const songs=(library?.song_ids||state.songs.map(s=>s.id)).map(id=>state.songs.find(s=>s.id===id)).filter(Boolean);
+  const busy=isJobActive(state.job)?state.job.song_id:null,key=JSON.stringify([songs,lists,model.song,busy,model.libraryQuery,songs.map(s=>songFacts.get(s.id))]);
+  if(key===model.libraryKey)return;model.libraryKey=key;
+  renderLibraryPage($('library-page'),{songs,setlists:lists,selected:model.song,busy,query:model.libraryQuery},{
+    onOpen:id=>selectSong(id),onRemove:(listId,songId)=>removeFromSetlist(listId,songId),
+    onDragStart:id=>{model.dragSong=id;},onDragEnd:()=>{model.dragSong=null;for(const n of document.querySelectorAll('.drop-target'))n.classList.remove('drop-target');},
+    onSearch:query=>{model.libraryQuery=query;renderView();},onImport:()=>$('import-button').click(),time:timeLabel,line:song=>songLine(song,song.id===busy),total:totalLabel(listLength(songs))});
+}
+function showAllSongs(){model.setlist='default';model.view='library';renderLibrary();}
+// While a song is dragged, the whole page takes it, so the pointer stays an arrow (the browser shows its "no" sign wherever a drop is not
+// taken). Only a set list does anything with it, and shows the arrow with a + (it is added there); let go anywhere else and nothing happens.
+document.addEventListener('dragover',event=>{if(!model.dragSong||event.defaultPrevented)return;event.preventDefault();event.dataTransfer.dropEffect='move';});
+document.addEventListener('drop',event=>{if(model.dragSong&&!event.defaultPrevented)event.preventDefault();});
+async function addToSetlist(list,songId,node){
+  const song=model.state.songs.find(s=>s.id===songId);
+  if(list.song_ids.includes(songId)){node?.classList.add('already');setTimeout(()=>node?.classList.remove('already'),900);showError(`${song?.title||'That song'} is already in ${list.name}.`);return;}
+  try{await api('/api/setlist/add',{id:list.id,song_id:songId});node?.classList.add('took');setTimeout(()=>node?.classList.remove('took'),900);await refreshState();}catch(error){showError(error);}
+}
+async function removeFromSetlist(listId,songId){try{await api('/api/setlist/remove',{id:listId,song_id:songId});await refreshState();}catch(error){showError(error);}}
 async function reorderSong(id,direction){try{const list=model.state.setlists.find(item=>item.id===model.setlist);const ids=[...list.song_ids];const index=ids.indexOf(id);[ids[index],ids[index+direction]]=[ids[index+direction],ids[index]];await api('/api/setlist/order',{id:list.id,song_ids:ids});await refreshState();}catch(error){showError(error);}}
 async function moveSongBefore(id,target){try{const list=model.state.setlists.find(item=>item.id===model.setlist);const destination=list.song_ids.indexOf(target);const ids=list.song_ids.filter(songId=>songId!==id);ids.splice(destination,0,id);await api('/api/setlist/order',{id:list.id,song_ids:ids});model.dragSong=null;await refreshState();}catch(error){showError(error);}}
 const TITLE_NODES=['page-song','score-title','midi-title'];
 function renderControls(){
   const song=currentSong();$('empty-state').classList.toggle('hidden',!!song);$('song-controls').classList.toggle('hidden',!song);$('workspace').classList.toggle('hidden',!song);
   $('song-actions').classList.toggle('hidden',!song);
-  renderSections();if(!song)return;
+  renderSections();if(!song)return;   // (set lists are arranged on All songs, never from a song's page)
   if(!TITLE_NODES.some(id=>document.activeElement===$(id))&&!model.pendingTitle&&!model.titleSave){$('song-title').value=song.title;for(const id of TITLE_NODES)$(id).textContent=song.title;}
 
   const busy=isJobActive(model.state.job);
@@ -324,9 +380,6 @@ function renderControls(){
   $('transcribe').querySelector('em').textContent=analysisUiState(song,model.state.job).label;renderChips();
   if(typeof rhythmButton!=='undefined'){const job=model.state.job;rhythmButton.textContent=job?.kind==='rhythm'&&job.document_id===model.document&&job.status==='completed'?'Review rhythm proposal':'Attempt timing correction w/drum track';rhythmButton.disabled=isJobActive(job)||!separationDetail?.active;rhythmButton.title=separationDetail?.active?'':'Split the stems first: this listens to the drums.';}
   $('transcribe').title=!model.state.engine.ready?model.state.engine.message || 'Set up the transcription engine first.':'';
-  const field=$('song-controls').querySelector('#setlist-add');if(field)field.remove();
-  const available=model.state.setlists.filter(list=>list.name!=='Default'&&!list.song_ids.includes(song.id));
-  if(available.length){const select=element('select');select.id='setlist-add';select.setAttribute('aria-label','Add song to set list');const prompt=element('option','','Add to set list…');prompt.value='';select.append(prompt);for(const list of available){const option=element('option','',list.name);option.value=list.id;select.append(option);}select.onchange=async()=>{if(!select.value)return;try{await api('/api/setlist/add',{id:select.value,song_id:song.id});await refreshState();}catch(error){showError(error);}};$('song-title').parentElement.append(select);}
 }
 // ---- Locked state: a song is unusable until analysis finishes (readiness is decided by PlaybackGate/transport). ----
 function lockMode(){const song=currentSong();if(!song)return 'none';if(!song.active_run)return 'full';return model.readinessChecked&&!transport.getSnapshot().ready?'banner':'none';}
@@ -386,6 +439,7 @@ function renderChips(){renderKeyBoxes();}   // the song's details live in each p
 // The key sits in each page's banner, beside the time signature. Click it to choose another.
 function renderKeyBoxes(){
   const key=songKey();setKeySpelling(key.label);
+  const song=currentSong(),bpm=(chartRecord()||currentRecord())?.doc?.music?.timing?.bpm;if(song?.active_run&&model.detail?.song?.id===song.id)songFacts.set(song.id,song.active_run,bpm,key.label);
   for(const head of document.querySelectorAll('.jhead')){
     let box=head.querySelector('.key-box');
     if(!box){
@@ -490,12 +544,13 @@ async function refreshState(){
   const song=currentSong();if(song&&(song.status!==oldStatus || song.active_run!==oldRun || model.state.job?.kind!=='separation' && model.state.job?.song_id===song.id && isJobActive(model.state.job)))await refreshSongDetail(song.id,false);
 }
 async function selectSong(id){
-  if(id===model.song)return;
+  if(id===model.song){if(model.view!=='song'){model.view='song';renderLibrary();}return;}
   if(!practiceView.canNavigate())return;
   const request=++model.loadingSong;
   try{const saved=await window.chordBuddyFlush();if(!saved.ok)throw Error('Finish saving before changing the selected song or document.');}catch(error){showError(error);return;}
   if(request!==model.loadingSong)return;
   prefs.set('cb-last-song',id);                       // opened again next time the app starts
+  model.view='song';renderView();
   playbackGate.block('Checking analysis.');player.setWaveformRun(null);practiceViewport=null;practiceData=null;player.setPractice({music:{measures:[]},projection:null,viewport:null});separationDetail=null;model.readinessChecked=false;model.song=id;model.detail=null;model.document=null;
   clearError();renderLibrary();renderControls();renderDocument();renderLock();
   await transport.loadSong({songId:id,originalUrl:mediaUrl('/api/audio/'+encodeURIComponent(id)),separation:null});player.setNow({chord:'—',next:''});await refreshSeparation();if(request!==model.loadingSong)return;
@@ -751,6 +806,7 @@ async function importSongZip(file){
   finally{model.importing=false;$('import-button').disabled=false;$('import-button').querySelector('em').textContent='Import';$('file-input').value='';renderControls();}
 }
 $('import-button').onclick=$('empty-import').onclick=()=>$('file-input').click();$('file-input').onchange=()=>importFile($('file-input').files[0]);
+$('all-songs').onclick=showAllSongs;
 $('new-setlist').onclick=()=>{$('setlist-form').classList.toggle('hidden');if(!$('setlist-form').classList.contains('hidden'))$('setlist-name').focus();};
 $('setlist-form').onsubmit=async event=>{event.preventDefault();try{const name=$('setlist-name').value.trim();if(!name)return;const list=await api('/api/setlist',{name});model.setlist=list.id;$('setlist-name').value='';$('setlist-form').classList.add('hidden');await refreshState();}catch(error){showError(error);}};
 $('song-search').oninput=renderLibrary;
@@ -921,7 +977,7 @@ window.chordBuddyFlush=async()=>{
   }
   return {ok:false,pending:[...model.documents.values()].filter(record=>record.dirty||record.saving||record.practiceSaveError).map(record=>({id:record.doc.id,error:record.practiceSaveError?.message || record.error?.message || 'An edit is still being saved.'}))};
 };
-async function boot(){try{await prefs.connect(values=>api('/api/prefs',values),()=>api('/api/prefs'));practiceView.setSnapping(prefs.get('cb-snap','1')!=='0');await refreshState();const last=prefs.get('cb-last-song',''),song=model.state.songs.find(s=>s.id===last)||model.state.songs[0];if(song)await selectSong(song.id);}catch(error){showError(error);$('engine-status').textContent='Could not connect to the local app';}}
+async function boot(){try{await prefs.connect(values=>api('/api/prefs',values),()=>api('/api/prefs'));practiceView.setSnapping(prefs.get('cb-snap','1')!=='0');await refreshState();const last=prefs.get('cb-last-song',''),song=model.state.songs.find(s=>s.id===last)||model.state.songs[0];if(song)await selectSong(song.id);else showAllSongs();}catch(error){showError(error);$('engine-status').textContent='Could not connect to the local app';}}
 boot();setInterval(async()=>{if(model.polling)return;model.polling=true;try{await refreshState();}catch(error){$('engine-status').textContent='Connection interrupted · reconnecting';}finally{model.polling=false;}},2500);
 export {transport};
 

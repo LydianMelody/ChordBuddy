@@ -248,3 +248,20 @@ test('Timing: with the magnet off, a word lands exactly where it is dropped inst
   const [offset,bar,beat]=wordsOf(s.commits[0].candidate).find(w=>w[0]===4);
   assert.deepEqual([offset,bar],[4,'m1']);assert.ok(Math.abs(beat-2.1)<1e-6,'beat 2.1, not the nearest 1/8 (2)');
 });
+
+test('the melody of every pass is drawn in its lane color, scaled to the row, and the pass being played stands out', () => {
+  const f=fixture(),measures=f.music.measures;
+  const melody=measures.map((m,i)=>({start:m.start,end:m.start+(m.end-m.start)/2,pitch:60+(i%4)*2}));
+  installDom();const root=new Node();
+  const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{},onError:e=>{throw e;}});
+  view.update({...f,melody,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});view.setMode('timing');
+  const row=byClass(root,'trow').find(r=>byClass(r,'tmelody').some(l=>l.dataset.pass==='2'));
+  assert.ok(row,'a repeated row draws its later passes too');
+  const layers=byClass(row,'tmelody'),firstBar=byClass(row,'tbar')[0],own=layers.filter(l=>l.parent===firstBar);
+  assert.ok(own.length>1,'one layer per pass in a bar');assert.deepEqual(own.map(l=>l.dataset.slot),own.map(l=>String((Number(l.dataset.pass)-1)%4+1)));
+  const tops=layers.flatMap(l=>l.children.map(n=>parseFloat(n.style.top)));
+  assert.ok(Math.min(...tops)>0&&Math.max(...tops)<100&&Math.max(...tops)-Math.min(...tops)>50,'the row’s own notes fill its height');
+  const pass2=view.getProjection?.()?.groups?.find(g=>g.passes?.length>1)?.passes?.[1];
+  view.updatePlayback({seconds:(pass2?.start??0)+.1,ready:true,playing:true});
+  assert.deepEqual(own.filter(l=>has(l,'cur')).map(l=>l.dataset.pass),['2'],'only the pass being played');
+});

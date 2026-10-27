@@ -31,10 +31,12 @@
         <button id="side-toggle" class="fold" title="Hide the library" aria-label="Hide the library" aria-expanded="true"><span data-icon="chevronLeft"></span></button>
       </div>
       <div class="side-body">
+        <button id="all-songs" class="setlist-item all-songs" type="button" title="Every song in your library"><span data-icon="note"></span><span>All songs</span><span class="setlist-count" id="all-count">0</span></button>
         <div class="label">Set lists <button id="new-setlist" title="Create set list" aria-label="Create set list"><span data-icon="plus"></span></button></div>
         <form id="setlist-form" class="hidden inline-form"><input id="setlist-name" aria-label="Set list name" placeholder="Set list name" maxlength="100" required><button class="small-button">Add</button></form>
         <nav id="setlists" aria-label="Set lists"></nav>
         <div class="label"><span id="library-heading">Songs</span> <span id="song-count" class="count">0</span></div>
+        <div id="list-total" class="list-total"></div>
         <label class="search"><span data-icon="search"></span><input type="search" id="song-search" placeholder="Find a song…" aria-label="Find a song"></label>
         <div id="songs" class="songs song-list"></div>
         <button id="trash-open" class="text-button trash-open hidden" type="button">Trash (0)</button>
@@ -82,6 +84,7 @@
       <section id="job-panel" class="job-panel hidden" aria-live="polite"><div class="job-icon">♫</div><div class="job-copy"><strong id="job-title">Preparing transcription</strong><span id="job-message"></span><div class="progress-track"><div id="job-progress"></div></div></div><button id="cancel-job" class="secondary">Cancel</button></section>
       <section id="chord-model-panel" class="models-panel hidden" aria-live="polite"></section>
       <section id="models-panel" class="models-panel hidden" aria-live="polite"></section>
+      <section id="library-page" class="library-page" aria-label="All songs"></section>
       <section id="empty-state" class="empty-state">
         <div class="big"><span data-icon="note"></span></div><h2>Import a recording</h2><p>Choose an MP3 to create a chord chart, processed stems, a lead sheet and editable MIDI.</p><button id="empty-import" class="btn hot"><span data-icon="upload"></span>Import MP3</button><small>Or drop a file anywhere in this window</small>
       </section>

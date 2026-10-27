@@ -551,6 +551,8 @@ class Handler(BaseHTTPRequestHandler):
             result=lib.reorder_setlist(body['id'],body['song_ids'])
         elif path=='/api/setlist/add':
             result=lib.add_to_setlist(body['id'],body['song_id'])
+        elif path=='/api/setlist/remove':
+            result=lib.remove_from_setlist(body['id'],body['song_id'])
         elif path=='/api/prefs':
             result=lib.write_prefs(body)
         elif path=='/api/models/download':

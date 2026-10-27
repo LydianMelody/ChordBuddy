@@ -329,6 +329,15 @@ class Library:
             self._add(db,setlist_id,song_id)
         return self.setlist(setlist_id)
 
+    def remove_from_setlist(self,setlist_id,song_id):
+        # Every song stays in the library (the 'default' list, shown as All songs); the Trash is how a song leaves it.
+        if setlist_id=='default':
+            raise ValueError('Every song stays in All songs. Move it to the Trash to remove it from the library.')
+        with self.transaction() as db:
+            self.setlist(setlist_id)
+            db.execute('DELETE FROM memberships WHERE setlist_id=? AND song_id=?',(setlist_id,song_id))
+        return self.setlist(setlist_id)
+
     def reorder_setlist(self,setlist_id,song_ids):
         with self.transaction() as db:
             existing = self.setlist(setlist_id)['song_ids']

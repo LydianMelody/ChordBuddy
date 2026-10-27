@@ -51,23 +51,37 @@ export function createTiming(env){
 
   // ---------------- rendering ----------------
   // Overlay melody: the sung notes, faint, behind the chords and words of a bar, high notes higher, so a word can be dropped on its note.
-  function melodyOverlay(node,measure,width,n){
-    const notes=env.getData()?.melody;if(!notes?.length||!measure||!n)return;
-    const inside=notes.filter(note=>note.end>measure.start&&note.start<measure.end);if(!inside.length)return;
-    let low=Infinity,high=-Infinity;for(const note of notes){low=Math.min(low,note.pitch);high=Math.max(high,note.pitch);}
-    const layer=el('div','tmelody');layer.setAttribute('aria-hidden','true');
-    const beatAt=t=>{const a=addressAtSeconds([measure],Math.min(Math.max(t,measure.start),measure.end-1e-6));return a?a.beat:null;};
-    for(const note of inside){
-      const a=beatAt(note.start),b=note.end>=measure.end?n:beatAt(note.end);if(a===null||b===null)continue;
-      const bar=el('i');bar.style.left=beatToX(a,width,n)+'px';bar.style.width=Math.max(3,beatToX(b,width,n)-beatToX(a,width,n)-1)+'px';
-      bar.style.top=(high>low?(high-note.pitch)/(high-low)*100:50)+'%';layer.append(bar);
+  // A repeated row draws every pass's notes, each in its lane's color (what that lane's words snap to); the pass being played is drawn
+  // strongest (chart-page.js marks it). The height is shared by the row: its lowest note at the bottom, its highest at the top.
+  function rowPitchRange(g){
+    const notes=env.getData()?.melody;if(!notes?.length)return null;
+    const {measures}=env.getModel(),spans=g.passes.flatMap(p=>p.measureIds).map(id=>measures.find(m=>m.id===id)).filter(Boolean);
+    let low=Infinity,high=-Infinity;
+    for(const note of notes)if(spans.some(m=>note.end>m.start&&note.start<m.end)){low=Math.min(low,note.pitch);high=Math.max(high,note.pitch);}
+    return low<=high?{low:low-1,high:high+1}:null;
+  }
+  function melodyOverlay(node,g,barIndex,width,n,range){
+    const notes=env.getData()?.melody;if(!notes?.length||!range||!n)return;
+    const {measures}=env.getModel(),layers=[];
+    for(const pass of g.passes){
+      const measure=measures.find(m=>m.id===pass.measureIds[barIndex]);if(!measure)continue;
+      const inside=notes.filter(note=>note.end>measure.start&&note.start<measure.end);if(!inside.length)continue;
+      const layer=el('div','tmelody');layer.setAttribute('aria-hidden','true');layer.dataset.pass=String(pass.number);
+      if(g.passCount>1)layer.dataset.slot=String((pass.number-1)%PASS_COLORS+1);
+      const beatAt=t=>{const a=addressAtSeconds([measure],Math.min(Math.max(t,measure.start),measure.end-1e-6));return a?a.beat:null;};
+      for(const note of inside){
+        const a=beatAt(note.start),b=note.end>=measure.end?n:beatAt(note.end);if(a===null||b===null)continue;
+        const bar=el('i');bar.style.left=beatToX(a,width,n)+'px';bar.style.width=Math.max(3,beatToX(b,width,n)-beatToX(a,width,n)-1)+'px';
+        bar.style.top=((range.high-note.pitch)/(range.high-range.low)*100)+'%';layer.append(bar);
+      }
+      layers.push(layer);
     }
-    node.firstChild?node.insertBefore(layer,node.firstChild):node.append(layer);   // first, so it paints under the chords and words that follow
+    for(const layer of layers.reverse())node.firstChild?node.insertBefore(layer,node.firstChild):node.append(layer);   // first, so they paint under the chords and words
   }
   function renderGroup(section,g){
     const {measures}=env.getModel(),perBeat=beatPx(env.getZoom()),refs=env.refs,perLine=Math.max(1,env.getData()?.content?.layout?.bars_per_line||4);
     const row=el('div','row trow'+(g.lanes.length?' has-lyrics':''));let bars=el('div','bars');const lines=[bars];row.dataset.group=g.id;
-    const rowIds=new Set(g.bars.map(b=>b.id));
+    const rowIds=new Set(g.bars.map(b=>b.id)),pitchRange=rowPitchRange(g);
     refs.groups.push({node:row,model:g});
     const placedLanes=g.lanes.filter(l=>!l.flow);
     // widths: chord labels and each lyric line are separate lanes of items
@@ -108,7 +122,7 @@ export function createTiming(env){
         chords.append(cell);refs.chunks.push({node:cell,group:g,chunk});
       }
       node.append(chords);
-      melodyOverlay(node,bar.measure,width,n);
+      melodyOverlay(node,g,index,width,n,pitchRange);
       placedLanes.forEach((lane,i)=>{
         const laneEl=el('div','tlane');laneEl.dataset.lane=String(i);laneEl.dataset.pass=String(lane.passNumber);
         // A repeated row holds one lane per pass. Each pass has its own color and every bar of its lane carries its name, so the words can be told

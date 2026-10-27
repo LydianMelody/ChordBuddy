@@ -52,6 +52,76 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 .song-order{display:flex;flex-direction:column;opacity:0}
 .song-row:hover .song-order,.song-row:focus-within .song-order{opacity:1}
 .song-order button{font-size:9px;padding:1px 3px;background:none;color:var(--soft)}
+/* All songs and the set lists as drop targets: a dragged song lands on a set list; a quick flash says it went in (or was there already) */
+.setlist-item.all-songs{margin-top:6px}
+.setlist-item.drop-target{border-color:var(--a1);border-style:dashed;background:color-mix(in srgb,var(--a1) 12%,transparent)}
+.setlist-item.took{animation:list-took .9s ease}
+.setlist-item.already{animation:list-already .5s ease}
+@keyframes list-took{0%{background:var(--hl);color:var(--ink)}100%{}}
+@keyframes list-already{0%,100%{transform:none}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+@media (prefers-reduced-motion:reduce){.setlist-item.took,.setlist-item.already{animation:none}}
+.song-remove{opacity:0;width:22px;height:22px;padding:0;border-radius:6px;color:var(--soft);display:grid;place-items:center;flex:none}
+.song-remove .ic{width:13px;height:13px}
+.song-row:hover .song-remove,.song-row:focus-within .song-remove{opacity:1}
+.song-remove:hover{color:var(--a1t);background:color-mix(in srgb,var(--a1) 12%,transparent)}
+
+/* Tempo and key badges under a song's title, and a list's total length under its name: small, but in the ink and type of the page */
+.song-facts{display:inline-flex;gap:4px;align-items:center;min-height:16px}
+.song-main .song-facts{display:flex;margin-top:3px}
+.fact-badge{display:inline-block;padding:0 5px;border:1.5px solid currentColor;border-radius:5px;font:700 10.5px/14px var(--m);letter-spacing:0;white-space:nowrap;opacity:.8}
+.fact-badge.key{background:var(--ink);color:var(--page);border-color:var(--ink);opacity:.85}
+.song-row.selected .fact-badge.key{background:#1A1C24;color:#fff;border-color:#1A1C24}
+.list-total{margin:-4px 6px 2px;font:700 10.5px var(--m);color:var(--soft);letter-spacing:.04em}
+.list-total:empty{display:none}
+.library-title{display:flex;flex-direction:column;gap:2px}
+.library-title .list-total{margin:0}
+
+/* The main area shows the open song, or All songs */
+.library-page{display:none}
+#app[data-view="library"] .library-page{display:flex;flex-direction:column;flex:1;min-height:0;gap:10px;padding:8px 0 18px}
+#app[data-view="library"] :is(#song-controls,#song-actions,#empty-state,#locked-panel,#lock-banner,#work){display:none!important}
+.library-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.library-head h2{margin:0;font:800 34px/1 var(--g);font-stretch:80%;text-transform:uppercase}
+.library-search{margin:0 0 0 auto;width:min(320px,100%)}
+.library-hint{margin:0;color:var(--soft);font-size:13px}
+/* the wall of cassettes: as many columns as fit. A tape is drawn from plain boxes and borders, in the page's ink, with a hard shadow */
+.library-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(184px,1fr));gap:16px 14px;align-content:start;overflow:auto;min-height:0;padding:4px 8px 10px 4px}
+.tape{--tape:color-mix(in srgb,var(--a1) 32%,var(--page));position:relative;display:flex;flex-direction:column;gap:5px;padding:7px 8px 0;border:var(--bd) solid var(--ink);border-radius:11px;background:var(--tape);color:var(--ink);box-shadow:4px 4px 0 var(--ink);cursor:grab;transition:transform .12s,box-shadow .12s;min-width:0}
+.tape[data-tint="1"]{--tape:color-mix(in srgb,var(--a2) 26%,var(--page))}
+.tape[data-tint="2"]{--tape:color-mix(in srgb,var(--a3) 32%,var(--page))}
+.tape[data-tint="3"]{--tape:color-mix(in srgb,var(--hl) 45%,var(--page))}
+.tape[data-tint="4"]{--tape:var(--tint)}
+.tape:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--ink)}
+.tape:active{cursor:grabbing}
+.tape.selected{outline:3px solid var(--hl);outline-offset:3px}
+.tape.dragging{opacity:.4}
+/* the paper label: title and artist, one line each */
+.tape-label{display:flex;flex-direction:column;gap:1px;min-width:0;padding:4px 8px 3px;border:2px solid var(--ink);border-radius:5px;background:var(--page);text-align:left;color:var(--ink);cursor:pointer;
+  background-image:repeating-linear-gradient(transparent 0 15px,color-mix(in srgb,var(--ink) 10%,transparent) 15px 16px)}
+.tape-label strong{font:800 14.5px/1.15 var(--g);font-stretch:88%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tape-label small{font:400 10.5px/1.3 var(--m);color:var(--soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tape[data-status="new"] .tape-label strong{opacity:.6}
+/* the window: a reel at each end, the tempo and key between them (always shown) */
+.tape-window{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:4px 7px;border:2px solid var(--ink);border-radius:999px;background:var(--page)}
+.tape-window .song-facts{margin:0;flex:none}
+.tape-window small{font:700 10px var(--m);color:var(--a2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.reel{flex:none;width:17px;height:17px;border:2px solid var(--ink);border-radius:50%;background:conic-gradient(var(--ink) 0 10%,transparent 0 33.3%,var(--ink) 0 43.3%,transparent 0 66.6%,var(--ink) 0 76.6%,transparent 0);box-shadow:inset 0 0 0 3px var(--page)}
+.tape[data-status="busy"] .reel{animation:reel-spin 1.6s linear infinite}
+@keyframes reel-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.tape[data-status="busy"] .reel{animation:none}}
+/* the strip along the bottom, narrower than the tape: side A, the set lists it is on, its length */
+.tape-foot{display:flex;align-items:center;gap:5px;min-width:0;margin:0 14px;padding:3px 6px;border:2px solid var(--ink);border-bottom:0;border-radius:6px 6px 0 0;background:color-mix(in srgb,var(--ink) 8%,var(--tape))}
+.tape-side{font:800 10px var(--m);opacity:.6}
+.library-tags{display:flex;gap:3px;min-width:0;flex:1;overflow:hidden}
+.library-tag{display:inline-flex;align-items:center;gap:1px;min-width:0;max-width:100%;padding:0 1px 0 6px;border:1.5px solid var(--ink);border-radius:999px;font:700 9.5px/14px var(--m);background:var(--page);color:var(--ink)}
+.library-tag>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.library-untag{flex:none;width:14px;height:14px;padding:0;border:0;border-radius:50%;background:none;color:inherit;display:grid;place-items:center;opacity:.6}
+.library-untag .ic{width:9px;height:9px}
+.library-untag:hover{opacity:1;background:color-mix(in srgb,var(--a1) 25%,transparent)}
+.library-len{margin-left:auto;font:700 11px var(--m);color:var(--ink);flex:none}
+.library-len .ic{width:13px;height:13px}
+.library-empty{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;gap:10px;padding:40px 10px;color:var(--soft)}
+
 .sidebar-empty{padding:16px 8px;color:var(--soft);font-size:12.5px;line-height:1.6}
 .status-dot{width:9px;height:9px;border-radius:50%;background:var(--hl);border:2px solid var(--ink);flex:none;margin:0}
 .status-dot.ready{background:var(--a3)}
@@ -64,7 +134,6 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 #song-title{font:800 32px/1 var(--g);font-stretch:76%;text-transform:uppercase;letter-spacing:-.01em;border:2px solid transparent;border-radius:8px;background:transparent;padding:2px 6px;margin:2px 0 4px -6px;min-width:0;width:min(100%,560px);box-shadow:none;color:var(--ink)}
 #song-title:hover{border-color:var(--line)}
 #song-title:focus{border-color:var(--ink);background:var(--page)}
-#setlist-add{padding:3px 8px;font:700 11px var(--m);border-width:2px;border-color:var(--ink);border-radius:8px;background:var(--page)}
 .chips{margin-top:2px}
 .top-right{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 8px;flex:1 1 auto;min-width:0}
 .top .actions{margin-left:0;flex:none;flex-wrap:wrap;justify-content:flex-end}
