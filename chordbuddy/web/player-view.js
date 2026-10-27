@@ -2,14 +2,15 @@
 // clock, repeat pass and speed on the right. It only drives the one shared Transport.
 import {mountPracticeTimeline} from './practice-timeline.js';
 import {actualPracticePosition} from './practice-state.js';
-import {sectionAtSeconds,stepSpeed,SPEED_MIN,SPEED_MAX} from './loop-range.js';
+import {sectionAtSeconds,sectionLoopRange,stepSpeed,SPEED_MIN,SPEED_MAX} from './loop-range.js';
+import {detectFadeIn,detectFadeOut} from './fade-out.js';
 import {icon} from './icons.js';
 const time=s=>Number.isFinite(s)?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'):'0:00';
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 const withIcon=(button,name)=>{button.innerHTML=icon(name);return button;};
 
 export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},loadWaveform=async()=>null}={}){
- let practice=null,waveRun=null,waveRequest=0,now={chord:'—',next:''},seeksSeen=0;
+ let practice=null,waveRun=null,waveRequest=0,now={chord:'—',next:''},seeksSeen=0,wave=null;
  const audio=footer.querySelector('audio');audio.hidden=true;audio.removeAttribute('controls');
  const grid=el('div','nav-grid'),left=el('div','nav-left'),center=el('div','nav-center'),right=el('div','nav-right');
  const nowBox=el('div','nowbox'),nowChord=el('div','nowchord','—'),nowMeta=el('div','nowmeta'),nowLabel=el('small','','Now'),nowSection=el('b','',''),nowNext=el('span','','');
@@ -37,7 +38,15 @@ export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},lo
   const s=transport.getSnapshot();if(!s.ready)return;
   if(s.loop.enabled){transport.setLoop(null).catch(onError);return;}
   const section=sectionAtSeconds(sections(),s.seconds)||sections()[0];
-  if(section)transport.setLoop({enabled:true,start:section.start,end:section.end,implicit:true}).catch(onError);
+  if(section)transport.setLoop({enabled:true,...loopRange(section),implicit:true}).catch(onError);
+ }
+ // What R loops in a section: all of it, but in an intro or an outro only bars at full volume (see sectionLoopRange).
+ function loopRange(section){
+  const measures=practice?.music?.measures||[];
+  const beats=measures.flatMap(m=>m.beats||[]),fades=wave?.peaks?{fadeIn:detectFadeIn(wave.peaks,wave.duration,beats),fadeOut:detectFadeOut(wave.peaks,wave.duration,beats)}:{};
+  const barOne=measures.find(m=>m.number-(practice?.barOffset||0)===1);
+  const phrases=(practice?.projection?.groups||[]).filter(g=>g.sectionId===section.id&&g.folded&&g.passes?.length>1).flatMap(g=>g.passes);
+  return sectionLoopRange(section,measures,{...fades,musicStart:barOne?.start,phrases});
  }
  loopButton.onclick=toggleLoop;
  // Speed: the stepper is honest. It stays disabled until the transport can really change tempo without changing pitch.
@@ -61,8 +70,9 @@ export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},lo
   // A section loop (not one whose handles you moved) follows you when you jump to another section. Only a seek moves it: playback itself
   // never does (the playhead reported just after the loop wraps, or as playback starts, can sit a moment before the section's start).
   const seeked=s.seeks!==seeksSeen;seeksSeen=s.seeks;
-  if(seeked&&s.loop?.enabled&&s.loop.implicit&&section&&(s.loop.start!==section.start||s.loop.end!==section.end)){
-   transport.setLoop({enabled:true,start:section.start,end:section.end,implicit:true}).catch(onError);
+  const range=seeked&&s.loop?.enabled&&s.loop.implicit&&section?loopRange(section):null;
+  if(range&&(s.loop.start!==range.start||s.loop.end!==range.end)&&!(s.seconds>=s.loop.start&&s.seconds<s.loop.end&&sectionAtSeconds(sections(),s.loop.start)===section)){
+   transport.setLoop({enabled:true,...range,implicit:true}).catch(onError);
   }
  }
  const unsubscribe=transport.subscribe(paint);
@@ -72,8 +82,8 @@ export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},lo
   setPractice(data){practice=data;timeline.update(data);paint(transport.getSnapshot());},
   setNow(value){now={chord:value?.chord||'—',next:value?.next||''};paint(transport.getSnapshot());},
   setWaveformRun(run){
-   if(run===waveRun)return;waveRun=run;const serial=++waveRequest;timeline.setWaveform(null,run?'Loading waveform…':'Waveform available after analysis.');if(!run)return;
-   Promise.resolve().then(()=>loadWaveform(run)).then(value=>{if(serial===waveRequest)timeline.setWaveform(value);}).catch(()=>{if(serial===waveRequest)timeline.setWaveform(null,'Waveform unavailable. Playback controls remain available.');});
+   if(run===waveRun)return;waveRun=run;const serial=++waveRequest;wave=null;timeline.setWaveform(null,run?'Loading waveform…':'Waveform available after analysis.');if(!run)return;
+   Promise.resolve().then(()=>loadWaveform(run)).then(value=>{if(serial===waveRequest){wave=value;timeline.setWaveform(value);}}).catch(()=>{if(serial===waveRequest)timeline.setWaveform(null,'Waveform unavailable. Playback controls remain available.');});
   },
   dispose(){waveRequest++;unsubscribe();timeline.dispose();grid.remove();status.remove();},
  };

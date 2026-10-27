@@ -28,3 +28,11 @@ export function detectFadeOut(peaks,duration,beats){
   if(!(period>0)||duration-sorted.at(-1)>1.25*period)return null;                        // the beat stopped: the band ended it
   return {start};
 }
+
+// Does the recording fade in? The same test run backwards from the start of the file. Returns {end} (seconds: where it reaches
+// full loudness) or null.
+export function detectFadeIn(peaks,duration,beats){
+  if(!Array.isArray(peaks)||!Array.isArray(beats))return null;
+  const found=detectFadeOut([...peaks].reverse(),duration,beats.map(t=>duration-t));
+  return found?{end:duration-found.start}:null;
+}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {detectFadeOut} from '../chordbuddy/web/fade-out.js';
+import {detectFadeOut,detectFadeIn} from '../chordbuddy/web/fade-out.js';
 
 // A made-up 120 s song, 1024 peak bins, steady beats every half second. `tail(t)` gives the loudness in dB, 0 = the song's usual level,
 // for the seconds t before the end; a little beat-to-beat ripple keeps it like real peaks.
@@ -25,4 +25,11 @@ test('not a fade: a final hit ringing out, a sudden step into a quiet ending, a 
   assert.equal(song(ramp(11,11),{beatsUntil:DURATION-4}),null,'the beat stopped before the end');
   assert.equal(song(()=>0),null,'loud to the last moment');
   assert.equal(song(t=>t>=11?0:t>=5?-15:-10-(5-t)*12),null,'it came back up');
+});
+
+test('a fade in is the same thing backwards: the music swells up from silence at the start while the beat already runs', () => {
+  const peaks=Array.from({length:N},(_,i)=>{const t=(i+.5)*DURATION/N,ripple=i%3?-2:0;return 10**((ramp(11,11)(t)+ripple)/20)*.5;});
+  const beats=[];for(let b=0;b<DURATION;b+=.5)beats.push(b);
+  const swell=detectFadeIn(peaks,DURATION,beats);assert.ok(swell);assert.ok(swell.end>8&&swell.end<11,`reaches full volume about 9 s in, got ${swell.end}`);
+  assert.equal(detectFadeIn(Array(N).fill(.5),DURATION,beats),null,'loud from the first moment');
 });

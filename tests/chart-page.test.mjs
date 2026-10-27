@@ -273,7 +273,7 @@ test('Ctrl+click under a row with no words opens one line per pass; a new line s
   assert.equal(wordLines(m.root).length,4);                                           // one line per pass of the row, not one box per chord
   const line=wordLines(m.root)[0];assert.equal(line.dataset.placeholder.startsWith('Click and type'),true);
   line._lane.anchorKey=byClass(m.root,'chord')[2].dataset.chunk;                       // clicked under the third chord
-  line.textContent='hello world';line.oninput();press(line,'Enter');await tick();
+  line.textContent='hello world';line.oninput();await leave(line);
   assert.equal(m.commits.length,1);assert.equal(m.commits[0].label,'Add lyrics');
   const c=m.commits[0].candidate;assert.equal(c.sections[0].lyrics,'hello world');
   const pin=c.layout.lines[0].words.find(w=>w.offset===0);assert.deepEqual([pin.measure_id,pin.beat],['m2',0]);   // the D chord at bar 3
@@ -284,10 +284,11 @@ const withWords=(words='hello wrold',pins=[{offset:0,measure_id:'m0',beat:0},{of
   f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[{section_id:'s',line:0,start_measure:'m0',end_measure:'m3',words:pins}]};return f;
 };
 const openWords=m=>{byClass(m.root,'lyr')[0].onclick(ctrl);return wordLines(m.root);};
+const leave=async line=>{line.onblur();await new Promise(r=>setTimeout(r,1));await tick();};      // a click outside the row saves it
 test('Ctrl+click on the words: a line can be retyped; a typo fix keeps the pin and Esc drops the change', async () => {
   const m=mount(withWords());const lines=openWords(m);
   assert.equal(lines.length,4);assert.equal(lines[0].textContent,'hello wrold');
-  lines[0].textContent='hello world';lines[0].oninput();press(lines[0],'Enter');await tick();
+  lines[0].textContent='hello world';lines[0].oninput();await leave(lines[0]);
   const c=m.commits[0].candidate;assert.equal(c.sections[0].lyrics,'hello world');
   assert.deepEqual(c.layout.lines[0].words.map(w=>[w.offset,w.measure_id,w.beat]),[[0,'m0',0],[6,'m2',2]]);
   const again=mount(withWords());const l2=openWords(again);
@@ -306,7 +307,7 @@ test('a repeated row has one line for every pass, and a new line belongs to its 
   const lines=openWords(m);assert.equal(lines.length,4);
   assert.deepEqual(byClass(m.root,'lane-tag').filter(t=>t.parent&&has(t.parent,'lane-edit')).map(t=>t.textContent),['1','2','3','4']);
   assert.deepEqual(lines.map(l=>l.textContent),['first pass words','','','']);
-  lines[1].textContent='second pass words';lines[1].oninput();press(lines[1],'Enter');await tick();
+  lines[1].textContent='second pass words';lines[1].oninput();await leave(lines[1]);
   const c=m.commits[0].candidate;assert.equal(c.sections[0].lyrics,'first pass words\nsecond pass words');
   const pin=c.layout.lines.find(p=>p.line===1).words[0];assert.equal(pin.measure_id,'m4');          // pass 2 starts on bar 5
   assert.equal(c.layout.lines.find(p=>p.line===1).start_measure,'m4');
@@ -315,11 +316,11 @@ test('a repeated row has one line for every pass, and a new line belongs to its 
 test('several pasted lines flow into the following lines, one per pass', async () => {
   const f=withWords('first pass words',[{offset:0,measure_id:'m0',beat:0}]);
   const m=mount(f);const lines=openWords(m);
-  lines[1].textContent='second pass\nthird pass\n\nfourth pass';lines[1].oninput();press(lines[1],'Enter');await tick();
+  lines[1].textContent='second pass\nthird pass\n\nfourth pass';lines[1].oninput();await leave(lines[1]);
   assert.equal(m.commits.length,1);
   assert.equal(m.commits[0].candidate.sections[0].lyrics,'first pass words\nsecond pass\nthird pass\nfourth pass');
   const toomany=mount(f);const l2=openWords(toomany);
-  l2[2].textContent='a\nb\nc';l2[2].oninput();press(l2[2],'Enter');await tick();
+  l2[2].textContent='a\nb\nc';l2[2].oninput();await leave(l2[2]);
   assert.equal(toomany.commits.length,0);assert.match(toomany.root.textContent,/only 2 lines/);
 });
 
@@ -330,28 +331,57 @@ test('Enter on a line moves to the next line of the row', async () => {
   assert.equal(focused,1);assert.equal(m.commits.length,0);                                // nothing changed, nothing saved
 });
 
-test('Tab saves a typed line and goes on to the next pass, even when the app redraws the chart while it saves; Shift+Tab goes back', async () => {
-  // like the app: every change of the editing state redraws from the latest saved chart (which can land mid-save)
-  installDom();const root=new Node();let data,view,revision=0;
-  view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onError:()=>{},
-    onCommit:async candidate=>{data={...data,content:candidate,revision:++revision};view.update(data);},
-    onDraftChange:()=>view.update(data)});
+test('Tab and Enter move between the passes without saving; leaving the row saves every changed line as one edit', async () => {
   // like a browser: one element has the focus, and removing it from the page reports it as left (blur)
   let focused=null;const inside=(n,t)=>n===t||n.children.some(c=>inside(c,t));
   const replace=Node.prototype.replaceChildren,focus=Node.prototype.focus;
   Node.prototype.focus=function(){if(focused===this)return;const was=focused;focused=this;was?.onblur?.();this.onfocus?.();};
   Node.prototype.replaceChildren=function(...nodes){const was=focused;if(was&&inside(this,was)){focused=null;was.onblur?.();}return replace.apply(this,nodes);};
   try{
+    installDom();const root=new Node();let data,view,revision=0;const labels=[];
+    view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onError:()=>{},
+      onCommit:async(candidate,label)=>{labels.push(label);data={...data,content:candidate,revision:++revision};view.update(data);},
+      onDraftChange:()=>view.update(data)});      // like the app: every change of the editing state redraws from the latest chart
     data={...withWords('first pass words',[{offset:0,measure_id:'m0',beat:0}]),documentId:'d',revision,songId:'s',transport:{seconds:0,ready:true}};view.update(data);
-    openWords({root});
-    wordLines(root)[0].textContent='first pass changed';wordLines(root)[0].oninput();
-    await wordLines(root)[0].onkeydown({key:'Tab',preventDefault(){}});await tick();
-    assert.equal(revision,1,'saved');
-    let lines=wordLines(root);assert.equal(lines.length,4,'the row stays open');
-    assert.equal(lines.indexOf(focused),1,'the cursor is on pass 2');assert.match(lines[0].textContent,/first pass changed/);
-    await lines[1].onkeydown({key:'Tab',shiftKey:true,preventDefault(){}});await tick();
-    lines=wordLines(root);assert.equal(lines.length,4);assert.equal(lines.indexOf(focused),0,'Shift+Tab goes back to pass 1');
+    openWords({root});const lines=wordLines(root);assert.equal(lines.indexOf(focused),0);
+    lines[0].textContent='first pass changed';lines[0].oninput();
+    lines[0].onkeydown({key:'Tab',preventDefault(){}});await new Promise(r=>setTimeout(r,1));
+    assert.equal(lines.indexOf(focused),1,'Tab: the cursor is on pass 2');assert.equal(revision,0,'nothing saved yet');
+    assert.equal(wordLines(root).length,4,'the row stays open');
+    lines[1].textContent='second pass';lines[1].oninput();
+    lines[1].onkeydown({key:'Tab',shiftKey:true,preventDefault(){}});await new Promise(r=>setTimeout(r,1));
+    assert.equal(lines.indexOf(focused),0,'Shift+Tab goes back');
+    lines[0].onkeydown({key:'Enter',preventDefault(){}});await new Promise(r=>setTimeout(r,1));
+    assert.equal(lines.indexOf(focused),1,'Enter goes on too');assert.equal(revision,0);
+    focused=null;lines[1].onblur();await new Promise(r=>setTimeout(r,1));await tick();     // a click outside the row
+    assert.equal(revision,1,'one edit');assert.deepEqual(labels,['Edit lyrics']);
+    assert.match(data.content.sections[0].lyrics,/first pass changed\nsecond pass/);
+    assert.equal(wordLines(root).length,0,'and the row closes');
   }finally{Node.prototype.replaceChildren=replace;if(focus)Node.prototype.focus=focus;else delete Node.prototype.focus;}
+});
+
+test('a row can empty several lines and start a new one in one go: the lines are not mixed up by the ones removed', async () => {
+  const f=fixture();f.content.sections[0].lyrics='one two\nthree four\nfive six';
+  f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:['m0','m4','m8'].map((m,line)=>({section_id:'s',line,start_measure:m,end_measure:'m'+(Number(m.slice(1))+3),words:[{offset:0,measure_id:m,beat:0}]}))};
+  const m=mount(f);const lines=openWords(m);
+  assert.deepEqual(lines.map(l=>l.textContent),['one two','three four','five six','']);
+  lines[0].textContent='';lines[0].oninput();lines[2].textContent='';lines[2].oninput();
+  lines[3].textContent='seven eight';lines[3].oninput();
+  await leave(lines[3]);
+  assert.deepEqual(m.errors,[]);assert.equal(m.commits.length,1,'one edit');
+  const c=m.commits[0].candidate;assert.equal(c.sections[0].lyrics,'three four\nseven eight');
+  const placed=line=>c.layout.lines.find(p=>p.line===line)?.start_measure;
+  assert.deepEqual([placed(0),placed(1)],['m4','m12'],'"three four" stays on pass 2, the new line goes on pass 4');
+});
+
+test('Esc leaves the row and drops what was typed; a line no longer on the page never holds up a redraw', async () => {
+  const m=mount(withWords('first pass words',[{offset:0,measure_id:'m0',beat:0}]));const lines=openWords(m);
+  lines[0].onfocus();lines[0].textContent='changed';lines[0].oninput();
+  lines[1].onfocus();lines[1].textContent='also changed';lines[1].oninput();
+  press(lines[1],'Escape');await tick();assert.equal(m.commits.length,0);assert.equal(wordLines(m.root).length,0);
+  const n=mount(withWords());const open=openWords(n)[0];open.onfocus();open.isConnected=false;   // focused, then dropped from the page
+  const moved=structuredClone(n.data.content);moved.sections[0].name='Renamed';n.view.update({...n.data,content:moved,revision:1});
+  assert.ok(byClass(n.root,'sec-name').some(x=>x.textContent==='Renamed'),'redrawn');
 });
 
 // ---- sections ----

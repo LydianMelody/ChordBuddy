@@ -486,6 +486,7 @@ async function selectSong(id){
   const request=++model.loadingSong;
   try{const saved=await window.chordBuddyFlush();if(!saved.ok)throw Error('Finish saving before changing the selected song or document.');}catch(error){showError(error);return;}
   if(request!==model.loadingSong)return;
+  prefs.set('cb-last-song',id);                       // opened again next time the app starts
   playbackGate.block('Checking analysis.');player.setWaveformRun(null);practiceViewport=null;practiceData=null;player.setPractice({music:{measures:[]},projection:null,viewport:null});separationDetail=null;model.readinessChecked=false;model.song=id;model.detail=null;model.document=null;
   clearError();renderLibrary();renderControls();renderDocument();renderLock();
   await transport.loadSong({songId:id,originalUrl:mediaUrl('/api/audio/'+encodeURIComponent(id)),separation:null});player.setNow({chord:'—',next:''});await refreshSeparation();if(request!==model.loadingSong)return;
@@ -902,7 +903,7 @@ window.chordBuddyFlush=async()=>{
   }
   return {ok:false,pending:[...model.documents.values()].filter(record=>record.dirty||record.saving||record.practiceSaveError).map(record=>({id:record.doc.id,error:record.practiceSaveError?.message || record.error?.message || 'An edit is still being saved.'}))};
 };
-async function boot(){try{await prefs.connect(values=>api('/api/prefs',values),()=>api('/api/prefs'));practiceView.setSnapping(prefs.get('cb-snap','1')!=='0');await refreshState();const song=model.state.songs[0];if(song)await selectSong(song.id);}catch(error){showError(error);$('engine-status').textContent='Could not connect to the local app';}}
+async function boot(){try{await prefs.connect(values=>api('/api/prefs',values),()=>api('/api/prefs'));practiceView.setSnapping(prefs.get('cb-snap','1')!=='0');await refreshState();const last=prefs.get('cb-last-song',''),song=model.state.songs.find(s=>s.id===last)||model.state.songs[0];if(song)await selectSong(song.id);}catch(error){showError(error);$('engine-status').textContent='Could not connect to the local app';}}
 boot();setInterval(async()=>{if(model.polling)return;model.polling=true;try{await refreshState();}catch(error){$('engine-status').textContent='Connection interrupted · reconnecting';}finally{model.polling=false;}},2500);
 export {transport};
 

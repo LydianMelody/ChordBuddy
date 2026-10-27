@@ -76,3 +76,20 @@ export function describeRange(measures,range){
 
 export const SPEED_MIN=50,SPEED_MAX=125,SPEED_STEP=5;
 export const stepSpeed=(percent,direction)=>Math.max(SPEED_MIN,Math.min(SPEED_MAX,Math.round((percent+direction*SPEED_STEP)/SPEED_STEP)*SPEED_STEP));
+
+// R on an intro or an outro loops music played at full volume, never a fade (an outro that fades out would otherwise loop the fade, and
+// an intro the swell): one pass of a phrase the chart repeats there (the first pass clear of any fade), or else its first four bars.
+// fades: {fadeIn:{end}, fadeOut:{start}} as found by fade-out.js; musicStart: where bar 1 begins (the silent lead-in before it is never
+// looped either); phrases: the passes [{start,end}] of the section's repeated phrases. Any other section, or an intro or outro with
+// nothing at full volume, loops whole.
+const EDGE=/\b(intro|outro)\b/i;
+export function sectionLoopRange(section,measures,{fadeIn=null,fadeOut=null,musicStart=null,phrases=[]}={},bars=4){
+  const whole={start:section.start,end:section.end};
+  if(!EDGE.test(section.name||''))return whole;
+  const slack=.05,clear=(start,end)=>start>=section.start-slack&&end<=section.end+slack&&!(fadeIn&&start<fadeIn.end-slack)
+    &&!(fadeOut&&end>fadeOut.start+slack)&&!(Number.isFinite(musicStart)&&start<musicStart-slack);
+  const pass=[...phrases].sort((a,b)=>a.start-b.start).find(p=>clear(p.start,p.end));
+  if(pass)return {start:pass.start,end:pass.end};
+  const picked=(measures||[]).filter(m=>clear(m.start,m.end)).slice(0,bars);
+  return picked.length?{start:picked[0].start,end:picked.at(-1).end}:whole;
+}

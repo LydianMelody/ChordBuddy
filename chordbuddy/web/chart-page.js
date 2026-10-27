@@ -663,13 +663,17 @@ export function mountChartPage(root,handlers={}){
       ref.line.style?.setProperty?.('--start',x+'px');
     }
   }
-  let laneSaves=Promise.resolve();                       // lines are saved one after another, in the order they were left
+  // A row's lines of words are typed freely: Tab and Enter only move between its passes (nothing is saved or redrawn while typing),
+  // and every changed line is saved together, as one edit, when the row is left. Esc leaves it and drops the changes.
   // a line of words takes the keyboard with the cursor at its end, ready to go on typing
   function focusEnd(node){if(!node)return;node.focus?.();const sel=globalThis.getSelection?.();sel?.selectAllChildren?.(node);sel?.collapseToEnd?.();}
+  let typingIn=null,closing=false;                      // the line that has the keyboard; a row being closed (saved)
+  const rowLines=g=>refs.editors.filter(r=>r.group===g);
+  const changed=ref=>ref.node.textContent.replace(/\s+/g,' ').trim()!==ref.original.trim();
   function wireLane(ref){
-    const editor=ref.node;let done=false;
-    editor.onfocus=()=>{draft={kind:'lyric',node:editor,dirty:false,failed:false};done=false;notify();};
-    editor.oninput=()=>{if(draft?.node===editor)draft.dirty=editor.textContent.trim()!==ref.original.trim();notify();};
+    const editor=ref.node;
+    editor.onfocus=()=>{typingIn=ref;editing={...editing,focus:ref.id};draft={kind:'lyric',node:editor,dirty:rowLines(ref.group).some(changed),failed:false};notify();};
+    editor.oninput=()=>{if(draft)draft.dirty=rowLines(ref.group).some(changed);notify();};
     editor.onmousedown=e=>{
       // a new line begins at the chord nearest the click
       if(ref.lane||ref.node.textContent||!finite(e?.clientX))return;
@@ -677,46 +681,27 @@ export function mountChartPage(root,handlers={}){
       let best=null,gap=Infinity;for(const c of mine){const d=Math.abs(c.node.getBoundingClientRect().left-e.clientX);if(d<gap){gap=d;best=c;}}
       if(best){ref.anchorKey=best.chunk.key;positionEditors();}
     };
-    // keep: another line of the same row takes the keyboard next, so the row stays open for typing
-    const finish=async(save,keep=null)=>{
-      if(done)return false;done=true;
-      const raw=editor.textContent;draft=null;
-      if(!save||raw.replace(/\s+/g,' ').trim()===ref.original.trim()){
-        editor.textContent=ref.original;
-        if(keep){editing={...editing,focus:keep};focusEnd(refs.editors.find(r=>r.id===keep)?.node);notify();}
-        else stopEditing();
-        return false;
-      }
-      // The next line takes the keyboard at once, so typing straight on is never lost to the save. Saves queue up in order (Tab, type,
-      // Tab again before the first save is done), and whatever is being typed in the line that has the keyboard is put back after
-      // each redraw with the saved words.
-      const next=keep?refs.editors.find(r=>r.id===keep):null;
-      if(keep){editing={...editing,focus:keep};focusEnd(next?.node);}
-      const run=laneSaves.then(async()=>{
-        try{await commitLanes(ref,raw);}catch(e){fail(e);}
-        const live=refs.editors.find(r=>r.node===globalThis.document?.activeElement)||next;
-        const typed=live&&live.node.textContent!==live.original?{id:live.id,text:live.node.textContent}:null;
-        if(!keep&&laneSaves===run)editing=null;
-        render();
-        const again=typed&&refs.editors.find(r=>r.id===typed.id);
-        if(again){
-          again.node.textContent=typed.text;if(draft?.node===again.node)draft.dirty=typed.text.trim()!==again.original.trim();
-          if(again.id===editing?.focus)focusEnd(again.node);
-        }
-        notify();if(!editing)refreshView();
-      });
-      laneSaves=run;await run;
-      return true;
-    };
-    editor.onkeydown=async e=>{
-      // Enter or Tab: keep it and go to the next pass's line; Shift+Tab: back to the one before
+    editor.onkeydown=e=>{
+      // Enter or Tab: the next pass's line (Enter on the last line saves the row and closes it); Shift+Tab: the line before
       if(e.key==='Enter'||e.key==='Tab'){
         e.preventDefault?.();
-        const mine=refs.editors.filter(r=>r.group===ref.group),next=mine[mine.indexOf(ref)+(e.key==='Tab'&&e.shiftKey?-1:1)]?.id||null;
-        await finish(true,next);
-      }else if(e.key==='Escape'){e.preventDefault?.();finish(false);}
+        const mine=rowLines(ref.group),next=mine[mine.indexOf(ref)+(e.key==='Tab'&&e.shiftKey?-1:1)];
+        if(next)focusEnd(next.node);else if(e.key==='Enter')closeRow(ref.group,true);
+      }else if(e.key==='Escape'){e.preventDefault?.();closeRow(ref.group,false);}
     };
-    editor.onblur=()=>{if(!drawing)finish(true);};
+    // Leaving the row (a click anywhere else) saves it; moving to another of its lines does not. A line removed by a redraw is not left.
+    editor.onblur=()=>{
+      if(typingIn===ref)typingIn=null;
+      if(drawing||closing)return;
+      setTimeout(()=>{if(typingIn?.group!==ref.group&&editing?.kind==='words'&&editing.groupId===ref.group.id)closeRow(ref.group,true);},0);
+    };
+  }
+  async function closeRow(g,save){
+    if(closing)return;closing=true;
+    try{if(save){try{await commitRow(rowLines(g));}catch(e){fail(e);}}}
+    finally{closing=false;}
+    if(editing?.groupId===g.id)editing=null;typingIn=null;draft=null;
+    render();notify();refreshView();
   }
   // Every line of words in the chart, in order (a row with no words offers a new line for each pass): where pasted lines flow to.
   function allLines(){
@@ -727,26 +712,34 @@ export function mountChartPage(root,handlers={}){
     }
     return list;
   }
-  // Save what was typed. Several lines pasted at once flow into the next lines in order, so a whole song can be pasted into the first one.
-  async function commitLanes(ref,raw){
+  // Save every changed line of a row as one edit. Several lines pasted into one line at once flow into the next lines in order, so a
+  // whole song can be pasted into the first one.
+  async function commitRow(lines){
     if(saving)return;
-    const lines=String(raw).split(/\n+/).map(t=>t.replace(/\s+/g,' ').trim()),filled=lines.filter(Boolean);
-    const multiple=filled.length>1,texts=multiple?filled:[filled[0]??''];
-    const every=allLines(),at=every.findIndex(l=>l.id===ref.id),targets=[{...every[at],anchorKey:ref.anchorKey},...every.slice(at+1)];
-    if(at<0)return;
-    if(texts.length>targets.length)throw Error('That is '+texts.length+' lines of words but only '+targets.length+' lines to put them on from here. Trim the text or add rows first.');
+    const every=allLines(),texts=new Map();let multiple=false;      // line id -> what it now says
+    for(const ref of lines){
+      if(texts.get(ref.id)?.pasted||!changed(ref))continue;
+      const parts=String(ref.node.textContent).split(/\n+/).map(t=>t.replace(/\s+/g,' ').trim()),filled=parts.filter(Boolean),list=filled.length>1?filled:[filled[0]??''];
+      const at=every.findIndex(l=>l.id===ref.id);if(at<0)continue;
+      const targets=[{...every[at],anchorKey:ref.anchorKey},...every.slice(at+1)];
+      if(list.length>targets.length)throw Error('That is '+list.length+' lines of words but only '+targets.length+' lines to put them on from here. Trim the text or add rows first.');
+      if(list.length>1)multiple=true;
+      list.forEach((text,k)=>texts.set(targets[k].id,{target:targets[k],text,pasted:k>0}));
+    }
+    // Lines already there go from the last one up: a line emptied of words is removed, which renumbers the lines after it (never the
+    // ones before). New lines are added after them, in pass order, each at the end of its section.
     let content=data.content,lost=0;const labels=new Set(),touched=new Set();
-    texts.forEach((text,k)=>{
-      const target=targets[k];
-      if(target.lane&&text===target.original.trim())return;
+    for(const line of [...every.filter(l=>l.lane).reverse(),...every.filter(l=>!l.lane)]){
+      const entry=texts.get(line.id);if(!entry)continue;const {target,text}=entry;
+      if(target.lane&&text===target.original.trim())continue;
       const key=target.group.sectionId+':'+target.lane?.line;
       if(target.lane&&touched.has(key))throw Error('One lyric line runs across several rows here. Paste fewer lines, or fix it one row at a time.');
       const planned=planPageEdit.laneText({content,music:data.music,model,group:target.group,lane:target.lane,passNumber:target.passNumber,anchorKey:target.anchorKey,text});
       if(planned.conflicts?.length)throw Error(planned.conflicts[0].message);
       if(planned.candidate){content=planned.candidate;lost+=planned.lost||0;labels.add(planned.label);if(target.lane)touched.add(key);}
-    });
+    }
     if(content===data.content)return;
-    const saved=await commitPlain(content,multiple?'Add lyrics':[...labels][0]||'Edit lyrics');
+    const saved=await commitPlain(content,multiple?'Add lyrics':labels.size===1?[...labels][0]:'Edit lyrics');
     if(saved&&lost)message.textContent=lost===1?'One pinned word no longer exists, so its pin was removed. Undo brings it back.':lost+' pinned words no longer exist, so their pins were removed. Undo brings them back.';
   }
   async function placeFlowLine(g,lane){
@@ -873,6 +866,7 @@ export function mountChartPage(root,handlers={}){
     hasDraft:()=>!!draft?.dirty,hasPendingSave:()=>saving||!!draft?.dirty,canNavigate:()=>!blocked(),
     updatePlayback,
     update(value){
+      if(draft?.node&&draft.node.isConnected===false)draft=null;          // a line that is no longer on the page is not being typed in
       const nextKey=JSON.stringify([value.documentId,value.revision,value.content,value.music,!!value.suggest,value.onsets?.length||0,value.onsets?.[0],value.melody?.length||0,value.key||null,value.waveform?.run??null,value.waveform?.duration??null]);
       if(data?.documentId!==value.documentId){if(draft?.dirty)return;key=null;editing=null;fixing.a=fixing.b=null;foldGroup=null;for(const k of Object.keys(targetPass))delete targetPass[k];for(const k of Object.keys(seekPass))delete seekPass[k];}
       data=value;
