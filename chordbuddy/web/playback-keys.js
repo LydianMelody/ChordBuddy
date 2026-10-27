@@ -1,5 +1,6 @@
 // The playback keys, the same in the main window and in a visualizer (which sends them to the player over the visual bridge):
 //   Space          play / pause                 R                 loop the section you are in (again: stop looping)
+//                                               L                 loop four bars, or the repeated phrase you are in (again: stop)
 //   Left / Right   the previous / next bar      Ctrl+Left / Right the previous / next section
 // Pure: playbackAction() reads a key event, and targetSeconds() works out where a bar or section jump lands.
 
@@ -13,6 +14,7 @@ export function playbackAction(event){
   const key=event.key,repeat=!!event.repeat;
   if((key===' '||event.code==='Space')&&!event.ctrlKey&&!event.shiftKey)return {type:'toggle',repeat};
   if((key==='r'||key==='R')&&!event.ctrlKey&&!event.shiftKey)return {type:'loop',repeat};
+  if((key==='l'||key==='L')&&!event.ctrlKey&&!event.shiftKey)return {type:'loop',kind:'bars',repeat};
   if((key==='ArrowLeft'||key==='ArrowRight')&&!event.shiftKey)return {type:event.ctrlKey?'section':'bar',direction:key==='ArrowLeft'?-1:1,repeat:false};
   return null;
 }

@@ -154,6 +154,17 @@ dialog{border:var(--bd) solid var(--ink);border-radius:16px;background:var(--pag
 .trash-info{flex:1;min-width:0}.trash-info strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.trash-info small{color:var(--soft);font:400 11px var(--m)}
 .trash-forever{border-color:var(--a1);color:var(--a1t)}
 .trash-open{align-self:flex-start;margin:2px 4px 0}
+/* Keyboard shortcuts: two columns of areas on a wide screen (one on a narrow one), keycaps beside what they do */
+.shortcuts-dialog{width:min(94vw,900px)}
+.shortcuts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:0 28px;align-items:start;max-height:68vh;overflow:hidden auto;padding-right:4px}
+.shortcut-group{break-inside:avoid;margin:0 0 16px}
+.shortcut-group h3{margin:0 0 6px;font:800 14px/1.2 var(--g);text-transform:uppercase;letter-spacing:.04em}
+.shortcut-group dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 12px;margin:0;align-items:baseline}
+.shortcut-group dt{display:flex;flex-wrap:wrap;gap:3px;align-items:center;max-width:170px}
+.shortcut-group dd{margin:0;font-size:13px;line-height:1.35}
+.shortcut-group kbd{padding:1px 6px;border:1.5px solid var(--ink);border-radius:5px;background:var(--page);font:800 11px/1.4 var(--m);box-shadow:1px 1px 0 var(--ink);white-space:nowrap}
+.shortcut-or{font:700 11px var(--m);color:var(--soft)}
+.shortcut-note{margin:6px 0 0;font-size:12px;color:var(--soft)}
 .lock-banner .secondary{margin-left:auto;height:28px;padding:0 10px}.lock-banner .secondary+.secondary{margin-left:0}
 
 /* ---------- Chart modes in the toolbar ---------- */

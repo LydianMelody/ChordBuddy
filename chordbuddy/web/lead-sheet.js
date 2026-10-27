@@ -10,6 +10,8 @@ import {LEAD_GROUPS,LEAD_NAMES,LEAD_DEFAULT,LEAD_FOR_KEY,EXTERNAL} from './lead-
 import {shiftSteps,toggleAccidental,toRest,editNoteInContent,noteName} from './lead-edit.js';
 import {tuneToMusicXml,exportFileName} from './musicxml.js';
 import {spellChord} from './spelling.js';
+import {placeChartOnScore,eventTimes} from './lead-chart.js';
+import {rekeyAbc} from './abc-key.js';
 import {usualBeats,meterOf} from './bar-lengths.js';
 
 // Link the score's source-order measures to recording time.  This is a
@@ -57,6 +59,7 @@ export function followPlayback(container,time=Date.now()){
   desk.scrollTo({top:desk.scrollTop+(mark.top-view.top)-view.height*.3,behavior:'smooth'});
 }
 export function updateLeadSheetPlayback(container,timing,time){
+  const notation=container?.classList?.contains?.('lead-notation')?container:container?.querySelector?.('.lead-notation');notation?._playmark?.(time);
   const active=activeScoreTiming(timing,time);
   for(const node of container?.querySelectorAll?.('[data-score-note-index]')||[]){const note=timing?.notes?.[Number(node.dataset.scoreNoteIndex)];node.classList.toggle('current-beat',!!active&&note?.measure===active.measure&&note?.beat===active.beat);node.classList.toggle('current-measure',!!active&&note?.measure===active.measure);}
   return active;
@@ -233,7 +236,7 @@ export function applyEngraving(tune,analysis,settings,syncedLyrics=null,barLengt
 }
 const views=new WeakMap();
 const el=(tag,cls,text)=>{const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined)node.textContent=text;return node;};
-// options: {key, content, music, title, artist, settings, chart:{content,music,documentId,revision}|null, frozen:{at,lyrics}|null,
+// options: {key, content, music, musicKey ("C# minor": the key signature to write the score in), title, artist, settings, chart:{content,music,documentId,revision}|null, frozen:{at,lyrics}|null,
 //   dock, note (elements for the tool rail and its note), onChange(content,label), onChord(id), onSeek(seconds), onError(error),
 //   onChartEdit(content,label,expected), onExternal({xml,filename}) -> Promise, onFreeze(snapshot), onUnfreeze()}
 export function renderLeadSheet(container,options){
@@ -245,6 +248,9 @@ const SECTION_COLOUR={verse:['--a3','--onA3'],chorus:['--a1','--onA1'],interlude
 
 function createView(container){
   let options={},content={},analysis=null,lyricState=null,synced=null,tool=LEAD_DEFAULT,selection=null,notices=[],busy=false;
+  // What is drawn: the score with the chart's chords (lead-chart.js), and those chords. baseNotes: the notes in the score as saved, which
+  // note edits change (the same notes, in the same order, as the drawn ones).
+  let shownAbc='',shownChords=[],baseNotes=[];
   const root=el('div','lead-sheet'),banner=el('div','lead-banner'),notation=el('div','lead-notation');
   banner.hidden=true;
   let fontsReady=!document.fonts||document.fonts.status==='loaded';
@@ -279,10 +285,10 @@ function createView(container){
   }
   const noteLabel=index=>{
     const note=analysis?.notes[index];if(!note)return '';
-    const name=noteName(content.abc.slice(note.startChar,note.endChar),keyAccidentals());
+    const name=noteName(shownAbc.slice(note.startChar,note.endChar),keyAccidentals());
     return `Note ${index+1}${name?' · '+name:''} · bar ${note.measure+1}`;
   };
-  const keyAccidentals=()=>{try{return window.ABCJS.parseOnly(content.abc)[0].lines.find(l=>l.staff)?.staff?.[analysis.staffIndex]?.key?.accidentals||[];}catch{return [];}};
+  const keyAccidentals=()=>{try{return window.ABCJS.parseOnly(shownAbc||content.abc)[0].lines.find(l=>l.staff)?.staff?.[analysis.staffIndex]?.key?.accidentals||[];}catch{return [];}};
   function button(label,title,run,cls=''){const b=el('button','lead-btn '+cls,label);b.type='button';b.title=title;b.onclick=run;return b;}
   // Two quiet places: the bar above the page holds a tool's controls (only when it has some); one line under the page says what the tool
   // does, carries warnings (as a small mark with a tooltip) and the way out.
@@ -344,7 +350,7 @@ function createView(container){
   }
   function editSelected(edit,label){
     if(frozen()||selection===null||!analysis)return false;
-    const note=analysis.notes[selection.index];if(!note)return false;
+    const note=baseNotes[selection.index];if(!note)return false;
     const next=editNoteInContent(content,note.startChar,note.endChar,edit);
     if(!next){say('That edit does not apply to this note.');return false;}
     notices=[];change(next,label);
@@ -479,6 +485,31 @@ function createView(container){
     }
     return found;
   }
+  // A thin line on the staff where the music is (updateLeadSheetPlayback moves it): it slides from each note or rest to the next in time,
+  // and to the end of the line from the last one on a line. times: when each melody event starts (eventTimes).
+  function playMarker(times){
+    const stops=[];
+    analysis.events.forEach((e,i)=>{const node=drawnNotes.get(e.startChar);if(node&&Number.isFinite(times[i]))stops.push({time:times[i],node,line:/abcjs-l(\d+)/.exec(node.getAttribute?.('class')||'')?.[1]});});
+    stops.sort((a,b)=>a.time-b.time);
+    let mark=null;
+    return time=>{
+      let i=-1;for(let k=0;k<stops.length&&stops[k].time<=time+1e-6;k++)i=k;
+      const here=stops[i],next=stops[i+1];
+      if(!here||!Number.isFinite(time)||!notation.isConnected){mark?.remove();return;}
+      try{
+        const frame=notation.getBoundingClientRect(),k=frame.width/(notation.offsetWidth||frame.width)||1;
+        const staff=[...notation.querySelectorAll(`.abcjs-staff.abcjs-l${here.line}`)].map(n=>n.getBoundingClientRect()).filter(r=>r.width);
+        const box=here.node.getBoundingClientRect(),from=box.left+box.width/2;
+        const sameLine=next&&next.line===here.line,toBox=sameLine?next.node.getBoundingClientRect():null;
+        const to=toBox?toBox.left+toBox.width/2:(staff.length?Math.max(...staff.map(r=>r.right)):box.right);
+        const end=next?next.time:here.time+1,part=Math.max(0,Math.min(1,(time-here.time)/((end-here.time)||1)));
+        const top=staff.length?Math.min(...staff.map(r=>r.top)):box.top,bottom=staff.length?Math.max(...staff.map(r=>r.bottom)):box.bottom;
+        if(!mark){mark=el('i','lead-playmark');mark.setAttribute('aria-hidden','true');}
+        if(mark.parentNode!==notation)notation.append(mark);
+        mark.style.left=((from+(to-from)*part-frame.left)/k)+'px';mark.style.top=((top-frame.top)/k-6)+'px';mark.style.height=((bottom-top)/k+12)+'px';
+      }catch{mark?.remove();}
+    };
+  }
   const chordNodeAt=abcIndex=>drawnChords.find(c=>abcIndex>=c.start&&abcIndex<c.end)?.node||null;
   function lyricCrowding(){
     const need=new Map();if(!synced||!analysis)return need;
@@ -518,7 +549,20 @@ function createView(container){
     if(!content.abc?.trim()){say('No ABC notation is available.');return;}
     const abcjs=window.ABCJS;if(!abcjs){say('The notation renderer is unavailable. The sheet cannot be drawn.');return;}
     try{
-      analysis=analyzeScore(content.abc,abcjs);notation._scoreTiming=mapScoreTiming(analysis,options.music);
+      analysis=analyzeScore(content.abc,abcjs);baseNotes=analysis.notes;shownAbc=content.abc;shownChords=content.chords||[];
+      // The chords and section names follow the chord chart (or what it said when this copy was frozen); an older frozen copy keeps its own.
+      const f=frozen();
+      if(f?.abc){shownAbc=f.abc;shownChords=f.chords||[];const sections=f.sections;analysis=analyzeScore(shownAbc,abcjs);if(Array.isArray(sections))analysis.sections=sections;}
+      else{
+        // written in the song's key (the key chip; the score can be in the model's own), every pitch as it was
+        const keyed=options.musicKey?rekeyAbc(content.abc,options.musicKey):null;
+        if(keyed){shownAbc=keyed.abc;shownChords=shownChords.map(c=>Number.isInteger(c.abc_index)?{...c,abc_index:keyed.map[c.abc_index]}:c);analysis=analyzeScore(shownAbc,abcjs);}
+        if(!f&&options.chart?.content){
+        const placed=placeChartOnScore(shownAbc,analysis,effectiveMeasures(options.chart.music,options.chart.content.layout),options.chart.content,spellChord);
+        shownAbc=placed.abc;shownChords=placed.chords;analysis=analyzeScore(shownAbc,abcjs);analysis.sections=placed.sections;
+        }
+      }
+      notation._scoreTiming=mapScoreTiming(analysis,options.music);
       const beatMeasures=options.chart?.content?effectiveMeasures(options.chart.music,options.chart.content.layout):(options.music?.measures||[]);
       const barLengths=beatMeasures.length?{usual:usualBeats(beatMeasures),beats:beatMeasures.map(m=>m.beats.length)}:null;
       // The words come from the chord chart (one home for them), or from the frozen copy; here we only decide which note each word sits on.
@@ -532,11 +576,11 @@ function createView(container){
       }
       const pads=new Map();                                     // extra spaces after a word, so crowded notes spread out
       const shown=()=>synced&&new Map([...synced].map(([index,word])=>[index,pads.get(index)?{...word,syllable:word.syllable+NBSP.repeat(pads.get(index))}:word]));
-      const draw=(staffwidth,breaks=parserBreaks(analysis,s))=>abcjs.renderAbc(notation,content.abc,{responsive:'resize',add_classes:true,staffwidth,paddingtop:12,paddingbottom:26,lineBreaks:breaks,oneSvgPerLine:printing,
+      const draw=(staffwidth,breaks=parserBreaks(analysis,s))=>abcjs.renderAbc(notation,shownAbc,{responsive:'resize',add_classes:true,staffwidth,paddingtop:12,paddingbottom:26,lineBreaks:breaks,oneSvgPerLine:printing,
         format:{stretchlast:true,gchordfont:'Bricolage Grotesque 17 bold',vocalfont:'Courier Prime 13.5',annotationfont:'Courier Prime 11',subtitlefont:'Bricolage Grotesque 15 bold',vocalspace:8,musicspace:14,staffsep:34,systemsep:20},
         afterParsing:tune=>{
           for(const line of tune.lines||[])for(const staff of line.staff||[])for(const voice of staff.voices||[])for(const item of voice)for(const annotation of item.chord||[])if(annotation.name!==undefined&&isNoChordLabel(annotation.name))annotation.name='';
-          decorateScoreConfidence(tune,content,options.music,options.settings);applyEngraving(tune,analysis,s,shown(),barLengths);
+          decorateScoreConfidence(tune,{chords:shownChords},options.music,options.settings);applyEngraving(tune,analysis,s,shown(),barLengths);
           if(tune.metaText)tune.metaText.title='';      // the song's name is in the page header, not in the score
         },
         clickListener:(abcElement,tuneNumber,classes,analysisArg,drag,mouseEvent)=>onScoreClick(abcElement,String(classes||''),mouseEvent)});
@@ -571,7 +615,8 @@ function createView(container){
         }catch{/* not drawn yet */}
       }
       analysis.notes.forEach((note,index)=>{const node=drawnNotes.get(note.startChar);if(node)node.dataset.scoreNoteIndex=String(index);});
-      for(const group of notation.querySelectorAll('.abcjs-chord')){const chord=content.chords?.find(c=>{const shown=group.textContent.trim();return shown.startsWith(c.label)||shown.startsWith(spellChord(c.label));});if(chord)group.style.opacity=String(chordOpacity(chord,options.music,options.settings));}
+      notation._playmark=playMarker(eventTimes(analysis,beatMeasures.length?beatMeasures:(options.music?.measures||[])));
+      for(const group of notation.querySelectorAll('.abcjs-chord')){const chord=shownChords.find(c=>{const shown=group.textContent.trim();return shown.startsWith(c.label)||shown.startsWith(spellChord(c.label));});if(chord)group.style.opacity=String(chordOpacity(chord,options.music,options.settings));}
       markSelection();paintLyricEditors();paintBreakChips();
       root.dataset.tool=tool;
     }catch(error){say(`The notation could not be rendered: ${error.message}`);options.onError?.(error);}
@@ -600,7 +645,7 @@ function createView(container){
     const position=abcElement?.startChar;if(!Number.isInteger(position))return;
     const note=analysis?.notes.find(n=>n.startChar===position);
     if(tool==='chords'&&editable('chords')){
-      const chord=content.chords?.find(c=>Number.isInteger(c.abc_index)&&c.abc_index>=abcElement.startChar&&c.abc_index<abcElement.endChar);
+      const chord=shownChords.find(c=>Number.isInteger(c.abc_index)&&c.abc_index>=abcElement.startChar&&c.abc_index<abcElement.endChar);
       if(chord)editChordInline(chord,mouseEvent);else say('There is no chord symbol on this note.');
       return;
     }
@@ -619,16 +664,16 @@ function createView(container){
     const abcjs=window.ABCJS;if(!abcjs||!analysis)throw new Error('The score is not ready yet.');
     busy=true;
     try{
-      const tune=abcjs.parseOnly(content.abc)[0];
+      const tune=abcjs.parseOnly(shownAbc)[0];
       const chordsFor=item=>{
-        const own=(content.chords||[]).filter(c=>Number.isInteger(c.abc_index)&&c.abc_index>=item.startChar&&c.abc_index<item.endChar).map(c=>c.label);
+        const own=shownChords.filter(c=>Number.isInteger(c.abc_index)&&c.abc_index>=item.startChar&&c.abc_index<item.endChar).map(c=>c.label);
         return (own.length?own:(item.chord||[]).map(c=>c.name)).filter(name=>name&&!isNoChordLabel(name)).map(spellChord);   // as the chart spells them for the key
       };
       const chosen=options.getMeter?.(),meter=Array.isArray(chosen)?{num:chosen[0],den:chosen[1]}:null;
       const xml=tuneToMusicXml(tune,{title:options.title,artist:options.artist,staffIndex:analysis.staffIndex,voiceIndex:analysis.voiceIndex,lyrics:synced||new Map(),chordsFor,meter,tempo:options.music?.timing?.bpm});
       const result=await options.onExternal?.({xml,filename:exportFileName(options.title)});
       // From now on the lead sheet is a frozen copy: what the chord chart said when it was sent.
-      if(!frozen())options.onFreeze?.({at:new Date().toISOString(),lyrics:[...(synced||new Map())].map(([index,w])=>[index,w.syllable,w.divider])});
+      if(!frozen())options.onFreeze?.({at:new Date().toISOString(),lyrics:[...(synced||new Map())].map(([index,w])=>[index,w.syllable,w.divider]),abc:shownAbc,chords:shownChords,sections:analysis.sections});
       if(result?.message)say(result.message);
     }finally{busy=false;}
   }
@@ -657,7 +702,7 @@ function createView(container){
 
   // Draws the sheet for paper (and puts it back afterwards). The caller prints in between.
   function printMode(on){if(printing===on)return;printing=on;paintScoreNow();if(!on){markSelection();}}
-  return {root,getTool:()=>tool,setTool,handleKey,printMode,chordNodeAt,showTools(){renderTools();paintNote();markSelection();},
+  return {root,getTool:()=>tool,setTool,handleKey,printMode,chordNodeAt,chords:()=>shownChords,showTools(){renderTools();paintNote();markSelection();},
     update(next){
       if(options.key!==next.key){selection=null;tool=LEAD_DEFAULT;}
       options=next;content=next.content||{};

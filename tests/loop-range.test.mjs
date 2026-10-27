@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {snapGrain,snapPoints,snapTime,snapRange,moveEdge,dragEdge,sectionAtSeconds,describeRange,stepSpeed,BEAT_ZOOM,sectionLoopRange} from '../chordbuddy/web/loop-range.js';
+import {snapGrain,snapPoints,snapTime,snapRange,moveEdge,dragEdge,sectionAtSeconds,describeRange,stepSpeed,BEAT_ZOOM,sectionLoopRange,barLoopRange} from '../chordbuddy/web/loop-range.js';
 
 // Four 4/4 bars at 120 BPM: 2 s per bar, 0.5 s per beat.
 const measures=[0,1,2,3].map(i=>({id:'m'+i,number:i+1,start:i*2,end:i*2+2,beats:[0,.5,1,1.5].map(b=>i*2+b),meter:[4,4],quarter_positions:[0,1,2,3,4]}));
@@ -79,20 +79,34 @@ test('with the magnet off, a loop edge goes exactly where it is dropped', () => 
   assert.deepEqual(dragEdge(measures,{start:2,end:4},'start',4.6,opts('free')).range,{start:4,end:4.6});
 });
 
-test('R in an intro or outro loops its first four bars at full volume, never a fade; other sections loop whole', () => {
+test('R loops the section: an intro from bar 1 past any fade-in, a fading outro its first four bars, anything else whole', () => {
   const bars=Array.from({length:20},(_,i)=>({id:'m'+i,start:i*2,end:i*2+2}));                    // 2 s bars
   const verse={name:'Verse',start:8,end:24},outro={name:'Outro',start:24,end:40},intro={name:'Intro',start:0,end:8};
   assert.deepEqual(sectionLoopRange(verse,bars,{fadeOut:{start:30}}),{start:8,end:24});
-  assert.deepEqual(sectionLoopRange(outro,bars),{start:24,end:32},'no fade: the first four bars');
+  assert.deepEqual(sectionLoopRange(outro,bars),{start:24,end:40},'no fade: the whole outro');
+  assert.deepEqual(sectionLoopRange(outro,bars,{fadeOut:{start:35}}),{start:24,end:32},'a fade from 35 s: its first four bars');
   assert.deepEqual(sectionLoopRange(outro,bars,{fadeOut:{start:29}}),{start:24,end:28},'a fade from 29 s: only the bars before it');
-  assert.deepEqual(sectionLoopRange(intro,bars,{fadeIn:{end:3}}),{start:4,end:8},'a swell to 3 s: the bars after it');
+  assert.deepEqual(sectionLoopRange(outro,bars,{fadeOut:{start:50}}),{start:24,end:40},'a fade after the outro is not its fade');
+  assert.deepEqual(sectionLoopRange(intro,bars),{start:0,end:8});
+  assert.deepEqual(sectionLoopRange(intro,bars,{fadeIn:{end:3}}),{start:4,end:8},'a swell to 3 s: from the bar after it to the end');
+  assert.deepEqual(sectionLoopRange({name:'Intro',start:0,end:40},bars,{musicStart:6}),{start:6,end:40},'from bar 1 to the end: the silent bars before it are left out');
   assert.deepEqual(sectionLoopRange({name:'Outro 2',start:24,end:26},bars,{fadeOut:{start:24.5}}),{start:24,end:26},'nothing left at full volume: the whole section');
-  assert.deepEqual(sectionLoopRange({name:'Introspection',start:0,end:8},bars),{start:0,end:8},'only the words intro and outro');
-  assert.deepEqual(sectionLoopRange({name:'Intro',start:0,end:16},bars,{musicStart:6}),{start:6,end:14},'the silent bars before bar 1 are skipped');
-  // a phrase the chart repeats there: one pass of it, the first one clear of the fade
-  const twoBarPhrase=[{start:24,end:28},{start:28,end:32},{start:32,end:36}];
-  assert.deepEqual(sectionLoopRange(outro,bars,{phrases:twoBarPhrase}),{start:24,end:28});
-  assert.deepEqual(sectionLoopRange(outro,bars,{phrases:[{start:24,end:36},{start:36,end:48}],fadeOut:{start:34}}),{start:24,end:32},'no pass clear of the fade: four bars');
-  assert.deepEqual(sectionLoopRange(intro,bars,{phrases:[{start:0,end:4},{start:4,end:8}],fadeIn:{end:3}}),{start:4,end:8},'the first pass is in the swell: the next one');
-  assert.deepEqual(sectionLoopRange(verse,bars,{phrases:twoBarPhrase}),{start:8,end:24},'other sections still loop whole');
+  assert.deepEqual(sectionLoopRange({name:'Introspection',start:0,end:8},bars,{fadeIn:{end:3}}),{start:0,end:8},'only the words intro and outro');
+});
+
+test('L loops the four bars of the section you are in (1-4, 5-8 ...), or the pass of a repeated phrase you are in', () => {
+  const bars=Array.from({length:30},(_,i)=>({id:'m'+i,start:i*2,end:i*2+2}));                    // 2 s bars
+  const verse={name:'Verse',start:8,end:30};                                                         // its bars start at 8, 10, 12 ...
+  assert.deepEqual(barLoopRange(verse,bars,8.5),{start:8,end:16},'bar 1 of the section: bars 1-4');
+  assert.deepEqual(barLoopRange(verse,bars,15),{start:8,end:16},'bar 4: still 1-4');
+  assert.deepEqual(barLoopRange(verse,bars,16.2),{start:16,end:24},'bar 5: 5-8');
+  assert.deepEqual(barLoopRange(verse,bars,23.9),{start:16,end:24},'bar 8: 5-8');
+  assert.deepEqual(barLoopRange(verse,bars,27),{start:24,end:30},'the last block stops at the section end');
+  assert.deepEqual(barLoopRange(verse,bars,15.97),{start:16,end:24},'a hair before bar 5 counts as bar 5');
+  const intro={name:'Intro',start:0,end:30};
+  assert.deepEqual(barLoopRange(intro,bars,1,{musicStart:4}),{start:4,end:12},'in the silence before bar 1: bars 1-4');
+  assert.deepEqual(barLoopRange(intro,bars,13,{musicStart:4}),{start:12,end:20},'counted from bar 1');
+  const phrases=[{start:8,end:14},{start:14,end:20},{start:20,end:26}];                            // a three-bar phrase ×3
+  assert.deepEqual(barLoopRange(verse,bars,15,{phrases}),{start:14,end:20},'inside a pass: that pass');
+  assert.deepEqual(barLoopRange(verse,bars,27,{phrases}),{start:24,end:30},'after the phrase: four bars again');
 });

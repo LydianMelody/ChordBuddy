@@ -183,3 +183,24 @@ export function openTrash({getItems,onRestore,onPurge,host=document.body}){
   render();show(dialog);
   return {render,close};
 }
+
+// Keyboard shortcuts (shortcuts.js): one table per area, keycaps on the left. Esc or Close shuts it.
+export function openShortcuts({groups,host=document.body}){
+  const {dialog,actions,close}=shell(host,'Keyboard shortcuts');dialog.classList.add('shortcuts-dialog');
+  const body=el('div','shortcuts');
+  for(const group of groups){
+    const section=el('section','shortcut-group');section.append(el('h3','',group.title));
+    if(group.note)section.append(el('p','shortcut-note',group.note));
+    const list=el('dl','');
+    for(const [keys,what] of group.rows){
+      const term=el('dt','');for(const key of keys)term.append(['/','–'].includes(key)?el('span','shortcut-or',key):el('kbd','',key));
+      list.append(term,el('dd','',what));
+    }
+    section.append(list);if(group.after)section.append(el('p','shortcut-note',group.after));
+    body.append(section);
+  }
+  const done=el('button','secondary choice-cancel','Close');done.type='button';done.onclick=close;actions.append(done);
+  dialog.append(body,actions);dialog.oncancel=e=>{e?.preventDefault?.();close();};
+  show(dialog);done.focus?.();
+  return {close};
+}

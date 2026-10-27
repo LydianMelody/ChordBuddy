@@ -5,6 +5,12 @@ class StemProcessor extends AudioWorkletProcessor{
   try{
    if(m.type==='connect'){this.stream=m.port;this.stream.onmessage=e=>this.command(e.data);this.stream.start();return;}
    if(m.type==='reset'){this.player.reset(m);this.ready=false;this.port.postMessage({type:'reset-ack',generation:m.generation,runId:m.runId});return;}
+   // A loop change while streaming: the queued audio keeps playing and the fetch worker carries on from where the new loop needs it.
+   if(m.type==='loop'){
+    if(m.previous!==this.mixer.generation||m.runId!==this.mixer.runId)throw Error('The loop changed while the stream restarted. Press Play to retry.');
+    const plan=this.mixer.splice(m);
+    this.stream.postMessage({type:'splice',previous:m.previous,generation:m.generation,runId:m.runId,loop:m.loop,...plan});return;
+   }
    if(m.generation!==this.mixer.generation||m.runId!==this.mixer.runId)return;
    if(m.type==='chunk'){
     this.mixer.enqueue(m);

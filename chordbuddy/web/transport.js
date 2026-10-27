@@ -4,12 +4,13 @@ const noLoop=()=>({enabled:false,start:null,end:null,implicit:false});
 // What is being heard: the frame the engine is at, less what is still on its way to the speakers. That can never be earlier than where
 // playback started (nothing before it was sent), and just after a loop wraps it is the end of the loop still sounding, not the bars
 // before the loop's start. primed: {start, loop:{start,end}|null} in seconds, as the stream was started (loop only when it wraps).
+// A loop changed mid-stream (spliced) counts from where it changed (base: the frames played by then) and has nothing to clamp to.
 export function heardSeconds(m,primed,rate=1){
  const at=m.sourceFrame/44100,raw=at-(m.state==='playing'?(m.latency||0)*rate:0);
  if(!primed)return raw;
- const loop=primed.loop,wrapped=!!loop&&(m.played||0)/44100>=loop.end-primed.start;
+ const loop=primed.loop,wrapped=!!loop&&((m.played||0)-(primed.base||0))/44100>=loop.end-primed.start;
  if(wrapped&&raw<loop.start&&at>=loop.start)return raw+(loop.end-loop.start);
- return wrapped?raw:Math.max(primed.start,raw);
+ return wrapped||primed.spliced?raw:Math.max(primed.start,raw);
 }
 const initialState=songId=>({songId,runId:null,ready:false,readiness:'Analyze this song to enable playback.',mode:'stems',stems:true,sourceRunId:null,seconds:0,duration:0,playing:false,playIntent:false,buffering:false,error:null,mix:defaultMix(),loop:noLoop(),rate:100,levels:null,seeks:0});
 export class Transport{
@@ -77,16 +78,29 @@ export class Transport{
   if(!this.active&&!this.state.buffering){this.state.seconds=target;this.emit();return;}
   await this.handoff(this.pendingManifest||this.currentManifest||this.separation,target);
  }
+ // implicit: a loop R or L set (kind 'section' or 'bars'), which follows a seek; not one whose handles you placed.
  // Loop playback: with a range set and enabled, the stream wraps from the range end back to its start inside the audio queue (seamless).
- // Changing the loop re-primes the stream (like a seek), so it can change while playing without losing play/pause intent.
+ // Changing the loop while the stream runs swaps it in place (spliceLoop); otherwise, or with seekTo, it re-primes like a seek. Either way
+ // play/pause intent is kept.
  async setLoop(value,{seekTo}={}){
-  const next=value?{enabled:!!value.enabled,start:value.start??null,end:value.end??null,implicit:!!value.implicit}:noLoop();
+  const next=value?{enabled:!!value.enabled,start:value.start??null,end:value.end??null,implicit:!!value.implicit,...(value.implicit&&value.kind?{kind:String(value.kind)}:{})}:noLoop();
   if(next.start!==null||next.end!==null){if(!Number.isFinite(next.start)||!Number.isFinite(next.end)||next.start<0||next.end<=next.start||next.end>(this.state.duration||Infinity))throw Error('Choose a loop inside the song.');}
   if(next.enabled&&next.start===null)throw Error('Choose a loop range first.');
   this.state.loop=next;this.emit();
+  if(!Number.isFinite(seekTo)&&this.spliceLoop())return;
   const manifest=this.pendingManifest||this.currentManifest||this.separation;
   if((this.active||this.state.buffering)&&manifest)await this.handoff(manifest,Number.isFinite(seekTo)?Math.max(0,Math.min(this.state.duration,seekTo)):this.state.seconds);
   else if(Number.isFinite(seekTo))this.state.seconds=Math.max(0,Math.min(this.state.duration,seekTo)),this.emit();
+ }
+ // Hands the new loop to the stream already running, so turning a loop on, off or moving it never pauses the music. Only once the
+ // stream is up (not buffering or mid-seek); otherwise setLoop re-primes as before.
+ spliceLoop(){
+  const d=this.diagnostics,manifest=this.currentManifest;
+  if(!this.active||this.state.buffering||this.priming||this.pendingManifest||!d||!manifest||typeof this.pcm?.splice!=='function')return false;
+  const loop=this.loopFrames(manifest);
+  if(!this.pcm.splice(loop))return false;
+  this.primed={start:d.sourceFrame/44100,base:d.played||0,spliced:true,loop:loop&&d.sourceFrame<loop.end?{start:loop.start/44100,end:loop.end/44100}:null};
+  return true;
  }
  loopFrames(manifest){
   const l=this.state.loop;if(!l.enabled||l.start===null)return null;

@@ -232,6 +232,9 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
   else onViewportChange({type:'pan',delta:((e.deltaX||e.deltaY)/width)*(v.end-v.start)});
  };
  const unsubscribe=transport.subscribe(paint),observer=typeof ResizeObserver!=='undefined'?new ResizeObserver(()=>{waveKey='';paint(transport.getSnapshot());}):null;observer?.observe(surface);
+ // the canvas is drawn in the theme's ink: draw it again when the theme or light/dark changes
+ const themes=typeof MutationObserver!=='undefined'&&container.ownerDocument?.documentElement?new MutationObserver(()=>{waveKey='';paint(transport.getSnapshot());}):null;
+ themes?.observe(container.ownerDocument.documentElement,{attributes:true,attributeFilter:['data-theme','data-scheme']});
  const api={update(next){
   if(seekAxis){pendingTimeline=next;paint(transport.getSnapshot());return;}
   value=next;const v=visible(),list=next.projection?buildPracticeMarkers(next.projection):[],k=JSON.stringify([list,v.start,v.end]);
@@ -250,6 +253,6 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
    cassette.setPreview(picture);
   }
   paint(transport.getSnapshot());
- },setWaveform(next,message='Waveform unavailable.'){waveform=next;waveMessage=message;waveKey='';paint(transport.getSnapshot());},navigator:cassette,dispose(){unsubscribe();observer?.disconnect();container.replaceChildren();}};
+ },setWaveform(next,message='Waveform unavailable.'){waveform=next;waveMessage=message;waveKey='';paint(transport.getSnapshot());},navigator:cassette,dispose(){unsubscribe();observer?.disconnect();themes?.disconnect();container.replaceChildren();}};
  return api;
 }

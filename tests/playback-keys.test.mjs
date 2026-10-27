@@ -8,6 +8,8 @@ test('Space plays and pauses, R loops, the arrows step a bar and Ctrl+arrows a s
   assert.deepEqual(playbackAction(key(' ')),{type:'toggle',repeat:false});
   assert.deepEqual(playbackAction(key('r')),{type:'loop',repeat:false});
   assert.deepEqual(playbackAction(key('R')),{type:'loop',repeat:false});
+  assert.deepEqual(playbackAction(key('l')),{type:'loop',kind:'bars',repeat:false});
+  assert.deepEqual(playbackAction(key('L')),{type:'loop',kind:'bars',repeat:false});
   assert.deepEqual(playbackAction(key('ArrowLeft')),{type:'bar',direction:-1,repeat:false});
   assert.deepEqual(playbackAction(key('ArrowRight',{ctrlKey:true})),{type:'section',direction:1,repeat:false});
 });
@@ -32,4 +34,13 @@ test('back goes to the start of the bar you are in, or the one before when you a
   assert.equal(targetSeconds(starts,0,-1),null,'nowhere before the start');
   assert.equal(targetSeconds(starts,3.2,1),4);
   assert.equal(targetSeconds(starts,6.5,1),null,'nowhere after the last');
+});
+
+// The Keyboard shortcuts list names every playback key, so the two cannot drift apart.
+test('the shortcuts list shows every playback key', async () => {
+  const {SHORTCUTS}=await import('../chordbuddy/web/shortcuts.js');
+  const playing=SHORTCUTS.find(g=>g.title==='Playing').rows.map(([keys])=>keys.join(' '));
+  for(const k of ['Space','R','L'])assert.ok(playing.includes(k),k);
+  for(const k of [' ','r','l','ArrowLeft'])assert.ok(playbackAction(key(k)),k);
+  assert.ok(SHORTCUTS.find(g=>g.title==='Visualizer').rows.some(([keys])=>keys.join('')==='Y'),'lyrics moved to Y');
 });

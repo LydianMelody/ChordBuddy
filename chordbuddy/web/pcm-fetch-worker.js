@@ -12,6 +12,12 @@ self.onmessage=event=>{
 };
 function onAudio(event){
  const m=event.data,s=session;
+ if(m.type==='splice'){
+  if(!s||m.previous!==s.generation||m.runId!==s.runId){port.postMessage({type:'error',generation:m.generation,runId:m.runId,error:'The loop changed while the stream restarted. Press Play to retry.'});return;}
+  s.abort.abort();
+  const value={type:'load',generation:m.generation,runId:s.runId,frames:s.frames,token:s.token,startFrame:m.startFrame,loop:m.loop||null,sentEnd:m.startFrame,sent:m.sent,consumed:m.consumed,engaged:m.engaged,busy:false,abort:new AbortController()};
+  session=value;pump(value);return;
+ }
  if(s&&m.generation===s.generation&&m.runId===s.runId&&m.type==='position'){s.consumed=Math.max(s.consumed,m.played??0);pump(s);}
 }
 async function pump(s){

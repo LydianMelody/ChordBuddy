@@ -2,7 +2,7 @@
 // clock, repeat pass and speed on the right. It only drives the one shared Transport.
 import {mountPracticeTimeline} from './practice-timeline.js';
 import {actualPracticePosition} from './practice-state.js';
-import {sectionAtSeconds,sectionLoopRange,stepSpeed,SPEED_MIN,SPEED_MAX} from './loop-range.js';
+import {sectionAtSeconds,sectionLoopRange,barLoopRange,stepSpeed,SPEED_MIN,SPEED_MAX} from './loop-range.js';
 import {detectFadeIn,detectFadeOut} from './fade-out.js';
 import {icon} from './icons.js';
 const time=s=>Number.isFinite(s)?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'):'0:00';
@@ -19,7 +19,7 @@ export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},lo
  const loopButton=el('button','cbtn practice-loop-toggle');const previous=el('button','cbtn player-skip'),play=el('button','cbtn play player-play'),next=el('button','cbtn player-skip');
  for(const b of [loopButton,previous,play,next])b.type='button';
  withIcon(loopButton,'loop');withIcon(previous,'rewind');withIcon(next,'ffwd');
- loopButton.title='Loop this section (R) · drag on the waveform to choose a range';loopButton.setAttribute('aria-label','Loop');previous.title='Previous section';next.title='Next section';
+ loopButton.title='Loop this section (R) · four bars (L) · drag on the waveform to choose a range';loopButton.setAttribute('aria-label','Loop');previous.title='Previous section';next.title='Next section';
  previous.setAttribute('aria-label','Previous section');next.setAttribute('aria-label','Next section');
  controls.append(loopButton,previous,play,next);left.append(nowBox,controls);
  const timelineRoot=el('div','practice-timeline');center.append(timelineRoot);
@@ -33,22 +33,27 @@ export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},lo
  function jump(direction){const s=transport.getSnapshot(),list=sections();let index=list.findIndex(v=>s.seconds>=v.start&&s.seconds<v.end);if(index<0)index=s.seconds<(list[0]?.start??0)?-1:list.length;const target=direction<0?(index>=0&&index<list.length&&s.seconds>list[index].start+.5?list[index]:list[Math.max(0,index-1)]):list[index+1];if(target)transport.seek(target.start).catch(onError);}
  previous.onclick=()=>jump(-1);next.onclick=()=>jump(1);
  play.onclick=()=>{if(transport.getSnapshot().playIntent)transport.pause();else transport.play().catch(onError);};
- // Loop (the button or R): on loops the section you are in, off ends the loop. Its handles on the waveform then set any range.
- function toggleLoop(){
+ // Loops from the keyboard (playback-keys.js): R (or the button) the section you are in, L four bars (loopFor). Pressing the key of the
+ // loop that is on, or either key over a loop whose handles you placed, ends it; the other key swaps it. Handles then set any range.
+ function toggleLoop(kind='section'){
   const s=transport.getSnapshot();if(!s.ready)return;
-  if(s.loop.enabled){transport.setLoop(null).catch(onError);return;}
-  const section=sectionAtSeconds(sections(),s.seconds)||sections()[0];
-  if(section)transport.setLoop({enabled:true,...loopRange(section),implicit:true}).catch(onError);
+  if(s.loop.enabled&&(!s.loop.implicit||(s.loop.kind||'section')===kind)){transport.setLoop(null).catch(onError);return;}
+  const range=loopFor(kind,s.seconds);if(!range)return;
+  // a loop wholly behind the playhead (the first bars of a fading outro) would never play: start it
+  const behind=s.seconds>=range.end-.05;
+  transport.setLoop({enabled:true,...range,implicit:true,kind},behind?{seekTo:range.start}:{}).catch(onError);
  }
- // What R loops in a section: all of it, but in an intro or an outro only bars at full volume (see sectionLoopRange).
- function loopRange(section){
-  const measures=practice?.music?.measures||[];
+ function loopFor(kind,seconds){
+  const section=sectionAtSeconds(sections(),seconds)||(seconds<(sections()[0]?.start??0)?sections()[0]:null)||sections().at(-1);if(!section)return null;
+  const measures=practice?.music?.measures||[],barOne=measures.find(m=>m.number-(practice?.barOffset||0)===1),musicStart=barOne?.start;
+  if(kind==='bars'){
+   const phrases=(practice?.projection?.groups||[]).filter(g=>g.folded&&g.passes?.length>1).flatMap(g=>g.passes);
+   return barLoopRange(section,measures,seconds,{phrases,musicStart});
+  }
   const beats=measures.flatMap(m=>m.beats||[]),fades=wave?.peaks?{fadeIn:detectFadeIn(wave.peaks,wave.duration,beats),fadeOut:detectFadeOut(wave.peaks,wave.duration,beats)}:{};
-  const barOne=measures.find(m=>m.number-(practice?.barOffset||0)===1);
-  const phrases=(practice?.projection?.groups||[]).filter(g=>g.sectionId===section.id&&g.folded&&g.passes?.length>1).flatMap(g=>g.passes);
-  return sectionLoopRange(section,measures,{...fades,musicStart:barOne?.start,phrases});
+  return sectionLoopRange(section,measures,{...fades,musicStart});
  }
- loopButton.onclick=toggleLoop;
+ loopButton.onclick=()=>toggleLoop('section');
  // Speed: the stepper is honest. It stays disabled until the transport can really change tempo without changing pitch.
  const canSpeed=()=>typeof transport.setRate==='function';
  const stepRate=direction=>{const s=transport.getSnapshot();transport.setRate(stepSpeed(s.rate??100,direction)).catch(onError);};
@@ -67,12 +72,12 @@ export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},lo
   slower.disabled=!s.ready||!canSpeed()||rateValue<=SPEED_MIN;faster.disabled=!s.ready||!canSpeed()||rateValue>=SPEED_MAX;
   speed.title=canSpeed()?'Practice speed':'Speed control is coming soon';
   status.textContent=!s.ready?s.readiness:s.buffering?'Buffering…':s.error?s.error:'';
-  // A section loop (not one whose handles you moved) follows you when you jump to another section. Only a seek moves it: playback itself
+  // A loop R or L set (not one whose handles you moved) follows you when you jump elsewhere: to the new section, or the new four bars. Only a seek moves it: playback itself
   // never does (the playhead reported just after the loop wraps, or as playback starts, can sit a moment before the section's start).
   const seeked=s.seeks!==seeksSeen;seeksSeen=s.seeks;
-  const range=seeked&&s.loop?.enabled&&s.loop.implicit&&section?loopRange(section):null;
+  const kind=s.loop?.kind||'section',range=seeked&&s.loop?.enabled&&s.loop.implicit&&section?loopFor(kind,s.seconds):null;
   if(range&&(s.loop.start!==range.start||s.loop.end!==range.end)&&!(s.seconds>=s.loop.start&&s.seconds<s.loop.end&&sectionAtSeconds(sections(),s.loop.start)===section)){
-   transport.setLoop({enabled:true,...range,implicit:true}).catch(onError);
+   transport.setLoop({enabled:true,...range,implicit:true,kind}).catch(onError);
   }
  }
  const unsubscribe=transport.subscribe(paint);

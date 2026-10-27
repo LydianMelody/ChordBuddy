@@ -78,3 +78,25 @@ test('chunks that straddle the loop end or arrive out of order are rejected', ()
   assert.throws(()=>mixer.enqueue(chunk(3000,500)),/contiguous/);        // must wrap to the loop start
   mixer.enqueue(chunk(1000,500));assert.equal(mixer.queuedFrames,1500);
 });
+
+test('splice: a loop turned on mid-stream keeps the queued audio up to its end, then streams on from its start', () => {
+  const mixer=start(null,0,100000);streamInto(mixer,{sentEnd:0,frames:100000,loop:null},2);mixer.setPlaying(true);
+  render(mixer,500);
+  const plan=mixer.splice({generation:2,loop:{start:200,end:5000}});
+  assert.deepEqual(plan,{startFrame:200,sent:500+4500,consumed:500,engaged:true});
+  assert.equal(mixer.generation,2);assert.equal(mixer.queuedFrames,4500);
+  const heard=render(mixer,4500);assert.equal(+heard[0].toFixed(4),.05);assert.equal(+heard[4000].toFixed(4),.45,'plays on without a gap toward the loop end');
+  assert.equal(mixer.enqueue(chunk(200,100,1)),false,'chunks of the old stream are ignored');
+  assert.throws(()=>mixer.enqueue(chunk(5000,100,2)),/contiguous/);
+  assert.equal(mixer.enqueue(chunk(200,100,2)),true,'the next chunk is the loop start');
+});
+
+test('splice: turning a loop off drops what was queued after the wrap, and a loop behind the playhead never wraps', () => {
+  const loop={start:1000,end:3000},mixer=start(loop,0,100000);streamInto(mixer,{sentEnd:0,frames:100000,loop},3);mixer.setPlaying(true);   // 0..3000, then 1000..3000 twice
+  render(mixer,2500);
+  let plan=mixer.splice({generation:2,loop:null});
+  assert.equal(plan.startFrame,3000);assert.equal(mixer.queuedFrames,500);assert.equal(plan.engaged,false);
+  const later=start(null,0,100000);streamInto(later,{sentEnd:0,frames:100000,loop:null},2);later.setPlaying(true);render(later,40000);
+  plan=later.splice({generation:2,loop:{start:100,end:200}});
+  assert.equal(plan.engaged,false);assert.equal(plan.startFrame,88200);assert.equal(later.queuedFrames,48200);
+});

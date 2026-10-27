@@ -73,3 +73,6 @@
 /* typing a new chord right on its symbol */
 .lead-chord-input{position:absolute;z-index:5;box-sizing:border-box;padding:0 8px;border:2px solid var(--ink);border-radius:8px;background:var(--page);color:var(--ink);font:800 17px var(--g);text-align:center;box-shadow:3px 3px 0 var(--ink);outline:none}
 .lead-chord-input:focus{border-color:var(--a2)}
+/* the playhead's place on the staff: a thin line that slides along with the music, never in the way of a click or on paper */
+.lead-playmark{position:absolute;width:3px;margin-left:-1.5px;border-radius:2px;background:var(--a1);opacity:.4;pointer-events:none;z-index:1}
+@media print{.lead-playmark{display:none}}

@@ -117,7 +117,7 @@ export function mountVisualizer(container){
   const toolbar=document.createElement('div');toolbar.className='visualizer-toolbar';
   const button=(label,title,onclick)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.title=title;b.onclick=onclick;return b;};
   let sceneButtons=[];
-  const lyricsButton=button('Lyrics','Show the lyrics (L)',()=>set({lyrics:!settings.lyrics}));
+  const lyricsButton=button('Lyrics','Show the lyrics (Y)',()=>set({lyrics:!settings.lyrics}));
   const calmButton=button('Calm','Calm: no shaking or flashes (C)',()=>set({calm:!settings.calm}));
   const mixerButton=button('Mixer','Slide out the mixer (M)',()=>toggleMixer());
   const group=document.createElement('div');group.className='visualizer-scenes';
@@ -165,7 +165,7 @@ export function mountVisualizer(container){
     if(event.target?.closest?.('input,textarea,[contenteditable="true"]')||event.ctrlKey||event.metaKey||event.altKey)return;
     const n=Number(event.key);
     if(n>=1&&n<=scenes.length)choose(scenes[n-1].id);
-    else if(event.key==='l'||event.key==='L')set({lyrics:!settings.lyrics});
+    else if(event.key==='y'||event.key==='Y')set({lyrics:!settings.lyrics});      // (L loops four bars, as in the main window)
     else if(event.key==='c'||event.key==='C')set({calm:!settings.calm});
     else if(event.key==='p'||event.key==='P')set({fps:!settings.fps});       // frame rate readout, to check smoothness
     else if(event.key==='m'||event.key==='M')toggleMixer();

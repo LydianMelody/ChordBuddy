@@ -1,6 +1,12 @@
 import {loopEngaged,validLoop} from './pcm-stream.js';
 // Pure common-cursor renderer. No network, DOM or wall-clock scheduling.
 export const RATE=44100,TRACK_COUNT=8,MAX_FRAMES=441000,RAMP=441;
+// The first count frames of a chunk from frame `from` on (chunks hold eight stereo tracks one after another).
+function sliceChunk(chunk,from,count){
+ const data=new Float32Array(count*16),span=chunk.count*2;
+ for(let t=0;t<8;t++)data.set(chunk.data.subarray(t*span+from*2,t*span+(from+count)*2),t*count*2);
+ return {data,count,start:chunk.start+from};
+}
 export const defaultMix=()=>({gains:Array(7).fill(1),mutes:Array(7).fill(false),solos:Array(7).fill(false),master:1});
 export class PcmMixer{
  constructor(){this.mix=defaultMix();this.weights=new Float64Array(7).fill(1);this.targets=new Float64Array(7).fill(1);this.mode='original';this.blend=0;this.master=1;this.last=[0,0];this.peaks=new Float32Array(7);this.reset({generation:0,runId:null,startFrame:0,totalFrames:0,commonGain:1});}
@@ -9,6 +15,24 @@ export class PcmMixer{
   this.generation=generation;this.runId=runId;this.frame=startFrame;this.total=totalFrames;this.gain=commonGain;this.queue=[];this.end=startFrame;this.offset=0;this.loop=loop?{start:loop.start,end:loop.end}:null;this.engaged=loopEngaged(this.loop,startFrame);this.wrapNext=false;this.queued=0;this.played=0;this.playIntent=false;this.state='paused';this.envelope=0;this.last=[0,0];
  }
  get queuedFrames(){return this.queued;}
+ // Changes the loop without stopping: keeps the queued audio the new loop plays next (cut at its end, or where the old loop wrapped),
+ // drops the rest and adopts a new generation. Returns where streaming resumes and the counts the fetch worker's credit needs.
+ splice({generation,loop=null}){
+  if(!validLoop(loop,this.total))throw Error('Invalid PCM timeline');
+  const next=this.queue.length?this.queue[0].start+this.offset:this.wrapNext?this.loop.start:this.end;
+  const engaged=loopEngaged(loop,next),kept=[];let pos=next,offset=this.offset,queued=0;
+  for(const [i,chunk] of this.queue.entries()){
+   const from=i===0?this.offset:0;if(chunk.start+from!==pos)break;
+   const count=engaged&&pos<loop.end?Math.min(chunk.count-from,loop.end-pos):chunk.count-from;
+   if(count<chunk.count-from){kept.push(sliceChunk(chunk,from,count));if(i===0)offset=0;}else kept.push(chunk);
+   queued+=count;pos+=count;
+   if(engaged&&pos===loop.end)pos=loop.start;
+   if(count<chunk.count-from)break;
+  }
+  this.generation=generation;this.queue=kept;this.offset=kept.length?offset:0;this.queued=queued;this.end=pos;this.wrapNext=false;
+  this.loop=loop?{start:loop.start,end:loop.end}:null;this.engaged=engaged;
+  return {startFrame:pos,sent:this.played+queued,consumed:this.played,engaged};
+ }
  // Loudest each stem has been (after its fader, mute/solo, blend and master) since the last call, then starts over. Drives the meters.
  takeLevels(){const out=Array.from(this.peaks);this.peaks.fill(0);return out;}
  enqueue(message){

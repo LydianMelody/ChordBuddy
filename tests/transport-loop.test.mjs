@@ -100,3 +100,28 @@ test('a seek that makes a listener start another handoff (a section loop followi
   assert.equal(state.error,null);assert.equal(state.playIntent,true);assert.deepEqual([state.loop.start,state.loop.end],[40,60]);
   assert.deepEqual(calls.at(-1).slice(1),[45*44100,{start:40*44100,end:60*44100}],'the stream starts once more, at the seek, with the new loop');
 });
+
+test('turning a loop on, moving it or turning it off while the stream runs swaps it in place: no re-prime, so no gap', async () => {
+  const calls=[],f=s=>Math.round(s*44100);let report;
+  const pcm={prime:async(...a)=>calls.push(['prime',...a]),splice:loop=>(calls.push(['splice',loop]),true),play:()=>{},mix:()=>{},mode:()=>{},rate:()=>{},dispose:()=>{},resume:async()=>{}};
+  const transport=new Transport({audio:new Audio(),token:'t',createPcm:async({onPosition})=>(report=onPosition,pcm)});
+  await transport.loadSong({songId:'s'});await transport.setReadiness({song_id:'s',ready:true,active:manifest});
+  await transport.seek(25);await transport.play();
+  report({runId:'r',sourceFrame:f(30),played:f(5),latency:0,state:'playing'});
+  await transport.setLoop({enabled:true,start:20,end:40,implicit:true});
+  await transport.setLoop({enabled:true,start:28,end:36});
+  await transport.setLoop(null);
+  assert.deepEqual(calls.map(c=>c[0]),['prime','splice','splice','splice']);
+  assert.deepEqual(calls.slice(1).map(c=>c[1]),[{start:f(20),end:f(40)},{start:f(28),end:f(36)},null]);
+  assert.equal(transport.getSnapshot().playIntent,true);
+  await transport.setLoop({enabled:true,start:20,end:40},{seekTo:20});
+  assert.equal(calls.at(-1)[0],'prime','moving the playhead as well still re-primes');
+});
+
+test('after a loop is swapped in, the playhead counts the wrap from where it changed', () => {
+  const f=s=>Math.round(s*44100),at=(seconds,played,latency=.05)=>({sourceFrame:f(seconds),played:f(played),latency,state:'playing'});
+  const primed={start:30,base:f(100),spliced:true,loop:{start:20,end:40}};
+  assert.equal(+heardSeconds(at(30.02,100.02),primed).toFixed(3),29.97,'right after the swap: not held at the swap point');
+  assert.equal(+heardSeconds(at(39,109),primed).toFixed(3),38.95);
+  assert.equal(+heardSeconds(at(20.02,110.02),primed).toFixed(3),39.97,'just after the first wrap: the loop end still sounding');
+});

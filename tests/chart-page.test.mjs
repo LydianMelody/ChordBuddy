@@ -548,3 +548,23 @@ test('repeat signs are plain shapes (a rule and two dots), never gradients that 
   assert.ok(signs.every(s=>byClass(s,'rep-dot').length===2));
   assert.ok(signs.some(s=>has(s,'start'))&&signs.some(s=>has(s,'end')));
 });
+
+test('a thin playhead line sits in the bar being played, in reading and in timing, and in the pass being played', () => {
+  const f=fixture(),m=mount(f),mark=()=>byClass(m.root,'playmark');
+  const c=f.content.chords.find(c=>c.label&&c.label!=='N'&&c.end-c.start>1);
+  m.view.updatePlayback({seconds:c.start+.25,ready:true,playing:false});
+  assert.equal(mark().length,1,'paused too');
+  const bar=mark()[0].parent;assert.ok(bar.dataset.bar,'inside a bar');
+  m.view.setMode('timing');m.view.updatePlayback({seconds:c.start+.25,ready:true,playing:true});
+  assert.equal(mark().length,1);assert.ok(mark()[0].parent.dataset.bar);assert.match(mark()[0].style.left,/%$/,'timing: by the beats of the bar');
+  m.view.updatePlayback({seconds:-5,ready:true,playing:true});assert.equal(mark().length,0,'before the music: no line');
+});
+
+test('passes are listed in pass order, not in the order their lines were typed', async () => {
+  const f=fixture();f.content.sections[0].lyrics='three four\none two';            // pass 2's line was typed first
+  f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[['m4',0],['m0',1]].map(([m,line])=>({section_id:'s',line,start_measure:m,end_measure:'m'+(Number(m.slice(1))+3),words:[{offset:0,measure_id:m,beat:0}]}))};
+  const m=mount(f);
+  assert.deepEqual(byClass(m.root,'lane-tag').map(t=>t.textContent).slice(0,2),['1','2']);
+  const lines=openWords(m);
+  assert.deepEqual(lines.map(l=>l.textContent).slice(0,2),['one two','three four'],'and Tab goes from pass 1 to pass 2');
+});

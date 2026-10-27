@@ -1,10 +1,11 @@
 import {commitPracticeDocument} from './practice-save.js';
+import {planChartChordEdit} from './practice-edit.js';
 import {retryDocumentExport} from './export-retry.js';
 import {reconcileCompactPreferences} from './compact-chart.js';
 import {installTooltips} from './tooltips.js';
 import {mountChartPage} from './chart-page.js';
 import {ZOOM_LEVELS} from './timing-geometry.js';
-import {askChoice,askSongSetup,askSongImport,openTrash,CPU_STEMS_SLOW,CPU_STEMS_WARNING} from './dialogs.js';
+import {askChoice,askSongSetup,askSongImport,openTrash,openShortcuts,CPU_STEMS_SLOW,CPU_STEMS_WARNING} from './dialogs.js';
 import {updateViewport} from './practice-timeline.js';
 import {PlaybackGate} from './playback-ready.js';
 import {analysisUiState,songStatusLabel,analysisErrorMessage,lockStepStates,lockJobFailed} from './analysis-view.js';
@@ -13,6 +14,7 @@ import {Transport} from './transport.js';
 import {mountMixer} from './mixer-rack.js';
 import {mountPlayer} from './player-view.js';
 import {playbackAction,targetSeconds} from './playback-keys.js';
+import {SHORTCUTS} from './shortcuts.js';
 import {activeChord, editChordContent, isJobActive, jobProgress, validateChart, displayChordLabel, settleHistoryResult} from './editor.js';
 import {renderLeadSheet,updateLeadSheetPlayback,markCurrentChord,followPlayback} from './lead-sheet.js';
 import {renderMidiRoll} from './midi-view.js';
@@ -166,11 +168,11 @@ document.addEventListener('keydown',event=>{
  const button=$(redo?'redo':'undo');event.preventDefault();if(!button.disabled)button.click();
 });
 document.addEventListener('keyup',event=>{if(spaceHandled&&(event.key===' '||event.code==='Space')){event.preventDefault();spaceHandled=false;}},true);
-// R loops the section you are in, the arrows step a bar and Ctrl+arrows a section (playback-keys.js). A pop-out visualizer sends the same.
+// R loops the section you are in and L four bars, the arrows step a bar and Ctrl+arrows a section (playback-keys.js). A pop-out visualizer sends the same.
 function runPlaybackAction(action){
  const s=transport.getSnapshot();if(!s.ready)return;
  if(action.type==='toggle'){if(s.playIntent)transport.pause();else transport.play().catch(showError);}
- else if(action.type==='loop')player.toggleLoop();
+ else if(action.type==='loop')player.toggleLoop(action.kind==='bars'?'bars':'section');
  else if(action.type==='bar'||action.type==='section'){
   const starts=action.type==='section'?player.sectionStarts():(practiceView.getModel()?.measures||practiceData?.music?.measures||[]).map(m=>m.start);
   const to=targetSeconds(starts,s.seconds,action.direction);if(to!==null)transport.seek(to).catch(showError);
@@ -265,6 +267,13 @@ function openVisualizer(fullScreen){
 }
 $('visualizer-window').onclick=()=>openVisualizer(false);
 $('visualizer-full').onclick=()=>openVisualizer(true);
+// Keyboard shortcuts: from More options, or ? anywhere you are not typing.
+const showShortcuts=()=>{$('more-menu').open=false;openShortcuts({groups:SHORTCUTS});};
+$('shortcuts-open').onclick=showShortcuts;
+document.addEventListener('keydown',event=>{
+ if(event.key!=='?'||event.ctrlKey||event.metaKey||event.altKey||event.defaultPrevented||typingTarget(event.target)||document.querySelector('dialog[open]'))return;
+ event.preventDefault();showShortcuts();
+});
 function renderSections(){
  const song=!!model.song,full=lockMode()==='full';
  $('work').classList.toggle('hidden',!song||full);
@@ -278,7 +287,7 @@ async function refreshSeparation(){
 function currentSong(){return model.state?.songs.find(song=>song.id===model.song);}
 function currentRecord(){return model.documents.get(model.document);}
 function currentContent(){const record=currentRecord();return record?.draft || record?.doc.content;}
-function currentChords(){const record=currentRecord();return ['abc','chart'].includes(record?.doc.kind) ? currentContent()?.chords || [] : model.detail?.chords || [];}
+function currentChords(){const record=currentRecord();if(record?.doc.kind==='abc'&&leadView?.chords)return leadView.chords();return ['abc','chart'].includes(record?.doc.kind) ? currentContent()?.chords || [] : model.detail?.chords || [];}
 function renderLibrary() {
   const state=model.state;if(!state)return;
   if(!state.setlists.some(list=>list.id===model.setlist))model.setlist=state.setlists[0]?.id;
@@ -578,7 +587,7 @@ function renderAbc(){
   setSub($('score-sub'),[record.doc.music?.timing?.bpm?`♩ = ${Math.round(record.doc.music.timing.bpm)}`:null,'arranged in Chord Buddy']);
   paintMeter($('score-meter'));
   setKeySpelling(songKey().label);
-  leadView=renderLeadSheet($('score'),{key:model.document,content:{...content,abc:spellAbc(content.abc,content.chords)},music:record.doc.music,getMeter:()=>songMeter().meter,title:song?.title,artist:song?.artist,settings:model.state.settings,
+  leadView=renderLeadSheet($('score'),{key:model.document,musicKey:songKey().label,content:{...content,abc:spellAbc(content.abc,content.chords)},music:record.doc.music,getMeter:()=>songMeter().meter,title:song?.title,artist:song?.artist,settings:model.state.settings,
     dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),frozen:readFrozen(song?.id),
     onSeek:seconds=>transport.seek(seconds),onExternal:sendToExternalEditor,
     onFreeze:snapshot=>{writeFrozen(song.id,snapshot);renderAbc();},onUnfreeze:()=>{writeFrozen(song.id,null);renderAbc();},
@@ -603,8 +612,17 @@ async function commitChartFromLeadSheet(next,label,expected){
   try{await pending;if(r.doc.export_warning)showError(r.doc.export_warning);}
   finally{if(currentRecord()?.doc.kind==='abc')renderAbc();}
 }
-// A chord typed on the lead sheet is saved to the lead sheet and confirmed, exactly as the old Apply button did.
+// A chord typed on the lead sheet goes to the chord chart, where the lead sheet's chords come from. (A frozen copy is never edited; a lead
+// sheet whose chart has not loaded yet saves it to itself and confirms it, as the old Apply button did.)
 async function commitChordLabel(id,text){
+  const chart=chartRecord(),typed=String(text||'').trim();
+  if(chart&&!readFrozen(currentSong()?.id)){
+    const content=chart.draft||chart.doc.content,old=content.chords.find(c=>c.id===id);
+    if(!old||!typed||typed===old.label)return;
+    const result=planChartChordEdit(content,chart.doc.music,{chordId:id,label:typed});
+    if(result.conflicts.length)throw Error(result.conflicts[0].message);
+    await commitChartFromLeadSheet(result.candidate,'Correct chord label',{documentId:chart.doc.id,revision:chart.doc.revision});return;
+  }
   const chord=currentContent()?.chords?.find(item=>item.id===id),label=String(text||'').trim();
   if(!chord||!label||label===chord.label)return;
   markEdit(editChordContent(currentContent(),id,label),'Correct chord label');

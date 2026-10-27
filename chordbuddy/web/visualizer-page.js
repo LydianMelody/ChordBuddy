@@ -26,7 +26,7 @@ document.addEventListener('keydown',async event=>{
   else if(event.key==='Escape'&&desktopWindow()&&await isFull())toggle();     // the browser handles Esc itself
 });
 document.addEventListener('fullscreenchange',()=>label(!!document.fullscreenElement));
-// Space, R and the arrows work here too: the player in the main window carries them out.
+// Space, R, L and the arrows work here too: the player in the main window carries them out.
 document.addEventListener('keydown',event=>{
   const action=playbackAction(event);if(!action)return;
   event.preventDefault();if(!action.repeat)view.command(action);

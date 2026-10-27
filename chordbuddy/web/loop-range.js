@@ -77,19 +77,31 @@ export function describeRange(measures,range){
 export const SPEED_MIN=50,SPEED_MAX=125,SPEED_STEP=5;
 export const stepSpeed=(percent,direction)=>Math.max(SPEED_MIN,Math.min(SPEED_MAX,Math.round((percent+direction*SPEED_STEP)/SPEED_STEP)*SPEED_STEP));
 
-// R on an intro or an outro loops music played at full volume, never a fade (an outro that fades out would otherwise loop the fade, and
-// an intro the swell): one pass of a phrase the chart repeats there (the first pass clear of any fade), or else its first four bars.
-// fades: {fadeIn:{end}, fadeOut:{start}} as found by fade-out.js; musicStart: where bar 1 begins (the silent lead-in before it is never
-// looped either); phrases: the passes [{start,end}] of the section's repeated phrases. Any other section, or an intro or outro with
-// nothing at full volume, loops whole.
-const EDGE=/\b(intro|outro)\b/i;
-export function sectionLoopRange(section,measures,{fadeIn=null,fadeOut=null,musicStart=null,phrases=[]}={},bars=4){
+// R loops the section you are in. An intro starts at bar 1 and leaves out a fade-in (and the silent lead-in before bar 1); an outro that
+// fades out loops only its first four bars at full volume. fades: {fadeIn:{end}, fadeOut:{start}} as found by fade-out.js; musicStart:
+// where bar 1 begins. Any other section, or one with no whole bars left, loops whole.
+const INTRO=/\bintro\b/i,OUTRO=/\boutro\b/i,SLACK=.05;
+export function sectionLoopRange(section,measures,{fadeIn=null,fadeOut=null,musicStart=null}={},bars=4){
   const whole={start:section.start,end:section.end};
-  if(!EDGE.test(section.name||''))return whole;
-  const slack=.05,clear=(start,end)=>start>=section.start-slack&&end<=section.end+slack&&!(fadeIn&&start<fadeIn.end-slack)
-    &&!(fadeOut&&end>fadeOut.start+slack)&&!(Number.isFinite(musicStart)&&start<musicStart-slack);
-  const pass=[...phrases].sort((a,b)=>a.start-b.start).find(p=>clear(p.start,p.end));
+  const inside=(measures||[]).filter(m=>m.start>=section.start-SLACK&&m.end<=section.end+SLACK);
+  if(INTRO.test(section.name||'')){
+    const first=inside.find(m=>!(fadeIn&&m.start<fadeIn.end-SLACK)&&!(Number.isFinite(musicStart)&&m.start<musicStart-SLACK));
+    return first?{start:first.start,end:section.end}:whole;
+  }
+  if(OUTRO.test(section.name||'')&&fadeOut&&fadeOut.start<section.end-SLACK){
+    const picked=inside.filter(m=>m.end<=fadeOut.start+SLACK).slice(0,bars);
+    return picked.length?{start:picked[0].start,end:picked.at(-1).end}:whole;
+  }
+  return whole;
+}
+
+// L loops four bars: the four-bar block of the section you are in (its bars 1-4, 5-8, ...; an intro counts from bar 1), or, inside a
+// phrase the chart repeats (×4, ×8 ...), the pass you are in. phrases: the passes [{start,end}] of every repeated phrase.
+export function barLoopRange(section,measures,seconds,{phrases=[],musicStart=null}={},bars=4){
+  const pass=phrases.find(p=>seconds>=p.start-SLACK&&seconds<p.end-SLACK);
   if(pass)return {start:pass.start,end:pass.end};
-  const picked=(measures||[]).filter(m=>clear(m.start,m.end)).slice(0,bars);
-  return picked.length?{start:picked[0].start,end:picked.at(-1).end}:whole;
+  const inside=(measures||[]).filter(m=>m.start>=section.start-SLACK&&m.start<section.end-SLACK&&!(Number.isFinite(musicStart)&&m.start<musicStart-SLACK));
+  if(!inside.length)return {start:section.start,end:section.end};
+  const at=Math.max(0,inside.findLastIndex(m=>m.start<=seconds+SLACK)),block=inside.slice(at-at%bars,at-at%bars+bars);
+  return {start:block[0].start,end:Math.min(section.end,block.at(-1).end)};
 }

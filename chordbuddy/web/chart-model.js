@@ -128,6 +128,10 @@ function groupLanes(ctx,section,group,rep,bars){
       lanes.push({line,text,flow:!!tokens.length&&tokens.every(t=>t.flow),passNumber:tokens[0]?.passNumber??1,tokens,span:placed.length?{start:layout.start,end:layout.end}:null});
     }
   });
+  // in pass order, whatever order the lines were typed in (a line typed for pass 2 first still shows under pass 1); a line with no place
+  // in time yet keeps its spot
+  const slots=lanes.map((lane,i)=>lane.flow?null:i).filter(i=>i!==null),timed=slots.map(i=>lanes[i]).sort((a,b)=>a.passNumber-b.passNumber||a.line-b.line);
+  slots.forEach((at,k)=>{lanes[at]=timed[k];});
   return lanes;
 }
 

@@ -38,6 +38,11 @@ export async function createPcmSession({token,onPosition,onError}){
    await context.resume();
    await promise;
   },
+  // A new loop for the stream already playing (never while priming): no restart, so no gap. Returns false when it cannot.
+  splice(loop){
+   if(pending||runId===null)return false;
+   version++;node.port.postMessage({type:'loop',previous:version-1,generation:version,runId,loop});return true;
+  },
   resume:()=>context.resume(),play:value=>send('play',value),mix:value=>send('mix',value),mode:value=>send('mode',value),rate:value=>send('rate',value),
   dispose(){if(disposed)return;disposed=true;rejectPending();worker.terminate();clockNode.port.postMessage({type:'dispose'});clockNode.disconnect();node.disconnect();context.close().catch(()=>{});}
  };

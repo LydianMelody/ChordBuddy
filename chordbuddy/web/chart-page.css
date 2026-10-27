@@ -231,3 +231,7 @@
 .tchord-ghost{position:fixed;z-index:90;pointer-events:none;padding:2px 8px;border:2px solid var(--ink);border-radius:8px;background:var(--hl);color:#1A1C24;font:800 20px/1.1 var(--g);font-stretch:86%;box-shadow:5px 5px 0 var(--ink);transform:rotate(-2deg);white-space:nowrap}
 /* rest symbols for a break where the band stops; Windows draws them with Segoe UI Symbol */
 .chord.rest .rest-glyph{font:400 26px/1 'Segoe UI Symbol','Noto Music','Bravura Text',serif;letter-spacing:2px;color:var(--ink)}
+/* The playhead's place in the bar: a thin line in every mode, under the chords and words, never in the way of a click or on paper */
+.playmark{position:absolute;top:2px;bottom:2px;width:3px;margin-left:-1.5px;border-radius:2px;background:var(--a1);opacity:.45;pointer-events:none;z-index:0;transition:left .12s linear}
+@media (prefers-reduced-motion:reduce){.playmark{transition:none}}
+@media print{.playmark{display:none}}

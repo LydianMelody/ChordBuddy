@@ -459,6 +459,27 @@ export function mountChartPage(root,handlers={}){
       if(r.pick)for(const b of r.pick.children)b.classList.toggle('on',passForEdit(r.group)===Number(b.dataset.pass));
     }
   }
+  // A thin line where the music is, in every mode (reading, typing a row, timing), paused too. Reading, it moves across the chord that is
+  // playing; in timing, whose bars are drawn to time, across the bar's beats. A repeated row shows it in the pass being played.
+  let playMark=null,markIn=null;
+  const findBar=(node,id)=>{if(node?.dataset?.bar===id)return node;for(const child of node?.children||[]){const hit=findBar(child,id);if(hit)return hit;}return null;};
+  function paintPlayMark(seconds,target,occ){
+    const row=target&&refs.groups.find(r=>r.model.id===target.groupId),g=row?.model;
+    const measure=occ&&model.measures.find(m=>m.id===occ.measureId),pass=g?.passes?.find(p=>p.number===target.passNumber);
+    const index=measure&&pass?pass.measureIds.indexOf(measure.id):-1,barId=index>=0?g.bars?.[index]?.id:null;
+    const bar=barId?findBar(row.node,barId):null;
+    if(!bar){playMark?.remove?.();markIn=null;return;}
+    if(!playMark){playMark=el('i','playmark');playMark.setAttribute?.('aria-hidden','true');}
+    if(markIn!==bar||!(bar.children&&[...bar.children].includes(playMark))){bar.append(playMark);markIn=bar;}
+    const chunk=mode==='timing'?null:refs.chunks.find(r=>r.chunk.key===target.chunkKey&&[...(bar.children||[])].includes(r.node))?.node;
+    if(chunk&&occ.end>occ.start&&finite(chunk.offsetLeft)&&chunk.offsetWidth){
+      const part=Math.max(0,Math.min(1,(seconds-occ.start)/(occ.end-occ.start)));
+      playMark.style.left=Math.round(chunk.offsetLeft+part*chunk.offsetWidth)+'px';return;
+    }
+    const beats=[...(measure.beats?.length?measure.beats:[measure.start]),measure.end];let beat=0;
+    for(let i=0;i<beats.length-1;i++)if(seconds<beats[i+1]){beat=i+Math.max(0,(seconds-beats[i])/((beats[i+1]-beats[i])||1));break;}
+    playMark.style.left=(Math.min(1,beat/(beats.length-1))*100)+'%';
+  }
   function updatePlayback(transport){
     if(!data)return;data.transport=transport;if(!model)return;
     const seconds=transport.seconds,target=playbackTarget(model,seconds);
@@ -471,7 +492,7 @@ export function mountChartPage(root,handlers={}){
       const placed=lane.tokens.filter(t=>!t.flow);
       wordIndexes.set(lane,live?currentWordIndex(placed.map(t=>({seconds:t.seconds})),seconds):-1);
     }
-    paintRepeatCount(target,transport);
+    paintRepeatCount(target,transport);paintPlayMark(seconds,target,occ);
     const wsig=sig+JSON.stringify([...wordIndexes.values()]);
     const changedTarget=!last||last.sig!==sig;
     if(last&&last.wsig===wsig&&last.mode===mode){last={...last,target};return;}
