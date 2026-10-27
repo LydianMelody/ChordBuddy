@@ -22,7 +22,7 @@ import {effectiveMeasures, isNoChordLabel} from './chart-layout.js';
 import {icon} from './icons.js';
 import {prefs} from './prefs.js';
 import {usualMeter,parseMeter,METER_CHOICES} from './bar-lengths.js';
-import {estimateKey,parseKeyLab,KEY_CHOICES} from './key-estimate.js';
+import {chooseKey,parseKeyLab,KEY_CHOICES} from './key-estimate.js';
 import {setKeySpelling,spellChord,spellAbc} from './spelling.js';
 import {onsetsFromNotes} from './word-layout.js';
 import {mountModelsPanel,mountChordModelPanel} from './models-view.js';
@@ -86,7 +86,10 @@ async function splitStems(){
 const mixer=mountMixer($('rack'),{transport,onError:showError,onSplit:()=>splitStems().catch(showError),exportTarget:()=>{const runId=separationDetail?.active?.run_id,song=currentSong();return runId&&song?{title:song.title||'Chord Buddy',stemsUrl:name=>mediaUrl(`/api/stems-export/${encodeURIComponent(runId)}`)+`&name=${encodeURIComponent(name)}`,url:(query,name)=>mediaUrl(`/api/mix-export/${encodeURIComponent(runId)}`)+`&${query}&name=${encodeURIComponent(name)}`}:null;}});
 
 let practiceViewport=null,practiceData=null;
-const player=mountPlayer($('player'),transport,showError,{onViewportChange:updatePracticeViewport,loadWaveform:run=>api('/api/waveform/'+encodeURIComponent(run))});
+// The waveform's peak outline also tells the chart whether the recording fades out (fade-out.js).
+const player=mountPlayer($('player'),transport,showError,{onViewportChange:updatePracticeViewport,loadWaveform:run=>{const song=model.song;return api('/api/waveform/'+encodeURIComponent(run)).then(value=>{
+ if(value&&song===model.song){model.waveform={song,run,peaks:value.peaks,duration:value.duration};if(currentRecord()?.doc.kind==='chart')renderChart();}
+ return value;});}});
 const practiceView=mountChartPage($('chart-sections'),{
  onSeek:seconds=>transport.seek(seconds),onCommit:commitPracticeEdit,onBarEdit:editBars,onError:showChartError,onReload:reloadPracticeChart,canEdit:()=>!currentRecord()?.practiceConflict&&!currentRecord()?.saving,
  onViewportChange:updatePracticeViewport,onRhythm:()=>rhythmButton.click(),onTimingSettings:()=>$('song-timing').click(),
@@ -383,7 +386,7 @@ function renderKeyBoxes(){
     }
     box.hidden=!key.label;
     box.querySelector('b').textContent=key.label||'';
-    box.title=key.custom?'Key set by you. Click to change it.':key.fromModel?'Found by the analysis. Click to change it.':'Estimated from the chords. Click to change it.';
+    box.title=key.custom?'Key set by you. Click to change it.':key.fromModel?'Found by the analysis. Click to change it.':key.overruled?`Estimated from the chords (the analysis said ${key.overruled.label}, but many chords do not fit that key). Click to change it.`:'Estimated from the chords. Click to change it.';
     box.setAttribute('aria-label','Key of this song: '+(key.label||'unknown')+'. Click to change it.');
   }
 }
@@ -391,9 +394,9 @@ function renderKeyBoxes(){
 // with the library and wins.
 function songKey(){
   const found=model.modelKey?.song===model.song?model.modelKey.key:null;
-  const chords=(currentContent()?.chords||chartRecord()?.doc.content?.chords||[]).filter(chord=>!isNoChordLabel(chord.label)),estimate=found||estimateKey(chords);
+  const chords=(currentContent()?.chords||chartRecord()?.doc.content?.chords||[]).filter(chord=>!isNoChordLabel(chord.label)),chosen=chooseKey(found,chords),estimate=chosen.key;
   const saved=prefs.get('cb-key:'+model.song,''),custom=KEY_CHOICES.includes(saved);
-  return {estimate,custom,fromModel:!!found,label:custom?saved:estimate?.label||null};
+  return {estimate,custom,fromModel:chosen.source==='model',overruled:chosen.overruled,label:custom?saved:estimate?.label||null};
 }
 async function loadModelKey(detail,songId){
   const doc=detail.documents.find(item=>/(^|\/)key\.lab$/.test(item.name));
@@ -486,7 +489,7 @@ async function selectSong(id){
   playbackGate.block('Checking analysis.');player.setWaveformRun(null);practiceViewport=null;practiceData=null;player.setPractice({music:{measures:[]},projection:null,viewport:null});separationDetail=null;model.readinessChecked=false;model.song=id;model.detail=null;model.document=null;
   clearError();renderLibrary();renderControls();renderDocument();renderLock();
   await transport.loadSong({songId:id,originalUrl:mediaUrl('/api/audio/'+encodeURIComponent(id)),separation:null});player.setNow({chord:'—',next:''});await refreshSeparation();if(request!==model.loadingSong)return;
-  try{const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(request!==model.loadingSong)return;model.detail=detail;renderTabs();loadMelody(detail,id);loadModelKey(detail,id);if(shownDocs(detail).length)await selectDocument(shownDocs(detail)[0].id);else renderDocument();if(detail.song.error)showError(analysisErrorMessage(detail.song.error,!!detail.song.active_run));}catch(error){if(request===model.loadingSong)showError(error);}
+  try{const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(request!==model.loadingSong)return;model.detail=detail;renderTabs();loadMelody(detail,id);loadModelKey(detail,id);if(shownDocs(detail).length)await selectDocument(shownDocs(detail)[0].id);else renderDocument();showSongError(detail.song,true);}catch(error){if(request===model.loadingSong)showError(error);}
 }
 // The vocal melody (a MIDI output of the analysis): its notes are drawn faintly behind the Time tool's bars, and their starts are
 // the first guess for where words fall.
@@ -505,8 +508,15 @@ async function keepDeskPlace(fn){
   const desk=$('desk'),top=desk?.scrollTop||0,left=desk?.scrollLeft||0;
   try{await fn();}finally{if(desk&&(top||left))desk.scrollTo({top,left,behavior:'instant'});}
 }
+// A song's own analysis error stands in the alert while it is true, and comes down as soon as an analysis of the song succeeds.
+let songErrorAlert=null;
+function showSongError(song,opened=false){
+  const text=song?.error?analysisErrorMessage(song.error,!!song.active_run):null;
+  if(text&&(opened||text!==songErrorAlert)){songErrorAlert=text;showError(text);}
+  else if(!text&&songErrorAlert!==null){if($('alert').textContent===songErrorAlert)clearError();songErrorAlert=null;}
+}
 async function refreshSongDetail(id,force=false){
-  const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(model.song!==id)return;model.detail=detail;renderTabs();loadMelody(detail,id);loadModelKey(detail,id);
+  const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(model.song!==id)return;model.detail=detail;showSongError(detail.song);renderTabs();loadMelody(detail,id);loadModelKey(detail,id);
   if(!model.document && shownDocs(detail).length)await selectDocument(shownDocs(detail)[0].id);
   else if(model.document && shownDocs(detail).length && !detail.documents.some(doc=>doc.id===model.document) && !currentRecord()?.dirty && !currentRecord()?.saving)await selectDocument(shownDocs(detail)[0].id);
   else if(force && model.document&&!practiceView.hasDraft()){const record=currentRecord();if(!record?.dirty&&!record?.saving){await keepDeskPlace(async()=>{model.documents.delete(model.document);await selectDocument(model.document);});}}
@@ -634,7 +644,7 @@ function renderChart(){
  $('suggest').disabled=!hasMelody;$('suggest').checked=hasMelody&&prefs.get('cb-suggest','1')!=='0';
  $('suggest-wrap').classList.toggle('off',!hasMelody);$('suggest-wrap').title=hasMelody?'Shows the sung melody faintly behind the bars, and places words you have not pinned on its notes as a first guess. Drag a word to pin it.':'No vocal melody was found for this song.';
  practiceView.showTools();
- setKeySpelling(songKey().label);practiceView.update({key:songKey().label,documentId:r.doc.id,revision:r.doc.revision,songId:model.song,content,music,transport:transport.getSnapshot(),viewport:practiceViewport,onsets,suggest:$('suggest').checked,melody:$('suggest').checked&&model.melody?.song===model.song?model.melody.notes:null});
+ setKeySpelling(songKey().label);practiceView.update({key:songKey().label,documentId:r.doc.id,revision:r.doc.revision,songId:model.song,content,music,transport:transport.getSnapshot(),viewport:practiceViewport,onsets,waveform:model.waveform?.song===model.song?model.waveform:null,suggest:$('suggest').checked,melody:$('suggest').checked&&model.melody?.song===model.song?model.melody.notes:null});
  updatePracticePlayer();
 }
 async function confirmChordOverride(chord,label,start,end){

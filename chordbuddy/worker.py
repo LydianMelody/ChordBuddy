@@ -13,6 +13,7 @@ from chordbuddy.engine import MODEL_ID, MODEL_REVISION, PROGRESS_PREFIX, discove
 from chordbuddy.model_cache import configure_hub_copy_fallback
 from chordbuddy.transformers_compat import apply as adjust_transformers, load_dtype_kwargs
 from chordbuddy.confidence import confidence_defaults, validate_confidence_settings, install_capture
+from chordbuddy.fade_ending import install_fade_ending
 
 
 def emit(value):
@@ -73,7 +74,7 @@ def main(argv=None):
         model = AutoModel.from_pretrained(MODEL_ID, revision=MODEL_REVISION, code_revision=MODEL_REVISION,
                                          trust_remote_code=True, cache_dir=os.environ["HF_HUB_CACHE"],
                                          **load_dtype_kwargs(torch.float32)).eval().to(device)
-        with torch.inference_mode(), install_capture(model, args.output, thresholds):
+        with torch.inference_mode(), install_capture(model, args.output, thresholds), install_fade_ending(model):
             result = model.transcribe(str(args.audio.resolve()), output_dir=str(args.output.resolve()),
                                       progress=emit, dtype="bf16" if device == "cuda" else "fp32")
         if result.get("abc_error"):

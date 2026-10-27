@@ -103,7 +103,7 @@
 .wchip.pinned{border-color:var(--a2);box-shadow:2px 2px 0 var(--a2)}
 .wchip.pinned .pinb{display:grid}
 .wchip.anchor{background:color-mix(in srgb,var(--hl) 40%,var(--page))}
-.wchip.lifted{opacity:.25}
+.wchip.lifted,.tchord.lifted{opacity:.25}
 .wchip.ghost{position:fixed;z-index:90;pointer-events:none;background:var(--hl);box-shadow:5px 5px 0 var(--ink);transform:rotate(-2deg)}
 .wchip.ghost::before{display:none}
 .wchip.wnow{background:var(--hl);opacity:1}
@@ -212,3 +212,22 @@
 .sec-copy{margin-left:auto;padding:3px 10px;border:2px solid var(--ink);border-radius:999px;background:var(--page);color:var(--ink);font:700 11px var(--m);cursor:pointer}
 .sec-copy:hover{background:var(--hl);color:#1A1C24}
 .sec-copy+.sec-copy{margin-left:8px}
+
+/* while a repeated part plays, its count lights up and counts down the passes left (×1!! on the last), bumping on every beat */
+.repeat.live{margin:4px -4px 0 0;padding:3px 6px;border-radius:8px;background:var(--hl);color:#1A1C24;font-weight:800;box-shadow:0 0 0 2px var(--ink);transform-origin:50% 60%}
+.repeat.live.last{background:var(--a1);color:var(--onA1)}
+.repeat.live[data-beat="a"]{animation:repeat-beat-a var(--beat-len,.5s) ease-out}
+.repeat.live[data-beat="b"]{animation:repeat-beat-b var(--beat-len,.5s) ease-out}
+@keyframes repeat-beat-a{0%{transform:scale(1.14)}100%{transform:scale(1)}}
+@keyframes repeat-beat-b{0%{transform:scale(1.14)}100%{transform:scale(1)}}
+
+/* a recording that fades out: a note after the last bar, like "Fade out" on a printed chart; a click plays from where it begins */
+.fade-note{display:flex;align-items:baseline;gap:8px;margin:14px 0 4px auto;padding:4px 12px;border:2px dashed color-mix(in srgb,var(--ink) 45%,transparent);border-radius:10px;background:none;color:var(--ink);font:italic 800 17px/1.2 var(--g);cursor:pointer;width:max-content}
+.fade-note .fade-mark{font-style:normal;color:var(--a2)}
+.fade-note small{font:600 12px var(--m);font-style:normal;color:var(--soft)}
+.fade-note:hover{border-style:solid;background:color-mix(in srgb,var(--hl) 45%,transparent)}
+@media print{.fade-note{border-style:solid}}
+/* a chord being Shift+dragged: it stays put, dimmed, and this copy follows the pointer */
+.tchord-ghost{position:fixed;z-index:90;pointer-events:none;padding:2px 8px;border:2px solid var(--ink);border-radius:8px;background:var(--hl);color:#1A1C24;font:800 20px/1.1 var(--g);font-stretch:86%;box-shadow:5px 5px 0 var(--ink);transform:rotate(-2deg);white-space:nowrap}
+/* rest symbols for a break where the band stops; Windows draws them with Segoe UI Symbol */
+.chord.rest .rest-glyph{font:400 26px/1 'Segoe UI Symbol','Noto Music','Bravura Text',serif;letter-spacing:2px;color:var(--ink)}

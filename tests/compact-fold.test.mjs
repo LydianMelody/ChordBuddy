@@ -53,14 +53,18 @@ test('picking a range of bars lists the ways it can repeat, and applying one fol
   assert.ok(bad.problem||bad.choices.length===1);
 });
 
-test('a chord held over bars folds like one played again: F for two bars, then Am for two, is F ×2 and Am ×2',()=>{
+test('only a progression folds, never one chord: F for two bars, then Am for two, is written out, F | (F) | Am | (Am)',()=>{
   const bars=[],chords=[];
   for(let i=0;i<4;i++)bars.push({id:'m'+i,number:i+1,start:i*2,end:i*2+2,beats:[0,.5,1,1.5].map(t=>i*2+t),meter:[4,4],quarter_positions:[0,1,2,3,4]});
   chords.push({id:'a',label:'F',start:0,end:4,section_id:'s',line:null,offset:null},{id:'b',label:'Am',start:4,end:8,section_id:'s',line:null,offset:null});
   const content={version:1,duration:8,sections:[{id:'s',name:'Interlude',start:0,end:8,lyrics:''}],chords};
   const view=buildCompactChart(content,{measures:bars});
-  assert.deepEqual(view.groups.map(g=>[g.bars.length,g.passes.length]),[[1,2],[1,2]],'two groups, each one bar played twice');
-  const labels=view.groups.map(g=>view.occurrences.find(o=>o.groupId===g.id&&o.passNumber===1).label);
-  assert.deepEqual(labels,['F','Am']);
-  assert.equal(view.occurrences.find(o=>o.chordId==='a'&&o.passNumber===1).continued,false,'the first pass shows the chord itself, not (F)');
+  assert.ok(view.groups.every(g=>g.passes.length===1),'nothing folded');
+  assert.deepEqual(view.occurrences.map(o=>[o.label,o.continued]),[['F',false],['F',true],['Am',false],['Am',true]]);
+  const struck=structuredClone(content);struck.chords=[0,1,2,3].map(i=>({id:'c'+i,label:'B',start:i*2,end:i*2+2,section_id:'s',line:null,offset:null}));
+  assert.ok(buildCompactChart(struck,{measures:bars}).groups.every(g=>g.passes.length===1),'B played again every bar is still one chord: not folded');
+  const two=structuredClone(content);two.chords=[0,1,2,3].flatMap(i=>[{id:'g'+i,label:'G',start:i*2,end:i*2+1,section_id:'s',line:null,offset:null},{id:'d'+i,label:'D',start:i*2+1,end:i*2+2,section_id:'s',line:null,offset:null}]);
+  assert.deepEqual(buildCompactChart(two,{measures:bars}).groups.map(g=>g.passes.length),[4],'G D in every bar is a progression: G D ×4');
+  const byHand=compactRangeChoices(struck,{measures:bars},'m0','m3');                      // and folding it by hand is not offered either
+  assert.deepEqual(byHand.choices.map(c=>c.label),['Not folded (write out every pass)']);assert.match(byHand.problem,/One chord on its own/);
 });

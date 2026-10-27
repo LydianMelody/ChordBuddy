@@ -230,6 +230,17 @@ test('Timing: Shift+dragging a chord moves where it starts, and the chord before
   assert.equal(back.commits.length,0,'never past its own end');
 });
 
+test('Timing: a dragged chord stays in its own bar while a copy follows the pointer, and losing the pointer ends the drag', async () => {
+  const s=setup();const cell=byClass(s.root,'tchord').find(c=>c.dataset.chunk&&c.textContent.startsWith('C'));const home=cell.parent;
+  down(cell,barLeft(s,1)+2);move(cell,barLeft(s,0)+.5*barWidth(s,0));
+  assert.equal(cell.parent,home,'never moved to another bar (that would lose the pointer and leave it stuck to the mouse)');
+  assert.equal(byClass(s.root,'tchord-ghost').length,1);
+  cell.onlostpointercapture({pointerId:1});await tick();
+  assert.equal(byClass(s.root,'tchord-ghost').length+byClass(s.root,'drop-mark').length,0);
+  move(cell,barLeft(s,0)+.3*barWidth(s,0));up(cell,barLeft(s,0)+.3*barWidth(s,0));await tick();
+  assert.equal(s.commits.length,0,'the drag is over: later moves and a release do nothing');
+});
+
 test('Timing: with the magnet off, a word lands exactly where it is dropped instead of on the grid', async () => {
   const s=setup();s.view.setSnapping(false);
   s.bars=byClass(s.root,'tbar');let x=0;for(const b of s.bars){const w=parseFloat(b.style.width),left=x;b.getBoundingClientRect=()=>({left,right:left+w,top:0,bottom:100,width:w,height:100});x+=w;}

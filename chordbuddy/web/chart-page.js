@@ -22,6 +22,7 @@ import {beatsLabel} from './bar-lengths.js';
 import {createTiming} from './chart-timing.js';
 import {DEFAULT_ZOOM,stepZoom,ZOOM_LEVELS,autoSnap} from './timing-geometry.js';
 import {TOOL_ART,toolCursor} from './tool-icons.js';
+import {detectFadeOut} from './fade-out.js';
 
 const el=(tag,cls='',text)=>{const n=document.createElement(tag);n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 const finite=Number.isFinite;
@@ -83,7 +84,7 @@ export function mountChartPage(root,handlers={}){
   let editing=null;                                  // the one row being typed into: {groupId, kind:'chords'|'words', focus}
   const held={ctrl:false,shift:false};let latched=false,shiftAt=0,shiftTap=false,shiftTimer=null;
   const targetPass={},seekPass={};let pendingName=null;
-  let refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[]},occById=new Map();
+  let refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[],repeats:[]},occById=new Map();
   // The note bar and the status line live outside the chart (the app hands in elements for them); on its own the page makes its own.
   const page=el('div','chart-flow'),notices=el('div','chart-notices'),message=el('p','chart-message'),dock=handlers.dock||el('div','tool-dock'),noteHost=handlers.note||el('div','tool-note'),statusHost=handlers.status||el('div','tool-status');message.setAttribute('role','status');
   root.replaceChildren(...(handlers.dock?[]:[dock]),...(handlers.note?[]:[noteHost]),...(handlers.status?[]:[statusHost]),notices,page);root.dataset.mode=mode;root.dataset.keys='';
@@ -161,14 +162,27 @@ export function mountChartPage(root,handlers={}){
   if(typeof window!=='undefined')window.addEventListener?.('blur',allUp);
 
   // ======================= rendering =======================
+  // A break where the band stops (an N chord inside the song) is drawn as rest symbols for its length: a quarter rest for one beat
+  // of 4/4, a whole rest for a whole bar. A length that is not a sum of a few plain rests shows only its space, as before.
+  const RESTS=[[4,'\u{1D13B}','whole'],[2,'\u{1D13C}','half'],[1,'\u{1D13D}','quarter'],[.5,'\u{1D13E}','eighth'],[.25,'\u{1D13F}','sixteenth']];
+  function restSymbols(chunk,bar){
+    const m=bar.measure,n=m?.beats?.length;if(!n||!(m.end>m.start)||!(chunk.end>chunk.start))return null;
+    const beats=(chunk.end-chunk.start)/((m.end-m.start)/n);
+    if(beats>=n-.1)return {glyphs:RESTS[0][1],name:'Rest for the whole bar'};
+    let quarters=beats*4/(m.meter?.[1]||4);const glyphs=[],names=[];
+    for(const [size,glyph,name] of RESTS){while(quarters>=size-.08&&glyphs.length<3){glyphs.push(glyph);names.push(name);quarters-=size;}}
+    if(!glyphs.length||Math.abs(quarters)>.08)return null;
+    return {glyphs:glyphs.join(''),name:'Rest: '+names.join(' + ')+(names.length>1?' rests':' rest')};
+  }
   // no chord (a break in the music) is simply a gap
   function chordLabel(chunk){if(isNoChordLabel(chunk.label))return '';const shown=spellChord(chunk.label);return chunk.continued?'('+shown+')':shown;}
   function renderChord(g,bar,chunk){
     const holder=el('span','chord-line'),b=el('button','chord'+(isNoChordLabel(chunk.label)?' rest':''),chordLabel(chunk));b.type='button';b.dataset.chunk=chunk.key;
+    if(isNoChordLabel(chunk.label)){const r=restSymbols(chunk,bar);if(r){b.append(el('span','rest-glyph',r.glyphs));b.setAttribute('aria-label',r.name);b.title=r.name;}}
     zone(b,'chords','ctrl');
     b.onclick=e=>{if(e?.ctrlKey)startChords(g);else seekChunk(g,chunk);};
     holder.append(b);
-    if(chunk.repeat>1){const r=el('span','repeat','(×'+chunk.repeat+')');r.title='Played '+chunk.repeat+' times';holder.append(r);}
+    if(chunk.repeat>1){const r=el('span','repeat','(×'+chunk.repeat+')');r.title='Played '+chunk.repeat+' times';holder.append(r);refs.repeats.push({node:r,chunk,group:g,text:r.textContent});}
     refs.chords.push({node:b,chunk,group:g});return holder;
   }
   function renderLaneSlot(g,bar,chunk,lane,laneIndex,first){
@@ -353,7 +367,7 @@ export function mountChartPage(root,handlers={}){
   function draw(){
     if(!data)return;
     model=buildChartModel(data.content,data.music,{onsets:data.suggest?data.onsets:null});
-    refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[]};
+    refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[],repeats:[]};
     occById=new Map(model.projection.occurrences.map(o=>[o.id,o]));
     notices.replaceChildren();for(const w of model.warnings)notices.append(el('p','chart-notice',w));
     fixSel=fixing.a?fixSelection():{ids:new Set()};
@@ -388,6 +402,8 @@ export function mountChartPage(root,handlers={}){
       }
       page.append(sec);
     }
+    const fade=fadeOut(),finalSection=refs.sections.at(-1)?.node;
+    if(fade&&finalSection)finalSection.append(fadeNote(fade));
     page.append(suggestions);
     layoutRows();
     if(pendingName){const node=page.querySelector?.('[data-section="'+pendingName+'"] .sec-name');const section=model.sections.find(s=>s.id===pendingName);pendingName=null;if(node&&section)renameSection(node,section);}
@@ -396,6 +412,19 @@ export function mountChartPage(root,handlers={}){
     if(editing&&focus){focus.node.focus?.();if(editing.kind==='chords')globalThis.getSelection?.()?.selectAllChildren?.(focus.node);}
   }
 
+  // A recording that fades out says so after its last bar, and where the fade begins; a click plays from there.
+  function fadeOut(){
+    const w=data.waveform;if(!w?.peaks)return null;
+    return detectFadeOut(w.peaks,w.duration,model.measures.flatMap(m=>m.beats||[]));
+  }
+  function fadeNote(fade){
+    const m=model.measures.find(m=>fade.start>=m.start&&fade.start<m.end),bar=m?m.number-model.barOffset:null;
+    const note=el('button','fade-note');note.type='button';note.dataset.tipTitle='The recording fades out';
+    note.dataset.tip='The music keeps going but gets quieter until the recording ends. Click to play from where the fade begins.';
+    note.append(el('span','fade-mark','↘'),el('b','','Fade out'),...(bar!==null&&bar>0?[el('small','','from bar '+bar)]:[]));
+    note.onclick=e=>{if(e?.ctrlKey||e?.shiftKey)return;seek(fade.start);};
+    return note;
+  }
   // Share the bars of each row out evenly over its lines (2 + 2, not 3 + 1) and close every line with a barline.
   function layoutRows(){
     if(mode==='timing')return;
@@ -439,6 +468,7 @@ export function mountChartPage(root,handlers={}){
       const placed=lane.tokens.filter(t=>!t.flow);
       wordIndexes.set(lane,live?currentWordIndex(placed.map(t=>({seconds:t.seconds})),seconds):-1);
     }
+    paintRepeatCount(target,transport);
     const wsig=sig+JSON.stringify([...wordIndexes.values()]);
     const changedTarget=!last||last.sig!==sig;
     if(last&&last.wsig===wsig&&last.mode===mode){last={...last,target};return;}
@@ -459,6 +489,27 @@ export function mountChartPage(root,handlers={}){
     }
     for(const r of refs.lanes)if(r.tag)r.tag.classList.toggle('cur',target?.groupId===r.group.id&&target.passNumber===r.lane.passNumber);
     if(changedTarget&&mode==='nav'&&!editing&&transport.playing&&target)followPlayback(target);
+  }
+  // While a repeated part plays, its (×8) lights up and counts down the passes still to come, down to ×1!! on the last one, and gives a
+  // small bump on every beat. Paused, or anywhere else, it is the plain (×8) again.
+  function paintRepeatCount(target,transport){
+    if(!refs.repeats.length)return;
+    const seconds=transport.seconds,playing=!!transport.playing;
+    let beat=null;
+    if(playing){
+      const m=model.measures.find(m=>seconds>=m.start&&seconds<m.end);
+      if(m){const points=[...m.beats,m.end];let i=0;while(i<points.length-2&&points[i+1]<=seconds)i++;beat={key:m.id+':'+i,length:Math.max(.08,points[i+1]-points[i])};}
+    }
+    for(const r of refs.repeats){
+      const live=playing&&target?.groupId===r.group.id,left=live?Math.max(1,r.chunk.repeat-(target.passNumber||1)+1):0;
+      const text=live?'×'+left+(left===1?'!!':''):'(×'+r.chunk.repeat+')';
+      if(r.text!==text){r.text=text;r.node.textContent=text;}
+      r.node.classList.toggle('live',live);r.node.classList.toggle('last',live&&left===1);
+      if(live&&beat&&r.beat!==beat.key){
+        r.beat=beat.key;r.node.style?.setProperty?.('--beat-len',beat.length.toFixed(3)+'s');
+        r.node.dataset.beat=r.node.dataset.beat==='a'?'b':'a';                 // a fresh animation name restarts the bump on the beat
+      }else if(!live&&r.beat){r.beat=null;delete r.node.dataset.beat;}
+    }
   }
   // Keep the playing row on screen while playing, without fighting the reader.
   function followPlayback(target){
@@ -799,7 +850,7 @@ export function mountChartPage(root,handlers={}){
     hasDraft:()=>!!draft?.dirty,hasPendingSave:()=>saving||!!draft?.dirty,canNavigate:()=>!blocked(),
     updatePlayback,
     update(value){
-      const nextKey=JSON.stringify([value.documentId,value.revision,value.content,value.music,!!value.suggest,value.onsets?.length||0,value.onsets?.[0],value.melody?.length||0,value.key||null]);
+      const nextKey=JSON.stringify([value.documentId,value.revision,value.content,value.music,!!value.suggest,value.onsets?.length||0,value.onsets?.[0],value.melody?.length||0,value.key||null,value.waveform?.run??null,value.waveform?.duration??null]);
       if(data?.documentId!==value.documentId){if(draft?.dirty)return;key=null;editing=null;fixing.a=fixing.b=null;foldGroup=null;for(const k of Object.keys(targetPass))delete targetPass[k];for(const k of Object.keys(seekPass))delete seekPass[k];}
       data=value;
       if(nextKey!==key&&!draft&&!saving){key=nextKey;render();}else updatePlayback(value.transport);

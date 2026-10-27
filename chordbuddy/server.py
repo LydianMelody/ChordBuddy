@@ -489,9 +489,14 @@ class Handler(BaseHTTPRequestHandler):
         web=(PROJECT/'chordbuddy'/'web').resolve()
         if path=='/visualizations/index.json':
             # the visualizer's scenes: every .js file in web/visualizations whose name does not start with _ (templates, drafts)
-            folder=web/'visualizations'
-            files=sorted(p.name for p in folder.glob('*.js') if p.is_file() and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*\.js',p.name))
-            return self._json({'files':files})
+            # with a version for each (its time and size), so a file that was changed is loaded fresh; files can come and go at any time
+            folder=web/'visualizations';versions={}
+            for p in folder.glob('*.js'):
+                if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*\.js',p.name):continue
+                try:
+                    if p.is_file():stat=p.stat();versions[p.name]=f'{stat.st_mtime_ns:x}-{stat.st_size:x}'
+                except OSError:continue                      # deleted while being listed
+            return self._json({'files':sorted(versions),'versions':versions})
         relative='index.html' if path=='/' else path.lstrip('/')
         target=(web/relative).resolve()
         if not target.is_relative_to(web) or not target.is_file():

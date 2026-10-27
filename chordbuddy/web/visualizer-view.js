@@ -24,28 +24,34 @@ const MIDI_NAMES=[[/(^|\/)melody_vocal\.mid$/,'vocal'],[/(^|\/)melody_instrument
 
 export function midiName(file){for(const [pattern,name] of MIDI_NAMES)if(pattern.test(file))return name;return null;}
 
-// Every visualization in web/visualizations, sorted for the toolbar, and the files that could not be used (with why). list(): the file
-// names; load(file): the module. Both are replaceable for tests.
+// Every visualization in web/visualizations, sorted for the toolbar, and the files that could not be used (with why). list(): the files,
+// as names or {file, version}; load(file, version): the module. Both are replaceable for tests. The version (from the file's time and
+// size) is part of the module's address, so a file that was changed is loaded again instead of coming from the browser's cache.
+async function listFolder(){
+  const r=await fetch('/visualizations/index.json',{cache:'no-store'});if(!r.ok)throw Error('Could not list the visualizations');
+  const body=await r.json();return (body.files||[]).map(file=>({file,version:body.versions?.[file]||''}));
+}
 export async function loadVisualizations({
-  list=async()=>{const r=await fetch('/visualizations/index.json',{cache:'no-store'});if(!r.ok)throw Error('Could not list the visualizations');return (await r.json()).files||[];},
-  load=file=>import('./visualizations/'+file),
+  list=listFolder,
+  load=(file,version)=>import('./visualizations/'+encodeURIComponent(file)+(version?'?v='+encodeURIComponent(version):'')),
 }={}){
   const scenes=[],failed=[];
-  for(const file of await list()){
+  for(const entry of await list()){
+    const {file,version=''}=typeof entry==='string'?{file:entry}:entry;
     try{
-      const scene=(await load(file))?.default;
+      const scene=(await load(file,version))?.default;
       if(!scene||typeof scene.id!=='string'||!scene.id||typeof scene.name!=='string'||typeof scene.create!=='function')
         throw Error('It needs a default export with id, name and create()');
       if(scenes.some(s=>s.id===scene.id))throw Error(`Another visualization already uses the id "${scene.id}"`);
-      scenes.push({...scene,file});
-    }catch(error){failed.push({file,error:error?.message||String(error)});}
+      scenes.push({...scene,file,version});
+    }catch(error){failed.push({file,version,error:error?.message||String(error)});}
   }
   scenes.sort((a,b)=>(a.order??100)-(b.order??100)||a.name.localeCompare(b.name));
   return {scenes,failed};
 }
 
 function loadSettings(){
-  const fallback={scene:'cozy',lyrics:true,calm:false,fps:false};
+  const fallback={scene:'abstract',lyrics:true,calm:false,fps:false};
   try{return {...fallback,...JSON.parse(localStorage.getItem(SETTINGS)||'{}')};}catch{return fallback;}
 }
 function saveSettings(value){try{localStorage.setItem(SETTINGS,JSON.stringify(value));}catch{}}
@@ -79,7 +85,7 @@ export function mountVisualizer(container){
   for(const face of ['400 16px "Bricolage Grotesque"','800 16px "Bricolage Grotesque"','400 16px "Space Mono"','700 16px "Space Mono"','400 16px "Courier Prime"','700 16px "Courier Prime"'])
     document.fonts?.load?.(face).catch(()=>{});
   let mixer=null,song=null,songKey=null,mix=null,status='Waiting for Chord Buddy… start playback in the main window.',raf=0,disposed=false;
-  let frames=0,fpsAt=performance.now(),fps=0,lastWall=null,previous=null,active=null,activeId=null,size=[0,0];
+  let frames=0,fpsAt=performance.now(),fps=0,lastWall=null,previous=null,active=null,activeId=null,activeDefinition=null,size=[0,0];
   let scenes=[],failed=[];const broken=new Map();   // visualizations, the files that failed to load, and ones that threw (id -> message)
 
   // ---- the song ----
@@ -132,8 +138,24 @@ export function mountVisualizer(container){
     const problems=failed.map(f=>{const b=button('⚠ '+f.file.replace(/[.]js$/,''),`${f.file} could not be loaded: ${f.error}`,()=>{});b.className='visualizer-failed';return b;});
     group.replaceChildren(...sceneButtons,...problems);paintControls();
   }
-  loadVisualizations().then(result=>{if(disposed)return;({scenes,failed}=result);for(const f of failed)console.error(`Visualization ${f.file}:`,f.error);showScenes();})
-    .catch(error=>{status='Could not load the visualizations: '+error.message;});
+  // The folder is read again every few seconds and whenever the window comes back into focus: a file dropped in appears, a deleted one
+  // goes (the chosen look falls back to the first), and a changed one is loaded fresh and restarted. Nothing is redone if nothing changed.
+  let listing=null,listingNow=null;
+  function refreshScenes(){
+    if(disposed||listingNow)return listingNow;
+    listingNow=loadVisualizations().then(result=>{
+      if(disposed)return;
+      const signature=JSON.stringify([result.scenes.map(s=>[s.file,s.version,s.id]),result.failed.map(f=>[f.file,f.version,f.error])]);
+      if(signature===listing)return;
+      listing=signature;({scenes,failed}=result);broken.clear();
+      for(const f of failed)console.error(`Visualization ${f.file}:`,f.error);
+      showScenes();
+    }).catch(error=>{if(!scenes.length)status='Could not load the visualizations: '+error.message;}).finally(()=>{listingNow=null;});
+    return listingNow;
+  }
+  refreshScenes();
+  const rescan=setInterval(()=>{if(container.ownerDocument.visibilityState!=='hidden')refreshScenes();},4000);
+  const onFocus=()=>refreshScenes();container.ownerDocument.defaultView?.addEventListener('focus',onFocus);
   paintControls();
   let idleTimer=0;
   const wake=()=>{toolbar.classList.remove('idle');container.classList.remove('idle');clearTimeout(idleTimer);
@@ -161,9 +183,9 @@ export function mountVisualizer(container){
     return [w,h];
   }
   function sceneFor(definition){
-    if(activeId===definition.id&&active)return active;
+    if(activeDefinition===definition&&active)return active;       // a file that changed is a new definition: it starts again
     try{active?.dispose?.();}catch{}
-    active=null;activeId=definition.id;
+    active=null;activeId=definition.id;activeDefinition=definition;
     active=definition.create();active.resize?.(size[0],size[1]);
     return active;
   }
@@ -205,7 +227,7 @@ export function mountVisualizer(container){
   return {
     toolbar,
     command:action=>receiver.command(action),           // a playback key, for the player (a pop-out window has no player of its own)
-    dispose(){disposed=true;cancelAnimationFrame(raf);clearTimeout(idleTimer);receiver.dispose();try{active?.dispose?.();}catch{}mixer.dispose();
+    dispose(){disposed=true;cancelAnimationFrame(raf);clearTimeout(idleTimer);clearInterval(rescan);container.ownerDocument.defaultView?.removeEventListener('focus',onFocus);receiver.dispose();try{active?.dispose?.();}catch{}mixer.dispose();
       container.ownerDocument.removeEventListener('keydown',keys,true);container.removeEventListener('pointermove',wake);canvas.remove();toolbar.remove();},
   };
 }

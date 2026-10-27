@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {estimateKey,parseKeyLab,parseChord,keyName,KEY_CHOICES} from '../chordbuddy/web/key-estimate.js';
+import {estimateKey,parseKeyLab,parseChord,keyName,KEY_CHOICES,chooseKey,outsideShare} from '../chordbuddy/web/key-estimate.js';
 
 const song=labels=>labels.map((label,i)=>({label,start:i*2,end:i*2+2}));
 
@@ -59,4 +59,14 @@ test('a suspended chord counts by its root only: it has no third, so it cannot m
   let at=2;const heard=chords.map(([label,length])=>({label,start:at,end:at+=length}));
   assert.equal(estimateKey(heard).label,'F minor');
   assert.equal(estimateKey(song(['Csus2','Gsus4','Asus2','Fsus2','Csus2','Gsus4'])).tonic,0);
+});
+
+test('the analysis key is kept unless the chords plainly argue with it', () => {
+  // a song in C# minor that sits on B: the model hears "B major", but a quarter of the song is A, which has no place in B major
+  let t=0;const chords=[];for(let i=0;i<8;i++)for(const [label,beats] of [['B',8],['A',4],['C#m7',4]]){chords.push({label,start:t,end:t+beats});t+=beats;}
+  const b=parseKeyLab('0 100 B:major');assert.ok(outsideShare(chords,b)>.2);
+  const chosen=chooseKey(b,chords);assert.equal(chosen.key.label,'C# minor');assert.equal(chosen.source,'chords');assert.equal(chosen.overruled.label,'B major');
+  const fits=[{label:'C',start:0,end:4},{label:'F',start:4,end:8},{label:'G',start:8,end:12},{label:'Bb',start:12,end:13}];   // one borrowed chord is fine
+  assert.deepEqual(chooseKey(parseKeyLab('0 13 C:major'),fits),{key:parseKeyLab('0 13 C:major'),source:'model',overruled:null});
+  assert.equal(chooseKey(null,fits).source,'chords');
 });

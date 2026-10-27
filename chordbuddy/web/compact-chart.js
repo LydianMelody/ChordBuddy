@@ -108,12 +108,13 @@ export function buildCompactChart(content,music){
    for(let n=fixed||1;n<=(fixed||Math.floor((bars.length-i)/2));n++){
     if(--budget<0)return best;
     if(bars.slice(i,i+n).some((b,j)=>!b.signature||blocked[i+j]||(j&&breaks.has(b.measureId))))break;
-    // A chord held across the bar line is only ignored when the repeating part has at least two chord changes of its own, with one exception:
-    // a single chord held for whole bars (four bars of B) folds as "B ×4" rather than "B | (B) ×3".
+    // Only a progression folds: the repeating part needs at least two different chords. One chord, held or played again (B | (B), or
+    // B | B), is always written out, so a repeat sign never means "hold this chord". A chord held across the bar line is only ignored
+    // when the repeating part has at least two chord changes of its own.
+    if(new Set(bars.slice(i,i+n).flatMap(b=>b.events.filter(e=>e.kind==='chord').map(e=>e.label))).size<2)continue;
     const starts=bars.slice(i,i+n).reduce((s,b)=>s+b.events.filter(e=>!e.continued).length,0),held=bars[i].events[0]?.continued;
-    const lone=b=>b.events.length===1&&b.events[0].chordId,oneChord=n===1&&lone(bars[i]);
     let count=1;
-    while(i+(count+1)*n<=bars.length){let equal=starts>=2||bars[i+count*n].events[0]?.continued===held||oneChord&&lone(bars[i+count*n])===lone(bars[i])&&bars[i+count*n].events[0].continued;for(let k=0;k<n;k++){if(--budget<0){equal=false;break;}const at=i+count*n+k;const a=bars[i+k].signature,b=bars[at].signature,ending=n>=3&&k===n-1&&a&&b&&same(a.slice(0,2),b.slice(0,2));if(blocked[at]||breaks.has(bars[at].measureId)||!same(a,b)&&!ending){equal=false;break;}}if(!equal)break;count++;}
+    while(i+(count+1)*n<=bars.length){let equal=starts>=2||bars[i+count*n].events[0]?.continued===held;for(let k=0;k<n;k++){if(--budget<0){equal=false;break;}const at=i+count*n+k;const a=bars[i+k].signature,b=bars[at].signature,ending=n>=3&&k===n-1&&a&&b&&same(a.slice(0,2),b.slice(0,2));if(blocked[at]||breaks.has(bars[at].measureId)||!same(a,b)&&!ending){equal=false;break;}}if(!equal)break;count++;}
     if(count>1&&n*count>best.unit*best.count)best={unit:n,count,fixed:!!fixed};
    }
    return best;
@@ -201,9 +202,10 @@ export function compactRangeChoices(content,music,fromId,toId){
  if(L<2){out.problem='Pick at least two bars.';return out;}
  if(bars.some(b=>!b.signature)){out.problem='Some of these bars cannot be compared (a pickup, a gap, or unclear timing), so they cannot be folded.';return out;}
  if(span.slice(1).some(m=>breaks.has(m.id))){out.problem='There is a manual line break inside these bars. Remove it first.';return out;}
- let firstMiss=null;
+ let firstMiss=null,lone=false;
  for(let u=1;u<=L/2;u++){
   if(L%u)continue;
+  if(new Set(bars.slice(0,u).flatMap(b=>b.events.filter(e=>e.kind==='chord').map(e=>e.label))).size<2){lone=true;continue;}   // one chord never folds
   let miss=null;const starts=bars.slice(0,u).reduce((s,b)=>s+b.events.filter(e=>!e.continued).length,0);
   for(let p=1;p<L/u&&!miss;p++)for(let k=0;k<u;k++){
    if(!k&&starts<2&&bars[p*u].events[0]?.continued!==bars[0].events[0]?.continued){miss=[span[0].number,span[p*u].number];break;}
@@ -213,7 +215,7 @@ export function compactRangeChoices(content,music,fromId,toId){
   if(!miss)out.choices.push({unit:u,count:L/u,label:u+(u===1?' bar':' bars')+' ×'+L/u});
   else if(!firstMiss||u===L/2)firstMiss=miss;
  }
- if(!out.choices.length)out.problem=L%2&&L>1&&!firstMiss?'These bars do not split into equal passes.':'These bars do not repeat exactly'+(firstMiss?': bar '+firstMiss[1]+' differs from bar '+firstMiss[0]+'.':'.');
+ if(!out.choices.length)out.problem=lone&&!firstMiss?'One chord on its own is written out, not folded: a repeat needs a progression of at least two chords.':L%2&&L>1&&!firstMiss?'These bars do not split into equal passes.':'These bars do not repeat exactly'+(firstMiss?': bar '+firstMiss[1]+' differs from bar '+firstMiss[0]+'.':'.');
  out.choices.push({expanded:true,label:'Not folded (write out every pass)'});
  return out;
 }

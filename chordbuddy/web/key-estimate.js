@@ -50,6 +50,29 @@ export function estimateKey(chords){
   return {tonic:best.tonic,mode:best.mode,label:keyName(best.tonic,best.mode)};
 }
 
+// How much of the playing time is in chords that do not belong to `key` (0 to 1).
+export function outsideShare(chords,key){
+  let total=0,outside=0;
+  for(const chord of chords||[]){
+    const parsed=parseChord(chord.label),length=(chord.end??0)-(chord.start??0);if(!parsed||!(length>0))continue;
+    const table=key.mode==='minor'?MINOR_KEY:MAJOR_KEY;total+=length;
+    if(!table.some(([step,quality])=>(key.tonic+step)%12===parsed.pitch&&(parsed.quality==='sus'||quality===parsed.quality)))outside+=length;
+  }
+  return total?outside/total:0;
+}
+
+// The analysis model's key, unless the chords plainly argue with it. The model can name the key of the chord it hears most (a song in
+// C# minor that sits on B a lot comes out "B major", though its A chords have no place in B major). When over a sixth of the playing
+// time is in chords outside the model's key, and the key the chords suggest fits at least twice as well, the chords win.
+// -> {key, source: 'model'|'chords', overruled: the model's key when the chords won}
+export function chooseKey(modelKey,chords){
+  const guess=estimateKey(chords);
+  if(!modelKey)return {key:guess,source:'chords',overruled:null};
+  if(!guess)return {key:modelKey,source:'model',overruled:null};
+  const theirs=outsideShare(chords,modelKey),ours=outsideShare(chords,guess);
+  return theirs>1/6&&ours<=theirs/2?{key:guess,source:'chords',overruled:modelKey}:{key:modelKey,source:'model',overruled:null};
+}
+
 // Every key a player can pick, for the chip's menu.
 export const KEY_CHOICES=[...Array(12).keys()].flatMap(tonic=>[keyName(tonic,'major'),keyName(tonic,'minor')]);
 

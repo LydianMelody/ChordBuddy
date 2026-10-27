@@ -100,7 +100,9 @@ export function createTiming(env){
         const a=beatOfSeconds(measures,chunk.start,rowIds),cell=el('span','chunk tchord');cell.dataset.chunk=chunk.key;
         cell.style.left=(n&&a?beatToX(a.beat,width,n):0)+'px';
         const chord=el('span','chord',chunk.continued?'('+spellChord(chunk.label)+')':spellChord(chunk.label));cell.append(chord);
-        if(chunk.repeat>1){const count=el('span','repeat','(×'+chunk.repeat+')');env.zone?.(count,'regroup','shift');count.onclick=e=>{if(e?.shiftKey){e.stopPropagation?.();env.regroup?.(g);}};cell.append(count);}
+        if(chunk.repeat>1){const count=el('span','repeat','(×'+chunk.repeat+')');env.zone?.(count,'regroup','shift');count.onclick=e=>{if(e?.shiftKey){e.stopPropagation?.();env.regroup?.(g);}};
+          count.onpointerdown=e=>e?.stopPropagation?.();         // the count sits inside the chord: pressing it regroups, never starts a chord drag
+          cell.append(count);}
         if(!chunk.continued&&chunk.chordId)wireChord(cell,g,chunk);
         else cell.onclick=e=>{if(!e?.shiftKey&&!e?.ctrlKey)env.seekChunk?.(g,chunk);};
         chords.append(cell);refs.chunks.push({node:cell,group:g,chunk});
@@ -331,30 +333,35 @@ export function createTiming(env){
     };
     cell.onpointermove=e=>{
       if(drag?.kind!=='chord'||drag.cell!==cell||e.pointerId!==drag.pointer)return;
-      if(!drag.moved){if(Math.hypot(e.clientX-drag.x0,e.clientY-drag.y0)<DRAG_PIXELS)return;drag.moved=true;cell.classList.add('lifted');}
+      // the chord stays where it is (moving the element would lose the pointer) and a copy follows the pointer, like a dragged word
+      if(!drag.moved){
+        if(Math.hypot(e.clientX-drag.x0,e.clientY-drag.y0)<DRAG_PIXELS)return;
+        drag.moved=true;cell.classList.add('lifted');drag.ghost=el('span','tchord-ghost',cell.textContent);(drag.ctx.row||document.body).append(drag.ghost);
+      }
+      const zoom=drag.ctx.row?.offsetWidth&&drag.ctx.row.getBoundingClientRect?drag.ctx.row.getBoundingClientRect().width/drag.ctx.row.offsetWidth||1:1;
+      drag.ghost.style.left=((e.clientX+8)/zoom)+'px';drag.ghost.style.top=((e.clientY+8)/zoom)+'px';
       const hit=hitBar(drag.ctx,e);if(!hit)return;
       const {b,rect}=hit,unit=b.node.offsetWidth?rect.width/b.node.offsetWidth:1,x=(e.clientX-rect.left)/unit;
       const target=env.getSnap()==='free'&&b.n?{beat:Math.max(0,Math.min(b.n,x/b.width*b.n))}:nearestTarget(targetsFor(b),x,b.width,b.n);if(!target)return;
       let seconds;try{seconds=secondsAtAddress(env.getModel().measures,{measure_id:b.id,beat:target.beat});}catch{return;}
       if(!(seconds>drag.lo&&seconds<drag.hi)){drag.drop=null;drag.mark?.remove?.();env.say?.('A chord moves between the start of the chord before it and its own end.');return;}
       drag.drop={address:{measure_id:b.id,beat:target.beat},bar:b};
-      // the chord follows, and the marker says where it lands
-      if((cell.parentNode||cell.parent)!==b.chords&&b.chords?.append)b.chords.append(cell);
-      cell.style.left=beatToX(target.beat,b.width,b.n)+'px';
+      // the marker says where it lands
       drag.mark?.remove?.();const mark=el('i','drop-mark');mark.style.left=beatToX(target.beat,b.width,b.n)+'px';
       const pos=musicalPosition(env.getModel().measures,seconds);mark.dataset.t=pos&&finite(pos.beat)?'Bar '+(pos.bar-(env.getModel().barOffset||0))+' · beat '+Number(pos.beat.toFixed(2)):'Bar '+b.bar.number;
       b.chords?.append?.(mark);drag.mark=mark;
     };
     const end=async e=>{
       if(drag?.kind!=='chord'||drag.cell!==cell||e.pointerId!==drag.pointer)return;
-      const d=drag;drag=null;cell.releasePointerCapture?.(e.pointerId);d.mark?.remove?.();cell.classList.remove('lifted');
+      const d=drag;drag=null;cell.releasePointerCapture?.(e.pointerId);d.mark?.remove?.();d.ghost?.remove?.();cell.classList.remove('lifted');
       if(d.moved)cell._dragged=true;
       if(!d.moved||!d.drop){if(d.moved)env.rerender?.();env.dragEnded?.();return;}
       await env.moveChord?.(g,chunk,d.drop.address);
       env.dragEnded?.();
     };
     cell.onpointerup=end;
-    cell.onpointercancel=e=>{if(drag?.kind!=='chord'||drag.cell!==cell)return;drag.mark?.remove?.();drag=null;cell.classList.remove('lifted');env.rerender?.();env.dragEnded?.();};
+    // the pointer was taken away (another window, the page redrawn): the drag ends and nothing moves
+    cell.onpointercancel=cell.onlostpointercapture=e=>{if(drag?.kind!=='chord'||drag.cell!==cell)return;drag.mark?.remove?.();drag.ghost?.remove?.();drag=null;cell.classList.remove('lifted');env.rerender?.();env.dragEnded?.();};
   }
 
   // ---------------- pins and unplaced lines ----------------

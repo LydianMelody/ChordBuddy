@@ -46,6 +46,28 @@ test('the repeat count sits right after the final repeated chord and never in a 
   assert.equal(byClass(root,'lane-tag').length,0);
 });
 
+test('while a repeated part plays, its count lights up and counts down the passes left, bumping on each beat', () => {
+  const m=mount(fixture()),count=()=>byClass(m.root,'repeat')[0];
+  const at=(seconds,playing=true)=>m.view.update({...m.data,transport:{seconds,ready:true,playing}});
+  assert.equal(count().textContent,'(×4)');assert.ok(!has(count(),'live'));
+  at(1);assert.equal(count().textContent,'×4');assert.ok(has(count(),'live'));
+  const beat=count().dataset.beat;at(1.6);assert.notEqual(count().dataset.beat,beat,'a new beat restarts the bump');
+  at(9);assert.equal(count().textContent,'×3');
+  at(25);assert.equal(count().textContent,'×1!!');assert.ok(has(count(),'last'));
+  at(25,false);assert.equal(count().textContent,'(×4)','paused, it is the plain count again');assert.ok(!has(count(),'live')&&!has(count(),'last'));
+});
+
+test('a recording that fades out says so after the last bar, and a click plays from where the fade begins', () => {
+  const f=fixture(),d=f.content.duration,n=1024;              // the music eases down over the last 10 s while the beat goes on
+  const level=t=>t>=10?0:t>=3.6?-12*(10-t)/6.4:-12-58*(3.6-t)/3.6;
+  const peaks=Array.from({length:n},(_,i)=>.5*10**((level(d-(i+.5)*d/n)+(i%3?-2:0))/20));
+  const plain=mount(fixture());assert.equal(byClass(plain.root,'fade-note').length,0,'no waveform, no note');
+  const m=mount(f,{transport:{seconds:0,ready:true}});m.view.update({...m.data,waveform:{run:'a',peaks,duration:d}});
+  const note=byClass(m.root,'fade-note');assert.equal(note.length,1);assert.match(note[0].textContent,/Fade out.*from bar \d+/);
+  note[0].onclick({});assert.ok(m.seeks.length===1&&m.seeks[0]>d-10&&m.seeks[0]<d-6);
+  m.view.update({...m.data,waveform:{run:'b',peaks:peaks.map(()=>.5),duration:d}});assert.equal(byClass(m.root,'fade-note').length,0,'loud to the end');
+});
+
 test('canonical section blocks do not multiply phrase groups or invent numbered Chorus sections', () => {
   const f=repeated(),view=buildCompactChart(f.content,f.music),markers=buildPracticeMarkers(view);
   assert.equal(view.sections[0].groups[0].passes.length,2);          // unequal 8 s and 12 s performances still repeat
@@ -230,13 +252,13 @@ test('the pass pickers of an open row choose which pass a chord change applies t
   assert.deepEqual(m.commits[0].candidate.chords.filter(c=>c.label==='Fm').map(c=>c.id),['c9']);   // pass 3's chord
 });
 
-test('a break in the music (an N chord) is drawn as an empty space, not the letter N, and is typed as N',()=>{
+test('a break in the music (an N chord) is drawn as a rest for its length, not the letter N, and is typed as N',()=>{
   const f=fixture();
   const inner=f.content.chords.filter(c=>c.start>2).sort((a,b)=>a.start-b.start)[0];inner.label='N';  // an interior break: leading and trailing ones are hidden anyway
   const {root,view}=mount(f);
   const rests=byClass(root,'rest').filter(n=>n.tagName==='button');
   assert.ok(rests.length>=1,'the break keeps its place on the chart');
-  assert.ok(rests.every(b=>b.textContent===''),'and shows nothing');
+  assert.ok(rests.every(b=>/^[\u{1D13B}-\u{1D13F}]+$/u.test(b.textContent)&&/^Rest/.test(b.title)),'and shows rest symbols, named for screen readers');
   assert.ok(!chordButtons(root).some(b=>/^\(?N\)?$/.test(b.textContent.trim())),'no N anywhere');
   rests[0].onclick(ctrl);assert.match(chordLine(root).textContent,/(^| )N( |$)/,'typed as N');
 });
@@ -442,7 +464,10 @@ test('Shift+click two bar numbers to fold a part that repeats; Esc drops the pic
 
 test('Shift+click a repeat count to regroup it, and an unsupported saved grouping can be reset', async () => {
   const m=mount(fixture());m.view.setMode('timing');
-  const count=byClass(m.root,'repeat')[0];assert.ok(count);count.onclick(shift);
+  const count=byClass(m.root,'repeat')[0];assert.ok(count);
+  let stopped=false;count.onpointerdown({button:0,pointerId:1,shiftKey:true,stopPropagation(){stopped=true;}});
+  assert.ok(stopped,'pressing the count (it sits inside its chord) never starts a drag of the chord');
+  count.onclick(shift);
   assert.match(m.root.textContent,/grouped/);
   const f=fixture();f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[],compact:{groups:[{section_id:'s',mode:'repeat',passes:[{start:0,end:99,measure_ids:['zzz'],chord_ids:[]}]}]}};
   const r=mount(f);r.view.setMode('timing');byClass(r.root,'tno')[0].onclick(shift);

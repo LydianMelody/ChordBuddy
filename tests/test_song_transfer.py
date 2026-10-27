@@ -190,6 +190,22 @@ def test_a_round_trip_adds_only_what_changed_not_the_whole_history_again(two):
     stages_are_valid(here, SONG)
 
 
+def test_a_timing_correction_made_on_the_other_computer_is_not_mistaken_for_the_same_transcription(two):
+    from chordbuddy.timing_store import TimingStore
+    here, there = two
+    add_song(here)
+    bring_in(there, export(here)[0])
+    timing = TimingStore(there.library)                 # the same chart and history there, but its beat grid was corrected
+    grid = timing.put_version({'bars': [{'id': 'm0', 'start': 0.0, 'beats': [0.0, 0.5, 1.0, 1.5], 'end': 2.0}]})
+    with there.library.transaction() as db:
+        timing.record_binding(db, 'd' * 32, 1, {'version_id': grid, 'overrides': {}})
+    before = here.library.runs(SONG)
+    bring_in(here, export(there)[0], 'update', analysis=True, target=SONG)
+    assert len(here.library.runs(SONG)) == len(before) + 1, 'kept beside the one here, not dropped as a duplicate'
+    bound = [json.loads(r[0])['version_id'] for r in here.library.db.execute('SELECT binding FROM timing_bindings')]
+    assert grid in bound and here.library.db.execute('SELECT 1 FROM timing_versions WHERE id=?', (grid,)).fetchone()
+
+
 def other_copy(app, title='KOI  no highway', recording=b'the recording'):
     """The same song imported separately here: its own IDs, maybe its own recording, a title written differently."""
     with app.library.transaction() as db:

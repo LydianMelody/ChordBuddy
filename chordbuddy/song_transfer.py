@@ -459,7 +459,8 @@ class SongTransfer:
                     theirs = [d for d in rows['documents'] if d.get('run_id') == run['id']]
                     mine = [dict(r) for r in db.execute('SELECT * FROM documents WHERE run_id=?', (run['id'],))]
                     mine_edits = [dict(r) for r in db.execute('SELECT e.* FROM edits e JOIN documents d ON d.id=e.document_id WHERE d.run_id=?', (run['id'],))]
-                    if _signature(theirs, rows['edits']) == _signature(mine, mine_edits):
+                    mine_timing = [dict(r) for r in db.execute('SELECT b.* FROM timing_bindings b JOIN documents d ON d.id=b.document_id WHERE d.run_id=?', (run['id'],))]
+                    if _signature(theirs, rows['edits'], rows['timing_bindings']) == _signature(mine, mine_edits, mine_timing):
                         same_runs.add(run['id'])
                         same_docs |= {d['id'] for d in theirs}
             rows['runs'] = [r for r in rows['runs'] if r['id'] not in same_runs]
@@ -683,14 +684,23 @@ def _title_key(title):
     return ' '.join(str(title or '').casefold().split())
 
 
-def _signature(documents, edits):
-    """What a transcription holds: its documents and every edit in their history, independent of row order."""
+def _signature(documents, edits, bindings=()):
+    """What a transcription holds: its documents, every edit in their history and the timing grid each step of it is bound to (a
+    timing correction is not an edit to the document), independent of row order."""
     ids = {d['id'] for d in documents}
-    history = {}
+    history, timing = {}, {}
     for e in edits:
         if e.get('document_id') in ids:
             history.setdefault(e['document_id'], []).append([e.get('position'), e.get('content'), e.get('label')])
-    return sorted(json.dumps([d.get('name'), d.get('kind'), d.get('cursor'), sorted(history.get(d['id'], []))]) for d in documents)
+    for b in bindings:
+        if b.get('document_id') in ids:
+            try:
+                binding = json.dumps(json.loads(b.get('binding') or 'null'), sort_keys=True)
+            except ValueError:
+                binding = str(b.get('binding'))
+            timing.setdefault(b['document_id'], []).append([b.get('position'), binding])
+    return sorted(json.dumps([d.get('name'), d.get('kind'), d.get('cursor'), sorted(history.get(d['id'], [])), sorted(timing.get(d['id'], []))])
+                  for d in documents)
 
 
 def _swap_text(text, mapping):

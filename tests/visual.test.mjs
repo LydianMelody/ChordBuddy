@@ -212,6 +212,13 @@ test('visualizations load from the folder: sorted, and a broken file is reported
   assert.match(failed[0].error,/Unexpected token/);assert.match(failed[2].error,/already uses the id "a"/);
 });
 
+test('a changed file is loaded at a new address, so the browser does not hand back the old one', async () => {
+  const asked=[];
+  const {scenes}=await loadVisualizations({list:async()=>[{file:'a.js',version:'17-2f'}],
+    load:async(file,version)=>{asked.push([file,version]);return {default:{id:'a',name:'Ay',create(){}}};}});
+  assert.deepEqual(asked,[['a.js','17-2f']]);assert.equal(scenes[0].version,'17-2f');
+});
+
 test('every file in the visualizations folder is a valid visualization (templates included)', async () => {
   const folder=new URL('../chordbuddy/web/visualizations/',import.meta.url),ids=new Set();
   for(const file of readdirSync(folder).filter(f=>f.endsWith('.js'))){
@@ -219,7 +226,7 @@ test('every file in the visualizations folder is a valid visualization (template
     assert.ok(scene&&typeof scene.id==='string'&&typeof scene.name==='string'&&typeof scene.create==='function',file);
     assert.ok(!ids.has(scene.id),`${file}: duplicate id ${scene.id}`);ids.add(scene.id);
   }
-  assert.ok(['cozy','runner','abstract','diagnostic'].every(id=>ids.has(id)));
+  assert.ok(ids.size>0,'at least one visualization');
 });
 
 // ---- note strength and lyric layout ----
