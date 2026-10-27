@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Node,all,installDom} from './compact-dom.mjs';
-import {renderLibraryPage} from '../chordbuddy/web/library-page.js';
+import {renderLibraryPage,tapeTint} from '../chordbuddy/web/library-page.js';
 
 const has=(n,c)=>String(n.className||'').split(' ').includes(c);
 const byClass=(root,c)=>all(root).filter(n=>has(n,c));
@@ -42,5 +42,6 @@ test('each song is a little cassette: its artist on the label, tempo and key in 
   const tape=byClass(root,'library-song')[0];
   assert.equal(byClass(tape,'tape-label')[0].children[1].textContent,'LeBrock');
   assert.ok(byClass(byClass(tape,'tape-window')[0],'fact-badge').length,'tempo and key in the tape window');
-  assert.deepEqual(byClass(root,'library-song').map(c=>c.dataset.tint),['0','1'],'each tape takes the next color');
+  assert.deepEqual(byClass(root,'library-song').map(c=>c.dataset.tint),byClass(root,'library-song').map(c=>String(tapeTint(c.dataset.song))),'each song keeps its own color');
+  assert.equal(tapeTint('abc'),tapeTint('abc'));assert.ok([0,1,2,3,4].includes(tapeTint('song-7')));
 });

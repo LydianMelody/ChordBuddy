@@ -33,25 +33,41 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 .search input{flex:1;min-width:0;border:0;background:transparent;padding:0;font:inherit;color:var(--ink);box-shadow:none}
 .search input::placeholder{color:var(--faint)}
 .search{margin-bottom:4px}
+/* the sidebar's search is one slim line (the old #song-search padding, margin and fill don't apply); typing in it shows on the box itself,
+   with the page's hard shadow, instead of a ring around the bare input */
+.search{padding:4px 9px;font-size:13px}
+#song-search,[data-scheme="dark"] #song-search{padding:3px 0;margin:0;background:transparent;font-size:13px;border:0}
+.search input:focus,.search input:focus-visible{outline:none;box-shadow:none;border:0}
+.search:focus-within{box-shadow:2px 2px 0 var(--ink)}
 .song-list{margin:0}
-.song-row{display:flex;align-items:center;gap:4px;padding:2px 4px 2px 0;border:2px solid transparent;border-radius:12px;margin:0}
-.song-row:hover{border-color:var(--ink)}
-.song-row.selected{background:var(--hl);border-color:var(--ink);box-shadow:3px 3px 0 var(--ink)}
-.song-row.drop-target{border-color:var(--a1);border-style:dashed}
+/* A set list is a stack of cassette cases seen edge on: each song a spine in its tape's color (the same as its cassette in All songs),
+   with the paper label down the middle and ridges at the hinge end. The open song's label turns highlighter yellow. */
+.song-row{position:relative;--tape:color-mix(in srgb,var(--a1) 32%,var(--page));display:flex;align-items:center;gap:4px;padding:2px 4px 2px 0;margin:0 3px 4px 0;border:2px solid var(--ink);border-radius:5px;background:var(--tape);box-shadow:2px 2px 0 var(--ink);transition:transform .12s,box-shadow .12s}
+.song-row[data-tint="1"]{--tape:color-mix(in srgb,var(--a2) 26%,var(--page))}
+.song-row[data-tint="2"]{--tape:color-mix(in srgb,var(--a3) 32%,var(--page))}
+.song-row[data-tint="3"]{--tape:color-mix(in srgb,var(--hl) 45%,var(--page))}
+.song-row[data-tint="4"]{--tape:var(--tint)}
+.song-row:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--ink)}
+.song-row.selected{transform:translate(-2px,-2px);box-shadow:4px 4px 0 var(--ink)}
+.song-row.drop-target{border-style:dashed;box-shadow:2px 2px 0 var(--a1)}
 .song-row.dragging{opacity:.4}
-.song-number.drag-handle{width:18px;color:var(--faint);opacity:0;cursor:grab;font-size:13px;text-align:center}
-.song-row:hover .drag-handle{opacity:1}
-.song-main{flex:1;min-width:0;text-align:left;padding:7px 2px;background:none}
-.song-main strong{display:block;font:800 15px/1.1 var(--g);font-stretch:88%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.song-main small{display:block;font:400 11px var(--m);color:var(--soft);margin-top:3px}
+.song-number.drag-handle{align-self:stretch;width:14px;display:grid;place-items:center;color:color-mix(in srgb,var(--ink) 30%,transparent);cursor:grab;font-size:12px;text-align:center;
+  background:repeating-linear-gradient(90deg,transparent 0 3px,color-mix(in srgb,var(--ink) 22%,transparent) 3px 4px);border-right:2px solid color-mix(in srgb,var(--ink) 35%,transparent);margin:-3px 0}
+.song-row:hover .drag-handle{color:var(--ink)}
+.song-main{flex:1;min-width:0;text-align:left;padding:2px 6px;border:2px solid var(--ink);border-radius:3px;background:var(--page);color:var(--ink)}
+.song-row.selected .song-main{background:var(--hl);color:#1A1C24}
+.song-row.selected .song-main small{color:#4A4B52}
+.song-main strong{display:block;font:800 14px/1.15 var(--g);font-stretch:88%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.song-main small{display:block;font:400 10.5px/1.2 var(--m);color:var(--soft);margin-top:1px}
 .song-row[data-status="new"] .song-main strong{opacity:.6}
 .song-row[data-status="busy"] .song-main small{color:var(--a2);font-weight:700}
-.song-lock{color:var(--soft);display:grid;place-items:center}
+.song-lock{color:var(--ink);opacity:.7;display:grid;place-items:center}
 .song-lock .ic{width:15px}
-.song-len{font:700 11px var(--m);color:var(--soft)}
-.song-order{display:flex;flex-direction:column;opacity:0}
+.song-len{font:700 11px var(--m);color:var(--ink);opacity:.75;padding:0 2px}
+/* the hover controls float over the right end of the spine, so the label gets the room */
+.song-order{display:flex;flex-direction:column;opacity:0;position:absolute;right:3px;top:50%;transform:translateY(-50%);background:var(--tape);border-radius:4px}
 .song-row:hover .song-order,.song-row:focus-within .song-order{opacity:1}
-.song-order button{font-size:9px;padding:1px 3px;background:none;color:var(--soft)}
+.song-order button{font-size:9px;padding:1px 3px;background:none;color:var(--ink)}
 /* All songs and the set lists as drop targets: a dragged song lands on a set list; a quick flash says it went in (or was there already) */
 .setlist-item.all-songs{margin-top:6px}
 .setlist-item.drop-target{border-color:var(--a1);border-style:dashed;background:color-mix(in srgb,var(--a1) 12%,transparent)}
@@ -60,17 +76,31 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 @keyframes list-took{0%{background:var(--hl);color:var(--ink)}100%{}}
 @keyframes list-already{0%,100%{transform:none}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
 @media (prefers-reduced-motion:reduce){.setlist-item.took,.setlist-item.already{animation:none}}
-.song-remove{opacity:0;width:22px;height:22px;padding:0;border-radius:6px;color:var(--soft);display:grid;place-items:center;flex:none}
+.song-remove{opacity:0;position:absolute;right:24px;top:50%;transform:translateY(-50%);width:22px;height:22px;padding:0;border-radius:6px;background:var(--tape);color:var(--ink);display:grid;place-items:center;flex:none}
 .song-remove .ic{width:13px;height:13px}
 .song-row:hover .song-remove,.song-row:focus-within .song-remove{opacity:1}
-.song-remove:hover{color:var(--a1t);background:color-mix(in srgb,var(--a1) 12%,transparent)}
+.song-remove:hover{color:var(--a1t);background:color-mix(in srgb,var(--a1) 14%,var(--tape))}
+@media(max-width:720px){.song-row{padding-right:26px}}
 
 /* Tempo and key badges under a song's title, and a list's total length under its name: small, but in the ink and type of the page */
 .song-facts{display:inline-flex;gap:4px;align-items:center;min-height:16px}
-.song-main .song-facts{display:flex;margin-top:3px}
+/* on a spine the badges stand on end, read bottom to top like the writing on a cassette case's edge */
+.song-row>.song-facts{flex:none;gap:2px;min-height:0}
+.song-row{min-height:34px;gap:3px}
+/* the label reads across: the title, then its length; a note (Analyzing…) goes on a line of its own under them */
+.song-main{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:6px}
+.song-main strong{flex:1 1 0}
+.song-main .song-len{flex:none;padding:0;font-size:10.5px;opacity:.6}
+.song-main small{flex-basis:100%}
+.song-row.selected .song-len{color:#1A1C24}
+.song-row>.song-facts .fact-badge{writing-mode:vertical-rl;transform:rotate(180deg);padding:2px 0;width:16px;font-size:10px;line-height:13px;letter-spacing:-.04em;text-align:center}
+.song-row>.song-facts .fact-badge.key{font-size:10.5px}
+/* every character turns with the text (a ♯ or ♭ would otherwise stay upright, and land upside down) */
+.song-row>.song-facts .fact-badge,.song-row>.song-len{text-orientation:sideways}
+.fact-badge i{font-style:normal}
+.song-row>.song-facts .fact-badge i{display:none}
 .fact-badge{display:inline-block;padding:0 5px;border:1.5px solid currentColor;border-radius:5px;font:700 10.5px/14px var(--m);letter-spacing:0;white-space:nowrap;opacity:.8}
 .fact-badge.key{background:var(--ink);color:var(--page);border-color:var(--ink);opacity:.85}
-.song-row.selected .fact-badge.key{background:#1A1C24;color:#fff;border-color:#1A1C24}
 .list-total{margin:-4px 6px 2px;font:700 10.5px var(--m);color:var(--soft);letter-spacing:.04em}
 .list-total:empty{display:none}
 .library-title{display:flex;flex-direction:column;gap:2px}

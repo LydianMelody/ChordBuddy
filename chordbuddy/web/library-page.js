@@ -3,6 +3,9 @@
 // Plain DOM; the page that mounts it does the saving (onOpen, onRemove) and keeps the dragged song (onDragStart, onDragEnd).
 import {icon} from './icons.js';
 
+// a song's tape color (0-4): fixed by its id, so it is the same cassette here and on the spines in the sidebar
+export function tapeTint(id){let h=0;for(const c of String(id||''))h=(h*31+c.codePointAt(0))>>>0;return h%5;}
+
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 
 // value: {songs, setlists (without All songs), selected (song id), busy (song id being analyzed), query}
@@ -18,13 +21,12 @@ export function renderLibraryPage(root,value,handlers){
   const name=el('div','library-title');name.append(title);if(handlers.total&&songs.length)name.append(el('small','list-total',handlers.total+' total'));
   head.append(name,count,search);
   const list=el('div','library-list');list.setAttribute('role','list');
-  let shown=0;
   for(const song of songs){
     if(query&&!`${song.title} ${song.artist||''}`.toLowerCase().includes(query))continue;
     // a little cassette: a paper label (title, artist), the tape window (two reels, the tempo and key between them) and the strip
-    // along the bottom (its length and the set lists it is on). Each tape takes the next of the page's colors.
+    // along the bottom (its length and the set lists it is on). Each song keeps its own color (tapeTint).
     const card=el('div','library-song tape'+(song.id===selected?' selected':''));card.setAttribute('role','listitem');card.draggable=true;card.dataset.song=song.id;
-    card.dataset.status=song.id===busy?'busy':song.active_run?'ready':'new';card.dataset.tint=String(shown++%5);card.title=song.title+(song.artist?' · '+song.artist:'');
+    card.dataset.status=song.id===busy?'busy':song.active_run?'ready':'new';card.dataset.tint=String(tapeTint(song.id));card.title=song.title+(song.artist?' · '+song.artist:'');
     card.ondragstart=event=>{event.dataTransfer?.setData('text/plain',song.id);if(event.dataTransfer)event.dataTransfer.effectAllowed='copyMove';card.classList.add('dragging');handlers.onDragStart?.(song.id);};
     card.ondragend=()=>{card.classList.remove('dragging');handlers.onDragEnd?.();};
     card.onclick=()=>handlers.onOpen?.(song.id);

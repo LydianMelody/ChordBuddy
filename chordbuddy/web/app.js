@@ -15,7 +15,7 @@ import {mountMixer} from './mixer-rack.js';
 import {mountPlayer} from './player-view.js';
 import {playbackAction,targetSeconds} from './playback-keys.js';
 import {SHORTCUTS} from './shortcuts.js';
-import {renderLibraryPage} from './library-page.js';
+import {renderLibraryPage,tapeTint} from './library-page.js';
 import {createSongFacts,shortKey,totalLabel} from './song-facts.js';
 import {activeChord, editChordContent, isJobActive, jobProgress, validateChart, displayChordLabel, settleHistoryResult} from './editor.js';
 import {renderLeadSheet,updateLeadSheetPlayback,markCurrentChord,followPlayback} from './lead-sheet.js';
@@ -294,7 +294,7 @@ function currentChords(){const record=currentRecord();if(record?.doc.kind==='abc
 const songFacts=createSongFacts({api:(path,...rest)=>api(path,...rest),savedKey:id=>prefs.get('cb-key:'+id,''),onChange:()=>{model.libraryKey='';renderLibrary();}});
 function factBadges(song){
   const facts=songFacts.get(song.id),box=element('span','song-facts');
-  if(facts?.bpm)box.append(Object.assign(element('b','fact-badge tempo','♩'+facts.bpm),{title:facts.bpm+' beats per minute'}));
+  if(facts?.bpm){const tempo=element('b','fact-badge tempo');tempo.title=facts.bpm+' beats per minute';tempo.append(element('i','','♩'),String(facts.bpm));box.append(tempo);}
   if(facts?.key)box.append(Object.assign(element('b','fact-badge key',shortKey(facts.key)),{title:facts.key}));
   return box;
 }
@@ -330,8 +330,10 @@ function renderLibrary() {
   const container=$('songs');container.replaceChildren();
   for(const [index,song] of songs.entries()){
     if(query && !`${song.title} ${song.artist || ''}`.toLowerCase().includes(query))continue;
-    const row=element('div',`song-row${song.id===model.song?' selected':''}`);const busySong=isJobActive(state.job)&&state.job.song_id===song.id;row.dataset.status=busySong?'busy':song.active_run?'ready':'new';const handle=element('span','song-number drag-handle','⠿');handle.draggable=true;handle.title='Drag to reorder, or onto a set list to add it there';handle.setAttribute('aria-label',handle.title);handle.ondragstart=event=>{model.dragSong=song.id;event.dataTransfer.setData('text/plain',song.id);event.dataTransfer.effectAllowed='copyMove';row.classList.add('dragging');};handle.ondragend=()=>{model.dragSong=null;row.classList.remove('dragging');for(const item of container.children)item.classList.remove('drop-target');};row.ondragover=event=>{if(model.dragSong && model.dragSong!==song.id && list?.song_ids.includes(model.dragSong)){event.preventDefault();event.dataTransfer.dropEffect='move';row.classList.add('drop-target');}};row.ondragleave=()=>row.classList.remove('drop-target');row.ondrop=event=>{if(!model.dragSong)return;event.preventDefault();event.stopPropagation();row.classList.remove('drop-target');moveSongBefore(model.dragSong,song.id);};row.append(handle);
-    const button=element('button','song-main');button.append(element('strong','',song.title),songLine(song,busySong));button.onclick=()=>selectSong(song.id);row.append(button);if(!song.active_run){const lock=element('span','song-lock');lock.title='Not analyzed yet';lock.innerHTML=icon('lock');row.append(lock);}else if(song.duration)row.append(element('span','song-len',timeLabel(song.duration)));
+    const row=element('div',`song-row${song.id===model.song?' selected':''}`);const busySong=isJobActive(state.job)&&state.job.song_id===song.id;row.dataset.status=busySong?'busy':song.active_run?'ready':'new';row.dataset.tint=String(tapeTint(song.id));const handle=element('span','song-number drag-handle','⠿');handle.draggable=true;handle.title='Drag to reorder, or onto a set list to add it there';handle.setAttribute('aria-label',handle.title);handle.ondragstart=event=>{model.dragSong=song.id;event.dataTransfer.setData('text/plain',song.id);event.dataTransfer.effectAllowed='copyMove';row.classList.add('dragging');};handle.ondragend=()=>{model.dragSong=null;row.classList.remove('dragging');for(const item of container.children)item.classList.remove('drop-target');};row.ondragover=event=>{if(model.dragSong && model.dragSong!==song.id && list?.song_ids.includes(model.dragSong)){event.preventDefault();event.dataTransfer.dropEffect='move';row.classList.add('drop-target');}};row.ondragleave=()=>row.classList.remove('drop-target');row.ondrop=event=>{if(!model.dragSong)return;event.preventDefault();event.stopPropagation();row.classList.remove('drop-target');moveSongBefore(model.dragSong,song.id);};row.append(handle);
+    const button=element('button','song-main'),line=songLine(song,busySong);button.append(element('strong','',song.title));button.onclick=()=>selectSong(song.id);row.append(button);
+    // on the spine the tempo and key stand on end beside the label; a note (Analyzing…, Failed) stays on the label, under the title
+    if(line.classList.contains('song-facts'))row.append(line);else button.append(line);if(!song.active_run){const lock=element('span','song-lock');lock.title='Not analyzed yet';lock.innerHTML=icon('lock');row.append(lock);}else if(song.duration)button.insertBefore(element('span','song-len',timeLabel(song.duration)),button.children[1]||null);
     if(list?.id!=='default'){const out=element('button','song-remove');out.type='button';out.innerHTML=icon('x');out.title=`Take ${song.title} out of ${list.name}`;out.setAttribute('aria-label',out.title);out.onclick=()=>removeFromSetlist(list.id,song.id);row.append(out);}
     const order=element('div','song-order');for(const [symbol,direction] of [['▲',-1],['▼',1]]){const move=element('button','',symbol);move.title=`Move ${song.title} ${direction<0?'up':'down'}`;move.setAttribute('aria-label',move.title);move.disabled=index+direction<0 || index+direction>=songs.length;move.onclick=()=>reorderSong(song.id,direction);order.append(move);}row.append(order);container.append(row);
   }
