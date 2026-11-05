@@ -1,7 +1,8 @@
 """Moving one song between libraries (another computer, a USB stick): a zip with the song's folder and its database rows.
 
 The zip holds chordbuddy-song.json (the song's rows from library.sqlite3, and how each file was stored) and song/... (its recording,
-analysis, transcriptions and, when asked for, the stems). The float WAVs travel as 24-bit FLAC, about a third of their size, and come
+analysis, transcriptions, your MIDI files and, when asked for, the stems). The manifest also carries the song's own visual connections, look and
+saved arrangements (song_extras.py). The float WAVs travel as 24-bit FLAC, about a third of their size, and come
 back as float WAVs with their original headers; identical files (the decoded recording kept twice, the MP3 snapshots) travel once.
 Importing unpacks into the song folder, renames anything whose ID is already taken here (another copy of the same song, say), fixes
 the checksums that cover the files it rewrote or decoded, and adds the rows in one transaction.
@@ -30,9 +31,10 @@ from .filenames import safe_stem
 from .path_policy import new_id, validate_paths, validate_song
 from .separation_audio import index_wav
 from .separation_contract import file_hash
+from .song_extras import MIDI_INDEX, SongExtras, midi_items_from
 
 FORMAT = 'chordbuddy-song'
-VERSION = 2   # 2: chordbuddy-song.json lists every file (FLAC audio, files stored once); version 1 zips still import
+VERSION = 3   # 3: adds your MIDI files and `extras`; 2: chordbuddy-song.json lists every file (FLAC audio, files stored once); older zips still import
 MANIFEST = 'chordbuddy-song.json'
 PARTS = ('runs', 'analysis', 'separation')
 # Audio is stored as it is (deflate barely shrinks it and is slow); everything else is compressed.
@@ -74,7 +76,7 @@ def _stems_of(job):
 def _song_files(folder, stems_id):
     """(name inside song/, path) for the recording, transcriptions, analysis and, with stems_id, those stems."""
     files = [('source.mp3', folder / 'source.mp3')]
-    roots = [folder / 'runs', folder / 'analysis'] + ([folder / 'separation' / stems_id] if stems_id else [])
+    roots = [folder / 'runs', folder / 'analysis', folder / 'my-midi'] + ([folder / 'separation' / stems_id] if stems_id else [])
     for root in roots:
         if not root.is_dir() or root.is_symlink():
             continue
@@ -201,7 +203,7 @@ class SongTransfer:
             source_hash = file_hash(self.library.source_path(song_id))
         song.pop('deleted', None)
         manifest = {'format': FORMAT, 'version': VERSION, 'exported': now(), 'source_sha256': source_hash,
-                    'stems': bool(active), 'song': song, 'tables': tables}
+                    'stems': bool(active), 'song': song, 'tables': tables, 'extras': SongExtras(self.app).gather(song_id)}
         return manifest, _song_files(folder, active['id'] if active else None), safe_stem(song['title'], 'Song') + '.zip'
 
     def _ffmpeg(self):
@@ -369,8 +371,10 @@ class SongTransfer:
         song = manifest['song']
         with self.library.lock:
             matches = self._matches(manifest)
+        midi = sum(1 for f in manifest.get('files', []) if f['path'].startswith('my-midi/') and f['path'] != MIDI_INDEX)
         return {'title': song['title'], 'artist': song.get('artist') or '', 'analyzed': bool(song.get('active_run')),
-                'stems': bool(manifest['tables']['song_separations']), 'matches': matches}
+                'stems': bool(manifest['tables']['song_separations']), 'matches': matches,
+                'extras': SongExtras(self.app).describe(manifest.get('extras'), midi)}
 
     def apply(self, token, mode, analysis=False, stems=False, setlist='default', target=None):
         """mode 'new' adds the song (under new IDs where they are taken); 'update' overwrites the analysis and/or the stems of `target`,
@@ -442,6 +446,15 @@ class SongTransfer:
                     result['warning'] = ('The song was updated, but its old stems could not be deleted yet. They do no harm, '
                                          'and are cleaned up the next time this song’s stems are split.')
             app.playback.light.pop(song_id, None)
+            # What goes with the song. It's in by now, so trouble here is a warning, never a reason to lose it.
+            try:
+                with zipfile.ZipFile(path) as archive:
+                    items = midi_items_from(archive, manifest)
+                extras = _swap(manifest.get('extras') or {}, plan['mapping'])
+                result['extras'] = SongExtras(app).restore(song_id, extras, items)
+            except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile) as exc:
+                result['extras'] = {'midi': 0, 'patches': 0, 'prefs': 0, 'arrangements': 0, 'skipped': 0}
+                result['warning'] = result['warning'] or f'The song came in, but its MIDI files, visuals or arrangements could not be added: {exc}'
             return result
 
     def _plan(self, manifest, local, take_analysis, take_stems):

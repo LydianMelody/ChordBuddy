@@ -202,18 +202,66 @@ class PerformanceStore:
         return {'deleted':True}
 
     # ---- moving a show between libraries: its arrangements come along, the recordings never do
-    def export_show(self,show_id):
+    def _show_visuals(self,bodies,song_ids,patches):
+        """The looks and connections a show uses. Names of visualizations only: their code never travels in a file."""
+        scenes=set()
+        def walk(value):
+            if isinstance(value,dict):
+                if value.get('type')=='visual.scene' and isinstance(value.get('scene'),str):scenes.add(value['scene'])
+                for item in value.values():walk(item)
+            elif isinstance(value,list):
+                for item in value:walk(item)
+        for body in bodies:walk(body)
+        prefs=self.library.read_prefs();looks={}
+        for song in song_ids:
+            look=prefs.get('cb-visual:'+song)
+            if look:
+                looks[song]=look
+                try:
+                    scene=json.loads(look).get('scene')
+                    if isinstance(scene,str):scenes.add(scene)
+                except (ValueError,AttributeError):pass
+        stored=patches.read()['usual'] if patches else {}
+        return {'scenes':sorted(scenes),'usual':{k:v for k,v in stored.items() if k in scenes},
+                'songs':{s:p for s in song_ids if (p:=patches.read(s)['song'] if patches else None)},'looks':looks}
+
+    def export_show(self,show_id,patches=None):
         record=self.show(show_id)
-        songs={};performances=[]
+        songs={};performances=[];seen=set()
         for entry in record['body']['entries']:
             song=self.library.song(entry['songId'])
             songs[entry['songId']]={'id':entry['songId'],'title':song['title'],'artist':song['artist']}
             if entry.get('performanceId'):
-                saved=self.performance(entry['performanceId'],entry['revision'])
-                performances.append({'id':entry['performanceId'],'revision':entry['revision'],'body':saved['body']})
-        return {'format':'chordbuddy-show','version':SCHEMA,'show':record['body'],'performances':performances,'songs':list(songs.values())}
+                key=(entry['performanceId'],entry['revision'])
+                if key in seen:continue                    # the same arrangement used twice travels once
+                seen.add(key)
+                saved=self.performance(*key)
+                performances.append({'id':key[0],'revision':key[1],'body':saved['body']})
+        visuals=self._show_visuals([p['body'] for p in performances],list(songs),patches)
+        return {'format':'chordbuddy-show','version':SCHEMA,'show':record['body'],'performances':performances,'songs':list(songs.values()),'visuals':visuals}
 
-    def import_show(self,bundle):
+    def _restore_visuals(self,visuals,patches):
+        """Adds what isn't here. Your usual connections, a song's own and its look are never overwritten; a bad one is left out."""
+        if not isinstance(visuals,dict) or patches is None:return
+        def add(visual,patch,song=None):
+            try:
+                if visual not in patches.read(song)['song' if song else 'usual']:patches.save(visual,patch,song)
+            except (ValueError,TypeError,KeyError):pass
+        for visual,patch in (visuals.get('usual') or {}).items() if isinstance(visuals.get('usual'),dict) else ():add(visual,patch)
+        for song,own in (visuals.get('songs') or {}).items() if isinstance(visuals.get('songs'),dict) else ():
+            if isinstance(own,dict):
+                for visual,patch in own.items():add(visual,patch,song)
+        looks=visuals.get('looks')
+        if isinstance(looks,dict):
+            here=self.library.read_prefs()
+            for song,look in list(looks.items())[:40]:
+                key=f'cb-visual:{song}'
+                if key in here or not isinstance(song,str):continue
+                try:
+                    self.library.song(song);self.library.write_prefs({key:look})
+                except (ValueError,KeyError):pass
+
+    def import_show(self,bundle,patches=None):
         """Brings in a show from an export, under new identifiers, so nothing here is overwritten. Songs are matched by id, and missing ones are reported, not guessed at."""
         if not isinstance(bundle,dict) or bundle.get('format')!='chordbuddy-show':raise ValueError('That isn’t a Chord Buddy show file.')
         if bundle.get('version')!=SCHEMA:raise ValueError('That show was made by a different version of Chord Buddy.')
@@ -225,7 +273,7 @@ class PerformanceStore:
             if not isinstance(song,dict):raise ValueError('That isn’t a Chord Buddy show file.')
             try:self.library.song(song.get('id'))
             except KeyError:missing.append({'id':song.get('id'),'title':song.get('title')})
-        if missing:return {'show_id':None,'missing_songs':missing}
+        if missing:return {'show_id':None,'missing_songs':missing,'required_scenes':[]}
         with self.library.transaction(immediate=True):
             renamed={}
             for item in performances:
@@ -244,7 +292,10 @@ class PerformanceStore:
                     copy['performanceId'],copy['revision']=renamed[(entry['performanceId'],entry['revision'])]
                 entries.append(copy)
             saved=self.save_show(dict(show,id=self.new_id(),entries=entries,sourceList=None),0)
-        return {'show_id':saved['id'],'missing_songs':[]}
+        self._restore_visuals(bundle.get('visuals'),patches)
+        visuals=bundle.get('visuals') if isinstance(bundle.get('visuals'),dict) else {}
+        required=[v for v in visuals.get('scenes') or [] if isinstance(v,str)][:200] if isinstance(visuals.get('scenes'),list) else []
+        return {'show_id':saved['id'],'missing_songs':[],'required_scenes':required}
 
     @staticmethod
     def new_id():

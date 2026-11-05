@@ -15,7 +15,7 @@ Everything runs on your own computer. Your music is never uploaded anywhere.
 - **Practice:** loop any stretch, slow the music down without changing the pitch, follow along on the chart, the lead sheet or the piano roll, and mute or solo stems in the mixer.
 - **Correct the chart:** retype chords and words, split and join sections, fold or unfold repeats, time the words to the beat, and fix bar lines for short or long bars. Every change can be undone, even after closing the app.
 - **Edit the lead sheet:** fix chord symbols, type lyrics (they are shared with the chart), choose where lines break, or open it in MuseScore or another notation program as a MusicXML file.
-- **Export:** PDF of the chart or the lead sheet, MIDI (one multichannel file or one file per track), a mix of the stems as an MP3, or a zip of everything the model produced.
+- **Export:** PDF of the chart or the lead sheet, MIDI (one multichannel file or one file per track), a mix of the stems as an MP3, or a zip of everything the model produced. **Whole song · zip** moves a song to another computer with everything that belongs to it: your edits, your own MIDI files, its visual connections and look, and its arrangements.
 - **Make it yours:** three color themes, each with a light and dark look.
 
 ## Install
@@ -35,6 +35,8 @@ The models are public, so you don't need a Hugging Face account. To download the
 4. When the analysis is done, switch between **Chart**, **Lead sheet** and **MIDI** at the top of the page, and use the player at the bottom.
 
 Your songs and everything you change are saved in the **Data** folder next to the app. Back it up like any other folder.
+
+**Settings → Check for updates** tells you if a newer version is out. It checks only when you press it, reads one small file from this project's GitHub page, sends nothing about your songs, and never installs anything.
 
 Handy keys: **Space** plays and pauses, **Esc** puts a tool down, letters pick tools (hover over a tool to see its key), and in the piano roll **Ctrl + wheel** zooms time and **Ctrl + Shift + wheel** zooms pitch. **Ctrl + wheel** over the chart or the lead sheet makes the page bigger or smaller.
 
@@ -87,7 +89,7 @@ A loop that lasts until you release it makes the finish time an estimate: it's p
 
 While a show runs, Chord Buddy keeps the computer and screen from going to sleep by themselves. It can't stop you putting it to sleep or closing the lid, and it changes no power settings.
 
-Shows can be saved to a file and brought in on another computer (**Export**, **Import**). The recordings don't go with it, so the songs must already be there.
+Shows can be saved to a file and brought in on another computer (**Export to a file**, **Import from a file**, in the show's **⋯** menu). The file carries the arrangements and the visual connections and looks the show uses, but not the recordings, so the songs must already be there. It carries the names of custom visualizations, never their code: add those to **My Visuals** yourself. What's already on that computer is never overwritten.
 
 ## Stream the visualizer with OBS
 

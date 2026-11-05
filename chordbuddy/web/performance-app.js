@@ -152,7 +152,7 @@ export function createPerformanceApp(deps){
     open?.paint();
   }
   function openShow(){
-    show('show',root=>mountShow(root,{api,songs:deps.songs,setlists:deps.setlists,showError,onClose:closePage,mappings:deps.mappings,saveMappings:deps.saveMappings,
+    show('show',root=>mountShow(root,{api,scenes:()=>scenes,songs:deps.songs,setlists:deps.setlists,showError,onClose:closePage,mappings:deps.mappings,saveMappings:deps.saveMappings,
       entryLength:async entry=>{const item=await loadEntry(api,entry);return {segments:item.compiled.segments,music:pathSeconds(item.compiled.segments).music,live:item.compiled.requiresLiveControl};},
       onPerform:async body=>{try{await armShow(body);openPerform();}catch(error){showError(error);}}}));
   }

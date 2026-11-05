@@ -1058,6 +1058,18 @@ for(const id of TITLE_NODES){
   node.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();event.target.blur();}else if(event.key==='Escape'){event.target.textContent=currentSong()?.title||'';$('song-title').value=currentSong()?.title||'';event.target.blur();}};
 }
 
+// Check for updates: only when asked, and it only says what it found (update_check.py). Getting a new version stays in your hands.
+$('check-updates').onclick=async()=>{
+  $('settings-menu').open=false;
+  let r;try{r=await api('/api/update-check');}catch(error){showError(error);return;}
+  const yours=r.current?`You have version ${r.current}.`:'';
+  if(r.state==='newer'){
+    const go=await askChoice({title:'A newer Chord Buddy is out',message:[`Version ${r.latest} is available. ${yours}`,r.reason,'Nothing has been downloaded or changed. Your songs live in the Data folder, so back it up before you update.'],cancel:'Not now',choices:[{id:'open',label:'Open the download page',kind:'primary'}]});
+    if(go==='open')api('/api/update-page',{}).catch(showError);
+    return;
+  }
+  await askChoice({title:r.state==='current'?'You’re up to date':r.state==='none'?'Nothing newer yet':'Couldn’t check for updates',message:r.state==='current'?[`Version ${r.current} is the latest.`]:[r.reason,yours],cancel:'OK',choices:[]});
+};
 $('model-attribution').onclick=()=>openModelAttribution(model.state?.engine?.model,model.state?.models?.models||[]);
 $('song-timing').onclick=async()=>{$('more-menu').open=false;try{await commitUiDrafts();const record=currentRecord();if(record?.doc.kind!=='chart')throw new Error('Choose a Song chart for timing controls.');const id=record.doc.id;openSongTiming({metadata:{timing:record.doc.timing_binding.overrides},onSave:async metadata=>{if(model.document!==id)throw new Error('Selected chart changed.');await window.chordBuddyFlush();const fresh=currentRecord().doc;await api('/api/documents/'+id+'/timing',{timing:metadata.timing,revision:fresh.revision});await refreshSongDetail(model.song,true);renderDocument();}});}catch(error){showError(error);}};
 $('transcription-history').onclick=async()=>{

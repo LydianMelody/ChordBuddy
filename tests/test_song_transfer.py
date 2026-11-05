@@ -111,7 +111,7 @@ def test_another_library_gets_the_song_with_its_edits_and_history(two):
     run = add_song(here)
     summary, result = bring_in(there, export(here)[0])
     assert summary['matches'] == [] and summary['analyzed'] and not summary['stems']
-    assert result == {'song_id': SONG, 'changed': True, 'warning': None}
+    assert {k: result[k] for k in ('song_id', 'changed', 'warning')} == {'song_id': SONG, 'changed': True, 'warning': None}
     song = there.library.song(SONG)
     assert song['title'] == 'Koi no Highway' and song['active_run'] == run and song['created'] != 'then'
     assert chart(there, SONG) == {'chords': ['G']}

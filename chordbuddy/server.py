@@ -35,7 +35,9 @@ from .user_midi import UserMidi
 from .visual_relay import VisualRelay,stream_key
 from .visual_patches import VisualPatches
 from .performance_store import PerformanceStore
+import webbrowser
 from .midi_service import MidiService
+from . import update_check
 from .power_service import PowerService
 
 
@@ -440,6 +442,7 @@ class Handler(BaseHTTPRequestHandler):
             key=stream_key(self.app.stream_key_path,True)
             return self._json({'url':f'http://127.0.0.1:{self.server.server_port}/visualizer.html?stream={key}','port':self.server.server_port})
         if path=='/api/visual-relay/player':return self._event_stream('player')
+        if path=='/api/update-check':return self._json(update_check.check())
         if path=='/api/midi/ports':return self._json(self.app.midi.ports())
         if path=='/api/midi/status':return self._json(self.app.midi.status())
         if path=='/api/midi/log':return self._json(list(self.app.midi.log))
@@ -449,7 +452,7 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/power':return self._json(self.app.power.status())
         if path=='/api/shows':return self._json(self.app.performances.shows())
         if path.startswith('/api/performances/'):return self._json(self.app.performances.performances_for_song(path.removeprefix('/api/performances/')))
-        if re.fullmatch(r'/api/show/[^/]+/export',path):return self._json(self.app.performances.export_show(path.split('/')[3]))
+        if re.fullmatch(r'/api/show/[^/]+/export',path):return self._json(self.app.performances.export_show(path.split('/')[3],self.app.visual_patches))
         if path.startswith('/api/performance/') or path.startswith('/api/show/'):
             revision=parse_qs(urlparse(self.path).query).get('revision',[None])[0]
             revision=int(revision) if revision is not None else None
@@ -697,6 +700,9 @@ class Handler(BaseHTTPRequestHandler):
             if os.name=='nt':
                 os.startfile(str(folder))
             result={'ok':True}
+        elif path=='/api/update-page':
+            webbrowser.open(update_check.PAGE_URL)     # always this one address: nothing in the request can change where it goes
+            result={'opened':True}
         elif path=='/api/midi/connect':result=self.app.midi.connect(body['name'],output=body.get('output',True) is not False,input=body.get('input',True) is not False)
         elif path=='/api/midi/disconnect':result=self.app.midi.disconnect(body['name'])
         elif path=='/api/midi/schedule':result=self.app.midi.schedule(body['device'],body['events'],body.get('generation',0))
@@ -709,7 +715,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path=='/api/performance/delete':result=self.app.performances.delete_performance(body['id'])
         elif path=='/api/show/save':result=self.app.performances.save_show(body['body'],body['base'])
         elif path=='/api/show/draft':result=self.app.performances.save_show_draft(body['body'],body['base'])
-        elif path=='/api/show/import':result=self.app.performances.import_show(body['bundle'])
+        elif path=='/api/show/import':result=self.app.performances.import_show(body['bundle'],self.app.visual_patches)
         elif path=='/api/show/delete':result=self.app.performances.delete_show(body['id'])
         elif path=='/api/visual-patches':
             result=self.app.visual_patches.save(body['visual'],body.get('patch'),body.get('song_id'))

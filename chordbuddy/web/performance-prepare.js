@@ -620,6 +620,8 @@ export function mountShow(root,deps){
       if(file.size>8*1024*1024)throw Error('That file is too large to be a show.');
       const bundle=JSON.parse(await file.text()),r=await api('/api/show/import',{bundle});
       if(r.missing_songs?.length){await askChoice({title:'Some songs aren’t in this library',message:[`Import these first, then import the show again: ${r.missing_songs.map(x=>x.title||x.id).join(', ')}.`],choices:[],cancel:'OK'});return;}
+      const installed=new Set((deps.scenes?.()||[]).map(x=>x.id)),absent=(r.required_scenes||[]).filter(id=>!installed.has(id));
+      if(absent.length)await askChoice({title:'Some visualizations aren’t here',message:[`This show uses: ${absent.join(', ')}.`,'A show file carries their names and connections, never their code. Add them to the My Visuals folder, or the show won’t start until they’re changed in Prepare.'],choices:[],cancel:'OK'});
       await reload(r.show_id);
     }catch(error){deps.showError(error);}
   }

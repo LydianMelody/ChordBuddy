@@ -87,6 +87,27 @@ class UserMidi:
             self._save_index(folder,files)
             return self._entry(folder,item)
 
+    def merge(self,song_id,incoming):
+        """MIDI files from a song zip: [(index item, bytes)]. One already here (by id) stays as it is, your settings with it. Returns (added, left out)."""
+        added=skipped=0
+        with self.lock:
+            folder=self._dir(song_id,True);files=self._index(folder);have={f['id'] for f in files}
+            for item,data in incoming:
+                ident=str(item.get('id','')) if isinstance(item,dict) else ''
+                if not re.fullmatch(r'[0-9a-f]{12}',ident):skipped+=1;continue
+                if ident in have:continue
+                if not isinstance(data,bytes) or not data.startswith(b'MThd') or not 14<=len(data)<=MAX_MIDI:skipped+=1;continue
+                try:name=self._clean_name(item.get('name'))
+                except ValueError:skipped+=1;continue
+                settings=item.get('settings') if isinstance(item.get('settings'),dict) else {}
+                if len(json.dumps(settings))>MAX_SETTINGS:settings={}
+                clean={'id':ident,'name':name,'added':str(item.get('added') or '')[:40],'settings':settings}
+                clean['file']=self._file(folder,dict(item,id=ident)).name
+                self._write(self._file(folder,clean),data)
+                files.append(clean);have.add(ident);added+=1
+            if added:self._save_index(folder,files)
+        return added,skipped
+
     def read(self,song_id,file_id):
         return self.path(song_id,file_id).read_bytes()
 
