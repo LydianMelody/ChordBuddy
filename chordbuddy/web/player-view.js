@@ -39,6 +39,7 @@ export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},lo
  // Loops from the keyboard (playback-keys.js): R (or the button) the section you are in, L four bars (loopFor). Pressing the key of the
  // loop that is on, or either key over a loop whose handles you placed, ends it; the other key swaps it. Handles then set any range.
  function toggleLoop(kind='section'){
+  if(transport.performer){transport.performer.pressLoop(kind);return;}
   const s=transport.getSnapshot();if(!s.ready)return;
   if(s.loop.enabled&&(!s.loop.implicit||(s.loop.kind||'section')===kind)){transport.setLoop(null).catch(onError);return;}
   const range=loopFor(kind,s.seconds);if(!range)return;

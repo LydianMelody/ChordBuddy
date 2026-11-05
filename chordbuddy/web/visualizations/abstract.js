@@ -70,7 +70,7 @@ export default {
           for(const strength of env.events.hits[role]||[]){
             const n=Math.round((calm?3:8)+strength*(calm?6:22));
             for(let q=0;q<n&&sparks.length<MAX_SPARKS;q++){
-              const a=Math.random()*Math.PI*2,speed=R*(0.25+Math.random()*0.9)*(0.4+strength);
+              const rnd=env.random||Math.random,a=rnd()*Math.PI*2,speed=R*(0.25+rnd()*0.9)*(0.4+strength);
               sparks.push({x:cx+Math.cos(a)*base,y:cy+Math.sin(a)*base,vx:Math.cos(a)*speed,vy:Math.sin(a)*speed,life:1,decay:0.8+Math.random()*1.2,hue:ringHue,size:1+strength*2.2});
             }
           }

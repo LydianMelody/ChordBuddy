@@ -35,6 +35,8 @@ from .user_midi import UserMidi
 from .visual_relay import VisualRelay,stream_key
 from .visual_patches import VisualPatches
 from .performance_store import PerformanceStore
+from .midi_service import MidiService
+from .power_service import PowerService
 
 
 PROJECT=Path(__file__).resolve().parent.parent
@@ -49,6 +51,8 @@ class Application:
         self.user_midi=UserMidi(self.library)   # your own MIDI files, kept with each song
         self.visual_patches=VisualPatches(self.library)   # the patch bay's patches (which sounds drive which parts of a visualization)
         self.performances=PerformanceStore(self.library)   # saved arrangements of a song, and shows made of them
+        self.midi=MidiService()    # live MIDI to and from a pedal or controller (opens nothing until a show or the setup asks)
+        self.power=PowerService()  # keeps the computer awake during a show
         # visualizers in another browser (an OBS Browser Source): the player's messages, relayed; their address has a key kept with the library
         self.visual_relay=VisualRelay()
         self.stream_key_path=self.library.root/'visualizer-stream.key'
@@ -266,6 +270,8 @@ class Application:
                 return self.library.activate_run(song_id,run_id)
 
     def close(self):
+        self.midi.close()
+        self.power.close()
         self.visual_relay.close()
         with self.job_lock:
             if self._closed:
@@ -434,6 +440,13 @@ class Handler(BaseHTTPRequestHandler):
             key=stream_key(self.app.stream_key_path,True)
             return self._json({'url':f'http://127.0.0.1:{self.server.server_port}/visualizer.html?stream={key}','port':self.server.server_port})
         if path=='/api/visual-relay/player':return self._event_stream('player')
+        if path=='/api/midi/ports':return self._json(self.app.midi.ports())
+        if path=='/api/midi/status':return self._json(self.app.midi.status())
+        if path=='/api/midi/log':return self._json(list(self.app.midi.log))
+        if path=='/api/midi/events':
+            query=parse_qs(urlparse(self.path).query)
+            return self._json(self.app.midi.read_events(int(query.get('after',['0'])[0]),float(query.get('wait',['0'])[0])))
+        if path=='/api/power':return self._json(self.app.power.status())
         if path=='/api/shows':return self._json(self.app.performances.shows())
         if path.startswith('/api/performances/'):return self._json(self.app.performances.performances_for_song(path.removeprefix('/api/performances/')))
         if path.startswith('/api/performance/') or path.startswith('/api/show/'):
@@ -683,6 +696,13 @@ class Handler(BaseHTTPRequestHandler):
             if os.name=='nt':
                 os.startfile(str(folder))
             result={'ok':True}
+        elif path=='/api/midi/connect':result=self.app.midi.connect(body['name'],output=body.get('output',True) is not False,input=body.get('input',True) is not False)
+        elif path=='/api/midi/disconnect':result=self.app.midi.disconnect(body['name'])
+        elif path=='/api/midi/schedule':result=self.app.midi.schedule(body['device'],body['events'],body.get('generation',0))
+        elif path=='/api/midi/cancel':result=self.app.midi.cancel(body.get('device'),body.get('from'),body.get('generation'))
+        elif path=='/api/midi/cleanup':result=self.app.midi.cleanup(body.get('device'))
+        elif path=='/api/power/acquire':result=self.app.power.acquire(body['holder'])
+        elif path=='/api/power/release':result=self.app.power.release(body['holder'])
         elif path=='/api/performance/save':result=self.app.performances.save_performance(body['body'],body['base'])
         elif path=='/api/performance/draft':result=self.app.performances.save_performance_draft(body['body'],body['base'])
         elif path=='/api/performance/delete':result=self.app.performances.delete_performance(body['id'])

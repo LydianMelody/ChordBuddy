@@ -13,6 +13,7 @@
 //   patch  (visualizer -> player)  save a patch from the patch bay (visual-patch.js): {songId (a song's own patch) or null (the usual one),
 //          visual, patch or null (remove it)}; the setup message then carries patches: {usual:{visual:patch}, song:{visual:patch}}
 //   editor (visualizer -> player) open the Advanced Visuals Editor in the main window (a visualizer's Edit visuals button)
+//   perform (player -> visualizers) a running show's timed actions (performance-visuals.js), stamped in epoch ms; a visualizer opening late gets the state in force
 // A visualizer in another browser (an OBS Browser Source, at the address from Visualizer → Stream to OBS) gets the same messages through the
 // server instead (playerRelay, viewerRelay below); it only listens.
 // Clock stamps are epoch milliseconds (performance.timeOrigin + performance.now()), so each window converts them to its own clock.
@@ -29,7 +30,7 @@ const epoch=()=>performance.timeOrigin+performance.now();
 // The subset of the player's state a visualizer needs. snapshot: the transport's getSnapshot(); rate there is a percentage.
 export function clockMessage(snapshot,at=epoch()){
   return {type:'clock',songId:snapshot.songId,seconds:snapshot.seconds,playing:!!snapshot.playing,rate:(snapshot.rate||100)/100,
-    duration:snapshot.duration,loop:snapshot.loop||null,mix:snapshot.mix||null,ready:!!snapshot.ready,at};
+    duration:snapshot.duration,loop:snapshot.loop||null,mix:snapshot.visualMix||snapshot.mix||null,ready:!!snapshot.ready,at};
 }
 
 /**
@@ -38,7 +39,7 @@ export function clockMessage(snapshot,at=epoch()){
  * validates it). Returns {clock(snapshot), scene(value), dispose()}; scene(null) clears it.
  */
 export function createVisualPublisher({open=()=>new BroadcastChannel(CHANNEL),onListen=()=>{},onMix=()=>{},onCommand=()=>{},onPin=()=>{},onUsual=()=>{},onShow=()=>{},onPatch=()=>{},onEditor=()=>{}}={}){
-  let lastScene=null,lastClock=null,lastSetup=null,listening=false;
+  let lastScene=null,lastClock=null,lastSetup=null,listening=false,performState=null;
   const channel=open();
   channel.onmessage=event=>{
     const m=event.data;
@@ -55,6 +56,7 @@ export function createVisualPublisher({open=()=>new BroadcastChannel(CHANNEL),on
     if(lastScene&&lastScene===before)channel.postMessage(lastScene);    // unchanged, so onListen did not send it: answer with it
     if(lastSetup&&lastSetup===setupBefore)channel.postMessage(lastSetup);
     if(lastClock)channel.postMessage(lastClock);                       // stamped with when it was true, so it is still exact
+    if(performState)channel.postMessage({type:'perform',...performState()});
   };
   return {
     clock(snapshot){
@@ -79,6 +81,9 @@ export function createVisualPublisher({open=()=>new BroadcastChannel(CHANNEL),on
       lastSetup={...message,signature};
       if(listening)channel.postMessage(lastSetup);
     },
+    // A show's timed actions. current(): what a visualizer opening late needs (the state in force; never effects that have already happened).
+    perform(message){if(listening)channel.postMessage({type:'perform',...message});},
+    setPerformState(current){performState=current;},
     get listening(){return listening;},
     dispose(){channel.close();},
   };
@@ -115,7 +120,7 @@ export function playerRelay(token,{fetch=globalThis.fetch,EventSource=globalThis
   const events=new EventSource('/api/visual-relay/player?token='+encodeURIComponent(token));
   const channel={onmessage:null,
     postMessage(m){
-      if(!active||closed||!m||!['scene','clock','setup'].includes(m.type))return;
+      if(!active||closed||!m||!['scene','clock','setup','perform'].includes(m.type))return;
       if(m.type==='clock'){if(!clockNews(lastClock,m))return;lastClock=m;waiting=waiting.filter(w=>w.type!=='clock');}
       waiting.push(m);flush();
     },
@@ -150,13 +155,14 @@ export function viewerRelay(key,{EventSource=globalThis.EventSource,onLink=()=>{
 }
 
 /** In a visualizer. onScene(message), onClock(message with `at` converted to this page's performance.now() clock). */
-export function createVisualReceiver({onScene,onClock,onSetup=()=>{},open=()=>new BroadcastChannel(CHANNEL)}){
+export function createVisualReceiver({onScene,onClock,onSetup=()=>{},onPerform=()=>{},open=()=>new BroadcastChannel(CHANNEL)}){
   const channel=open();
   channel.onmessage=event=>{
     const m=event.data;
     if(m?.type==='scene')onScene(m);
     else if(m?.type==='clock')onClock({...m,at:m.at-performance.timeOrigin});
     else if(m?.type==='setup')onSetup(m);
+    else if(m?.type==='perform')onPerform(m);
   };
   channel.postMessage({type:'hello'});
   return {hello(){channel.postMessage({type:'hello'});},setMix(mix){channel.postMessage({type:'mix',mix});},command(action){channel.postMessage({type:'command',action});},

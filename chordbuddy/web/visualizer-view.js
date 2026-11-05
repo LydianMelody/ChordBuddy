@@ -24,6 +24,7 @@ import {setKeySpelling} from './spelling.js';
 import {hudZones,drawChordHud,drawLyricHud} from './visual-hud.js';
 import {mountMixerDrawer} from './visual-mixer.js';
 import {pickScene,panelPlace,ID_TEXT} from './visual-setup.js';
+import {VisualCues} from './performance-visuals.js';
 import {placePanel,draggable} from './visual-layout.js';
 import {readSkin,applySkin,browserCheck,skinStylesheet,loadSkinSheet} from './visual-skin.js';
 import {Patcher,readInputs,choosePatch,sourceCatalog,catalogMap,sourceValue,sourceRange} from './visual-patch.js';
@@ -182,6 +183,7 @@ export function mountVisualizer(container,{open,stream=false,editor=null}={}){
     onScene:m=>{followSong(m.songId);loadSong(m).catch(()=>{status='Could not load this song.';});},
     onClock:m=>{clock.report(m,m.at);mix=m.mix;mixer?.setMix(m.mix);},
     // the song's pinned setup and the usual look, kept by the main window with the library (so they last between launches)
+    onPerform:m=>cues.receive(m),
     onSetup:m=>{followSong(m.songId);pinned=m.pinned||null;showing=m.showing||null;   // the player keeps the look chosen for now, so every visualizer agrees
       patches={usual:m.patches?.usual||{},song:m.patches?.song||{}};bayShown=null;
       if(m.usual){for(const key of USUAL)if(key in m.usual)settings[key]=m.usual[key];if(!stream)saveSettings(settings);}
@@ -237,7 +239,10 @@ export function mountVisualizer(container,{open,stream=false,editor=null}={}){
     broken.delete(id);if(activeId===id){try{active?.dispose?.();}catch{}active=null;activeId=null;}
     showing=id;if(pinned){receiver.show(songId,id);paintControls();}else set({scene:id});   // every other visualizer follows (OBS too)
   }
-  function current(){return pickScene(scenes,{showing,pinned,usual:{scene:settings.scene}});}
+  // a running show's timed actions (performance-visuals.js). Times arrive in epoch ms; a chosen look or switch outranks everything until the show ends.
+  const cues=new VisualCues();
+  const epochOf=now=>performance.timeOrigin+now;
+  function current(){return pickScene(scenes,{showing:cues.state.scene||showing,pinned,usual:{scene:settings.scene}});}
   // pin the look now showing to the open song, or unpin it (the main window saves it; it answers with the new setup)
   function togglePin(){
     const look=current();if(!songId||!look)return;
@@ -338,18 +343,21 @@ export function mountVisualizer(container,{open,stream=false,editor=null}={}){
     if(disposed)return;raf=requestAnimationFrame(draw);
     frames++;if(now-fpsAt>=1000){fps=frames*1000/(now-fpsAt);frames=0;fpsAt=now;}
     const dt=lastWall===null?1/60:Math.min(0.1,(now-lastWall)/1000);lastWall=now;
+    cues.step(epochOf(now));
     const [w,h]=resize();skin(current());
     if(!song){g.fillStyle='#0d0e14';g.fillRect(0,0,w,h);g.textAlign='center';g.textBaseline='middle';g.fillStyle='#e9e6dc';g.font='500 18px system-ui';g.fillText(status,w/2,h/2);return;}
     const frame=sampleFrame(song,clock.time(now),{playing:clock.playing,rate:clock.rate,mix,loop:clock.loop});
     const definition=current();
     if(!definition){g.fillStyle='#0d0e14';g.fillRect(0,0,w,h);g.textAlign='center';g.textBaseline='middle';g.fillStyle='#e9e6dc';g.font='500 18px system-ui';
       g.fillText(scenes.length||!failed.length?'Loading the visualizations…':'No visualization could be loaded.',w/2,h/2);return;}
-    const env={w,h,dt,wall:now/1000,calm:settings.calm,lyrics:settings.lyrics,zones:hudZones(w,h,settings.lyrics),song,
-      events:frameEvents(previous,frame,song),status,fps,inputs:{}};
+    const shownLyrics=cues.state.lyrics??settings.lyrics;
+    const env={w,h,dt,wall:now/1000,calm:cues.state.calm??settings.calm,lyrics:shownLyrics,zones:hudZones(w,h,shownLyrics),song,
+      events:frameEvents(previous,frame,song),status,fps,inputs:{},random:cues.random};
+    const replay=cues.takeReplay();if(replay)env.events.replay=replay;
     const inputs=inputsFor(definition);
     if(inputs.length){
       if(patcherFor!==definition){patcher=new Patcher();patcherFor=definition;}
-      sources();env.inputs=patcher.run(inputs,patchFor(definition),{frame,previous,events:env.events,scene:song,dt,catalog:catalogById});
+      sources();env.inputs=cues.overlay(inputs,patcher.run(inputs,patchFor(definition),{frame,previous,events:env.events,scene:song,dt,catalog:catalogById}),epochOf(now));
     }
     if(bay){
       // the bay shows the look on screen, its song's sources, and the patch in use (song's own, else the usual one)

@@ -21,6 +21,11 @@ export class Transport{
   audio.addEventListener('play',()=>audio.pause());
  }
  emit(){for(const fn of this.listeners)fn(this.getSnapshot());}
+ // A running show (performance-controller.js) owns the music: this transport stops its own stream, and sends every request to the show instead, so
+ // the chart, the keys and a visualizer all still work and all go the same way. What it reports here is what every view reads.
+ attachPerformer(performer){this.clearSession();this.performer=performer;this.state.playIntent=false;this.state.playing=false;this.emit();}
+ detachPerformer(){this.performer=null;this.state.playIntent=false;this.state.playing=false;this.state.buffering=false;this.state.loop=noLoop();this.state.levels=null;this.state.visualMix=null;this.emit();}
+ performerReport(values){Object.assign(this.state,values);this.emit();}
  subscribe(fn){this.listeners.add(fn);fn(this.getSnapshot());return()=>this.listeners.delete(fn);}
  getDiagnostics(){return this.diagnostics?{...this.diagnostics}:null;}
  getSnapshot(){return {...this.state,mix:structuredClone(this.state.mix)};}
@@ -55,6 +60,7 @@ export class Transport{
   this.state.error=error?.message||String(error);this.emit();
  }
  async play(){
+  if(this.performer){this.performer.resume();return;}
   if(!this.state.ready)return;
   this.state.playIntent=true;this.state.error=null;
   if(this.active){
@@ -70,9 +76,10 @@ export class Transport{
   }else if(!this.state.buffering)await this.handoff(this.separation,this.state.seconds);
   this.emit();
  }
- pause(){this.state.playIntent=false;this.state.playing=false;this.state.levels=null;this.pcm?.play(false);this.audio.pause();this.emit();}
+ pause(){if(this.performer){this.performer.pause();return;}this.state.playIntent=false;this.state.playing=false;this.state.levels=null;this.pcm?.play(false);this.audio.pause();this.emit();}
  // `seeks` counts the times someone moved the playhead, so a loop that follows the section you are in moves only when you do.
  async seek(seconds){
+  if(this.performer){if(Number.isFinite(seconds))this.performer.navigate(Math.round(seconds*44100));return;}
   if(!this.state.ready||!Number.isFinite(seconds))return;
   const target=Math.max(0,Math.min(this.state.duration,seconds));this.state.seeks++;
   if(!this.active&&!this.state.buffering){this.state.seconds=target;this.emit();return;}
@@ -83,6 +90,11 @@ export class Transport{
  // Changing the loop while the stream runs swaps it in place (spliceLoop); otherwise, or with seekTo, it re-primes like a seek. Either way
  // play/pause intent is kept.
  async setLoop(value,{seekTo}={}){
+  if(this.performer){
+   // In a show only L and R loop. A custom range is made in Prepare.
+   if(!value||!value.enabled)this.performer.exitLoop();else if(value.implicit)this.performer.pressLoop(value.kind==='bars'?'bars':'section');
+   return;
+  }
   const next=value?{enabled:!!value.enabled,start:value.start??null,end:value.end??null,implicit:!!value.implicit,...(value.implicit&&value.kind?{kind:String(value.kind)}:{})}:noLoop();
   if(next.start!==null||next.end!==null){if(!Number.isFinite(next.start)||!Number.isFinite(next.end)||next.start<0||next.end<=next.start||next.end>(this.state.duration||Infinity))throw Error('Choose a loop inside the song.');}
   if(next.enabled&&next.start===null)throw Error('Choose a loop range first.');
@@ -110,9 +122,12 @@ export class Transport{
  // Practice speed as a percentage (50-125). Pitch is preserved: the audio worklet time-stretches the mixed output.
  async setRate(percent){
   if(!Number.isFinite(percent)||percent<50||percent>125)throw Error('Speed must be between 50% and 125%.');
+  if(this.performer){const r=this.performer.setLive('rate',percent);if(!r.accepted)throw Error(r.reason);this.state.rate=percent;this.emit();return;}
   this.state.rate=percent;this.pcm?.rate?.(percent/100);this.emit();
  }
- setMix(value){const validator=new PcmMixer();validator.setMix(value);this.state.mix=structuredClone(value);this.pcm?.mix(value);this.emit();}
+ setMix(value){const validator=new PcmMixer();validator.setMix(value);
+  if(this.performer){const r=this.performer.handMix(value,this.state.mix);if(!r.accepted)throw Error(r.reason);}
+  this.state.mix=structuredClone(value);this.pcm?.mix(value);this.emit();}
  async setMode(mode){
   if(mode!=='stems')throw Error('Practice playback uses processed stems.');
   if(!this.state.ready||this.state.buffering||this.active)return;
