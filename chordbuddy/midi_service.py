@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import heapq
 import re
 import threading
@@ -23,13 +24,88 @@ def valid_bytes(message):
     return message[0]>=0x80 and all(b<0x80 for b in message[1:])
 
 
-class RtMidiBackend:
-    """The real ports. Imported on first use, so the app runs where rtmidi is missing."""
+def _in_a_thread(work,timeout=10):
+    """Windows' async calls, from whichever thread asked. Bounded: a device that doesn't answer can't hold up the app."""
+    box={}
+    def run():
+        try:box['value']=asyncio.run(work())
+        except Exception as exc:box['error']=exc
+    thread=threading.Thread(target=run,name='midi-open',daemon=True);thread.start();thread.join(timeout)
+    if thread.is_alive():raise OSError('The MIDI device did not answer.')
+    if 'error' in box:raise box['error']
+    return box.get('value')
+
+
+class _WinrtApi:
+    """Windows' newer MIDI route (Windows.Devices.Midi), which reaches some devices the older one doesn't: on some Windows 11 systems a Line 6 Helix
+    delivers nothing through the older route while this one hears it perfectly."""
     def __init__(self):
+        from winrt.windows.devices.enumeration import DeviceInformation
+        from winrt.windows.devices.midi import MidiInPort
+        self.devices,self.port=DeviceInformation,MidiInPort
+
+    def find(self):
+        async def work():
+            return [(d.name,d.id) for d in await self.devices.find_all_async_aqs_filter(self.port.get_device_selector())]
+        return _in_a_thread(work)
+
+    def open(self,ident):
+        async def work():
+            return await self.port.from_id_async(ident)
+        return _in_a_thread(work)
+
+
+class _WinrtInput:
+    def __init__(self,port,callback):
+        self.port=port
+        self.handler=lambda sender,args:self._message(args,callback)     # kept here: Windows only holds it weakly
+        self.token=port.add_message_received(self.handler)
+
+    @staticmethod
+    def _message(args,callback):
+        try:callback(list(bytes(args.message.raw_data)))
+        except Exception:pass                            # a bad message is dropped; this runs on Windows' own thread and must never raise there
+
+    def close_port(self):
+        try:self.port.remove_message_received(self.token)
+        finally:self.port.close()
+
+
+class WinrtInputs:
+    def __init__(self,api=None):
+        self.api=api or _WinrtApi();self.ids={}
+
+    def names(self):
+        found=self.api.find();self.ids={name:ident for name,ident in found}
+        return [name for name,_ in found]
+
+    def open(self,name,callback):
+        if name not in self.ids:self.names()
+        port=self.api.open(self.ids[name])
+        if port is None:raise OSError('Windows wouldn’t open this device.')
+        return _WinrtInput(port,callback)
+
+
+class RtMidiBackend:
+    """The real ports, imported on first use so the app runs where they're missing. Sending goes through rtmidi. Listening uses Windows' newer route
+    when it has the device and the older one otherwise."""
+    def __init__(self,winrt=False):
         import rtmidi
         self.rtmidi=rtmidi
+        if winrt is False:
+            try:winrt=WinrtInputs()
+            except Exception:winrt=None
+        self.winrt=winrt
+        self.routes={}
 
-    def inputs(self):return self.rtmidi.MidiIn().get_ports()
+    def _newer(self):
+        if self.winrt is None:return []
+        try:return self.winrt.names()
+        except Exception:return []
+
+    def inputs(self):
+        newer=self._newer();named={logical_name(n) for n in newer}
+        return newer+[p for p in self.rtmidi.MidiIn().get_ports() if logical_name(p) not in named]
 
     def outputs(self):return self.rtmidi.MidiOut().get_ports()
 
@@ -37,8 +113,18 @@ class RtMidiBackend:
         out=self.rtmidi.MidiOut();out.open_port(out.get_ports().index(port));return out
 
     def open_input(self,port,callback):
-        midi=self.rtmidi.MidiIn();midi.ignore_types(sysex=True,timing=True,active_sense=True)
-        midi.open_port(midi.get_ports().index(port));midi.set_callback(lambda event,data=None:callback(event[0]));return midi
+        if port in self._newer():
+            try:
+                opened=self.winrt.open(port,callback);self.routes[logical_name(port)]='newer';return opened
+            except Exception:
+                pass                                     # fall through to the older route, if it has the device
+        midi=self.rtmidi.MidiIn();midi.ignore_types(sysex=True,timing=False,active_sense=True)
+        ports=midi.get_ports()
+        match=next((p for p in ports if p==port or logical_name(p)==logical_name(port)),None)
+        if match is None:raise OSError('Windows wouldn’t open this device.')
+        midi.open_port(ports.index(match));midi.set_callback(lambda event,data=None:callback(event[0]))
+        self.routes[logical_name(port)]='older'
+        return midi
 
 
 class MidiService:
@@ -50,6 +136,7 @@ class MidiService:
         self.lock=threading.Condition()
         self.queue=[];self.sequence=0;self.outputs={};self.inputs={};self.notes={}
         self.log=deque(maxlen=MAX_LOG);self.events=deque(maxlen=MAX_EVENTS);self.event_id=0;self.missed=0;self.lateness=deque(maxlen=20000)
+        self.clock_in={}                                 # device -> [pulses heard, when the last one came]: proof a device reaches this computer, with no press needed
         self.closed=False;self.thread=None;self.autostart=autostart
 
     @property
@@ -105,13 +192,21 @@ class MidiService:
         with self.lock:
             seen=sorted(self.lateness)
             pick=lambda f:seen[min(len(seen)-1,int(len(seen)*f))] if seen else None
+            routes=getattr(self._backend,'routes',{}) if self._backend else {}
             return {'clock':self.clock(),'outputs':sorted(self.outputs),'inputs':sorted(self.inputs),'queued':len(self.queue),'missed':self.missed,
+                    'routes':{name:routes.get(name) for name in self.inputs},
+                    'clock_in':{name:{'pulses':count,'seconds_ago':self.clock()-when} for name,(count,when) in self.clock_in.items()},
                     'late_ms':{'p50':pick(.5),'p95':pick(.95),'p99':pick(.99),'max':seen[-1] if seen else None,'count':len(seen)}}
 
     def _note(self,kind,**details):
         self.log.append({'t':self.clock(),'kind':kind,**details})
 
     def _received(self,device,message):
+        if not message:return
+        if message[0]>=0xF0:                             # clock, and the like: counted, never treated as a press, and never kept in the list
+            if message[0]==0xF8:
+                seen=self.clock_in.get(device,[0,0]);self.clock_in[device]=[seen[0]+1,self.clock()]
+            return
         with self.lock:
             self.event_id+=1
             self.events.append({'id':self.event_id,'device':device,'bytes':list(message),'t':self.clock()})

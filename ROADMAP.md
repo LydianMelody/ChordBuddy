@@ -14,7 +14,7 @@ MP3 import and metadata titles; Default and ordered set lists; real SheetSage2 i
 
 ## Performance system — on the `perform` branch
 
-Prepare, Shows and Perform: named arrangements with each repeat pass editable, a set that runs from one Start, bar-quantized jumps and loops, live changes that outlast the plan, timed visuals, and MIDI out. Foot control waits on MIDI from the Helix reaching Windows over USB (it doesn't yet on Windows 11 here).
+Prepare, Shows and Perform: named arrangements with each repeat pass editable, a set that runs from one Start, bar-quantized jumps and loops, live changes that outlast the plan, timed visuals, and MIDI in and out. Input uses Windows' newer MIDI route, because the older one delivers nothing from a Helix on this Windows 11 PC. A real footswitch press is still to be confirmed.
 
 ## Still open
 

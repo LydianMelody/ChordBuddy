@@ -733,7 +733,9 @@ export function mountShow(root,deps){
       try{
         let {last}=await api('/api/midi/events?after=999999999');const lines=[],deadline=Date.now()+20000;
         while(Date.now()<deadline&&!disposed){const r=await api(`/api/midi/events?after=${last}&wait=1`);last=r.last;for(const e of r.events)lines.push(`${e.device}: ${e.bytes.map(b=>b.toString(16).toUpperCase().padStart(2,'0')).join(' ')}`);monitor.textContent=lines.length?lines.slice(-12).join('\n'):'Listening… nothing yet.';}
-        monitor.textContent=lines.length?`${lines.length} messages:\n${lines.slice(-12).join('\n')}`:'Nothing arrived. MIDI from this device isn’t reaching this computer.';
+        const status=await api('/api/midi/status'),clocks=Object.entries(status.clock_in||{}).filter(([,c])=>c.seconds_ago<3).map(([n])=>n);
+        const clockLine=clocks.length?`MIDI clock is arriving from ${clocks.join(', ')}, so it is reaching this computer.`:'';
+        monitor.textContent=lines.length?[`${lines.length} messages:`,...lines.slice(-12),clockLine].filter(Boolean).join('\n'):clockLine?`${clockLine}\nNothing else arrived: no buttons or foot switches pressed.`:'Nothing arrived. Its clock may be off, and a foot switch only sends once it’s set up on the device.';
       }catch(error){monitor.textContent=error.message;}
       watching.disabled=false;
     });

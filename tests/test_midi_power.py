@@ -178,3 +178,105 @@ def test_all_of_it_through_the_api_on_a_fake_port(service):
     assert post(service,'/api/power/acquire',{'holder':'show'})['awake'] is True
     assert post(service,'/api/power/release',{'holder':'show'})['awake'] is False
     assert json.load(request(service,'/api/power'))['supported'] is True
+
+
+# ---- the newer Windows route, on a stand-in for Windows
+class FakeMessage:
+    def __init__(self,data):self.raw_data=bytes(data)
+
+
+class FakeArgs:
+    def __init__(self,data):self.message=FakeMessage(data)
+
+
+class FakeWinrtPort:
+    def __init__(self):self.handler=None;self.closed=False;self.removed=None
+    def add_message_received(self,handler):self.handler=handler;return 'token'
+    def remove_message_received(self,token):self.removed=token
+    def close(self):self.closed=True
+
+
+class FakeWinrtApi:
+    def __init__(self,names=('Line 6 Helix',),port='ok'):
+        self.list=[(n,'id-'+n) for n in names];self.port=FakeWinrtPort() if port=='ok' else None;self.opened=[]
+    def find(self):return self.list
+    def open(self,ident):self.opened.append(ident);return self.port
+
+
+class FakeMidiIn:
+    ports=['Line 6 Helix 0','Other Keys 1']
+    def __init__(self):self.opened=None;self.ignored=None
+    def get_ports(self):return list(self.ports)
+    def ignore_types(self,**kw):self.ignored=kw
+    def open_port(self,i):self.opened=i
+    def set_callback(self,cb):self.callback=cb
+
+
+class FakeRtmidi:
+    MidiIn=FakeMidiIn
+
+
+def backend(api):
+    from chordbuddy.midi_service import RtMidiBackend,WinrtInputs
+    b=RtMidiBackend(winrt=WinrtInputs(api) if api else None)
+    b.rtmidi=FakeRtmidi
+    return b
+
+
+def service_on(back):
+    return MidiService(back,autostart=False)
+
+
+def test_listening_prefers_the_newer_route_and_offers_each_device_once():
+    api=FakeWinrtApi();b=backend(api);got=[]
+    assert b.inputs()==['Line 6 Helix','Other Keys 1'],'the Helix once, and what only the older route has'
+    opened=b.open_input('Line 6 Helix',got.append)
+    assert api.opened==['id-Line 6 Helix'] and b.routes=={'Line 6 Helix':'newer'}
+    api.port.handler(None,FakeArgs([0xB0,20,127]))
+    assert got==[[0xB0,20,127]]
+    opened.close_port()
+    assert api.port.removed=='token' and api.port.closed is True
+
+
+def test_a_device_only_the_older_route_has_still_works():
+    b=backend(FakeWinrtApi());got=[]
+    midi=b.open_input('Other Keys 1',got.append)
+    assert midi.opened==1 and b.routes['Other Keys']=='older'
+    midi.callback(([0x90,60,100],0.0))
+    assert got==[[0x90,60,100]]
+
+
+def test_with_the_newer_route_failing_or_missing_it_falls_back():
+    failed=backend(FakeWinrtApi(port=None))
+    assert failed.open_input('Line 6 Helix',lambda m:None).opened==0 and failed.routes['Line 6 Helix']=='older'
+    absent=backend(None)
+    assert absent.inputs()==['Line 6 Helix 0','Other Keys 1']
+    class Broken(FakeWinrtApi):
+        def find(self):raise OSError('no service')
+    assert backend(Broken()).inputs()==['Line 6 Helix 0','Other Keys 1'],'trouble there never hides the devices'
+
+
+def test_a_bad_message_from_windows_cannot_raise_on_its_thread():
+    from chordbuddy.midi_service import _WinrtInput
+    port=FakeWinrtPort();_WinrtInput(port,lambda m:1/0)
+    port.handler(None,FakeArgs([0xB0,1,1]))
+    port.handler(None,object())
+
+
+def test_the_whole_service_on_the_newer_route():
+    api=FakeWinrtApi();midi=service_on(backend(api))
+    assert midi.connect('Line 6 Helix',output=False)=={'name':'Line 6 Helix','output':False,'input':True,'error':None}
+    api.port.handler(None,FakeArgs([0xB0,20,127]))
+    assert midi.read_events()['events'][0]['bytes']==[0xB0,20,127]
+    assert midi.status()['routes']=={'Line 6 Helix':'newer'}
+    midi.disconnect('Line 6 Helix')
+    assert api.port.closed is True
+
+
+def test_clock_proves_a_device_is_reaching_us_and_never_counts_as_a_press():
+    api=FakeWinrtApi();midi=service_on(backend(api));midi.connect('Line 6 Helix',output=False)
+    for _ in range(48):api.port.handler(None,FakeArgs([0xF8]))
+    api.port.handler(None,FakeArgs([0xFE]));api.port.handler(None,FakeArgs([0xF0,1,0xF7]));api.port.handler(None,FakeArgs([]))
+    assert midi.read_events()['events']==[],'none of those is a control'
+    seen=midi.status()['clock_in']['Line 6 Helix']
+    assert seen['pulses']==48 and seen['seconds_ago']<1

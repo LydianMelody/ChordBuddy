@@ -21,6 +21,7 @@ Chord Buddy's own code is MIT licensed (see `LICENSE`). It uses the following. *
 | pywebview (and pythonnet) | the app window | BSD-3-Clause (pywebview), MIT (pythonnet) |
 | mido | MIDI files | MIT |
 | python-rtmidi (with RtMidi) | live MIDI to and from a pedal or controller in a performance | MIT (python-rtmidi); MIT-style RtMidi license |
+| winrt (PyWinRT): runtime and Windows.Devices.Midi, Devices.Enumeration, Foundation, Foundation.Collections, Storage.Streams | hearing a pedal or controller through Windows' newer MIDI route | MIT |
 | **mutagen** | reads MP3 tags | **GPL-2.0-or-later.** Chord Buddy imports it at run time and does not include it. Combining with MIT code is allowed, but consider this when choosing how to distribute a bundled build. *(check)* |
 | ffmpeg 6.0 "essentials" build from gyan.dev | converts audio, exports MP3 | **GPL v3.** Downloaded to the user's computer and run as a separate program; not redistributed by Chord Buddy. |
 | SheetSage2 and MERT-v2-FullSong (Music AI Project) | chord and melody transcription | SheetSage2 weights: CC BY-NC 4.0 (non-commercial; attribution required). Public on Hugging Face; no account needed. Details in `docs/MODEL-ATTRIBUTION.md`. |
