@@ -126,6 +126,16 @@ export class PerformanceRunner{
     this.applyWhole(0);
     return this;
   }
+  /** Begin from a bar in the middle (a preview): with the plan as it stands there, and nothing before it played. */
+  startAt(frame){
+    this.status='playing';this.source=frame;this.heard=frame;
+    const landing=this.findOccurrence(frame);
+    this.path=landing.rest;
+    this.advance(landing.segment,0,frame,true);
+    this.engine.play(true);
+    this.applyWhole(0);
+    return this;
+  }
   /** report: {played, source (next frame to render), heard (what is coming out of the speakers now), state ('playing','paused','buffering','ended')}. */
   tick(report){
     const before=this.played;

@@ -42,6 +42,26 @@ export function askChoice({title,message,choices,cancel='Cancel',onPick=()=>{},h
   });
 }
 
+// A question with one line to type. Resolves with what was typed, or null for Cancel / Esc. Enter is the same as the button. An empty answer can't be given.
+export function askText({title,message,label,value='',action='OK',host=document.body}){
+  return new Promise(resolve=>{
+    const {dialog,actions,close}=shell(host,title,message,'Cancel');
+    const row=el('label','pf-field'),input=el('input');input.value=value;input.setAttribute('aria-label',label);input.maxLength=200;
+    row.append(el('span','pf-field-name',label),input);dialog.append(row);
+    let done=false;
+    const finish=result=>{if(done)return;done=true;close();resolve(result);};
+    const cancelButton=el('button','secondary choice-cancel','Cancel');cancelButton.type='button';cancelButton.onclick=()=>finish(null);
+    const ok=el('button','btn blue',action);ok.type='button';
+    const submit=()=>{if(input.value.trim())finish(input.value.trim());};
+    ok.onclick=submit;input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();submit();}};
+    input.oninput=()=>{ok.disabled=!input.value.trim();};ok.disabled=!value.trim();
+    actions.append(cancelButton,ok);dialog.append(actions);
+    dialog.oncancel=e=>{e?.preventDefault?.();finish(null);};
+    dialog.addEventListener?.('close',()=>finish(null));
+    show(dialog);input.focus?.();input.select?.();
+  });
+}
+
 function radioGroup({label,value,options,onChange}){
   const group=el('div','choice-radios');group.setAttribute('role','radiogroup');if(label){group.setAttribute('aria-label',label);group.append(el('span','choice-radios-label',label));}
   const name='choice-'+Math.random().toString(36).slice(2);

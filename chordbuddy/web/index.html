@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="/midi-view.css">
   <link rel="stylesheet" href="/visualizer.css">
   <link rel="stylesheet" href="/visual-editor.css">
+  <link rel="stylesheet" href="/performance.css">
   <link rel="stylesheet" href="/midi-import.css">
   <script defer src="/vendor/abcjs-basic-min.js"></script>
   <script type="module" src="/shell.js"></script>
@@ -79,6 +80,11 @@
           </div></details>
         </div>
         <div class="actions actions-global">
+          <details class="more" id="perform-menu"><summary class="btn" title="Plan how songs play, build a show, and run it with one Start" aria-label="Perform"><span data-icon="play"></span><em>Perform</em></summary><div class="more-pop">
+            <button id="perform-prepare" class="text-button" type="button" title="Plan this song for the stage: repeats, mutes, visuals and MIDI, each at its bar. The chart stays as it is.">Prepare this song</button>
+            <button id="perform-shows" class="text-button" type="button" title="Put songs in order for a set, with their arrangements, gaps and how long it all takes">Shows</button>
+            <button id="perform-stage" class="text-button" type="button" title="The stage view of the running show: where you are, what’s next, and the time left">Perform view</button>
+          </div></details>
           <details class="more" id="visual-menu"><summary class="btn" title="Show the visualizer, stream it, or edit how it reacts" aria-label="Visualizer"><span data-icon="eye"></span><em>Visualizer</em></summary><div class="more-pop">
             <button id="visual-editor-open" class="text-button" type="button" title="Choose which sounds and signals move each part of a visualization, with a live preview. It takes the place of the chart until you close it.">Advanced Visuals Editor</button>
             <button id="visualizer-window" class="text-button" type="button" title="Open the visualizer in its own window (it can go full screen on any monitor)">In its own window</button>
@@ -109,6 +115,7 @@
       <section id="models-panel" class="models-panel hidden" aria-live="polite"></section>
       <section id="library-page" class="library-page" aria-label="All songs"></section>
       <section id="visual-editor" class="visual-editor hidden" aria-label="Advanced Visuals Editor"></section>
+      <section id="perform-page" class="perform-page hidden"></section>
       <section id="empty-state" class="empty-state">
         <div class="big"><span data-icon="note"></span></div><h2>Import a recording</h2><p>Choose an MP3 to create a chord chart, processed stems, a lead sheet and editable MIDI.</p><button id="empty-import" class="btn hot"><span data-icon="upload"></span>Import MP3</button><small>Or drop a file anywhere in this window</small>
       </section>

@@ -1,6 +1,6 @@
 // Every keyboard shortcut, for the Keyboard shortcuts dialog (More options, or ?). Keep it in step with the handlers:
-// playback-keys.js, app.js, chart-page.js (tool-icons.js), lead-sheet.js (lead-tool-info.js), page-nav.js, visualizer-view.js and
-// visualizer-page.js.
+// playback-keys.js, app.js, chart-page.js (tool-icons.js), lead-sheet.js (lead-tool-info.js), page-nav.js, visualizer-view.js,
+// visualizer-page.js, performance-app.js and performance-prepare.js.
 // keys: what to press, each a list of keycaps shown side by side ('/' between alternatives).
 export const SHORTCUTS=[
   {title:'Playing',note:'These work in the visualizer too.',rows:[
@@ -52,6 +52,21 @@ export const SHORTCUTS=[
     [['1','–','9'],'Choose a visualization, in the order of the visualizer’s buttons'],
     [['Y'],'Show or hide the lyrics'],
     [['C'],'Calm mode on or off'],
+  ]},
+  {title:'During a show',note:'The same keys, but they wait for the music: nothing moves until a bar line, and what’s coming is shown on the Perform view.',rows:[
+    [['Space'],'Start, pause or resume. Pausing is immediate.'],
+    [['L'],'Loop the four bars you’re in, from the next bar line. Again: leave after this pass. In a section loop: switch to these bars after the pass.'],
+    [['R'],'Loop the section you’re in. Again: leave after this pass. In a four-bar loop: switch to the section after the pass.'],
+    [['←','/','→'],'Queue a jump to the previous or next bar. Each press moves the queued bar, and the music goes there at the next bar line.'],
+    [['Ctrl','←','/','→'],'The same, by section'],
+  ]},
+  {title:'Prepare',rows:[
+    [['V'],'Select tool: click bars and actions to work on them'],
+    [['N'],'Repeat tool: select bars, then choose how many plays'],
+    [['A'],'Action tool: click a lane at a bar to add an action there'],
+    [['Delete'],'Remove the selected action'],
+    [['Ctrl','Z','/','Ctrl','Shift','Z'],'Undo or redo your last change on this page'],
+    [['Esc'],'Clear the selection'],
   ]},
   {title:'Anywhere',rows:[
     [['?'],'This list'],

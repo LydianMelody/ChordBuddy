@@ -23,8 +23,8 @@ export class Transport{
  emit(){for(const fn of this.listeners)fn(this.getSnapshot());}
  // A running show (performance-controller.js) owns the music: this transport stops its own stream, and sends every request to the show instead, so
  // the chart, the keys and a visualizer all still work and all go the same way. What it reports here is what every view reads.
- attachPerformer(performer){this.clearSession();this.performer=performer;this.state.playIntent=false;this.state.playing=false;this.emit();}
- detachPerformer(){this.performer=null;this.state.playIntent=false;this.state.playing=false;this.state.buffering=false;this.state.loop=noLoop();this.state.levels=null;this.state.visualMix=null;this.emit();}
+ attachPerformer(performer){this.clearSession();this.performer=performer;this.beforeShow={mix:structuredClone(this.state.mix),rate:this.state.rate};this.state.playIntent=false;this.state.playing=false;this.emit();}
+ detachPerformer(){this.performer=null;if(this.beforeShow){this.state.mix=this.beforeShow.mix;this.state.rate=this.beforeShow.rate;this.beforeShow=null;}this.state.playIntent=false;this.state.playing=false;this.state.buffering=false;this.state.loop=noLoop();this.state.levels=null;this.state.visualMix=null;this.emit();}
  performerReport(values){Object.assign(this.state,values);this.emit();}
  subscribe(fn){this.listeners.add(fn);fn(this.getSnapshot());return()=>this.listeners.delete(fn);}
  getDiagnostics(){return this.diagnostics?{...this.diagnostics}:null;}

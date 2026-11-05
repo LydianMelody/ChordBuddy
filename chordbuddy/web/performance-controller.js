@@ -61,14 +61,15 @@ export class ShowController{
     return this.check;
   }
   /** Start a run. Slot time (if the show has a target) counts from here. */
-  async start(){
+  /** from: a frame to begin at (a preview). entryIndex: begin at this song, after a stop or a crash. */
+  async start({from=0,entryIndex=0}={}){
     if(this.status!=='armed')throw Error('This show isn’t ready to start.');
     this.setDeadline();
     this.session=await this.createSession({onPosition:m=>this.position(m),onError:(e,slot,soft)=>this.engineError(e,slot,soft),onHandoff:m=>this.handedOff(m)});
     this.power?.acquire?.();
     await this.session.resume();
-    this.index=0;this.slot=0;
-    await this.startCurrent();
+    this.index=Math.max(0,Math.min(this.entries.length-1,entryIndex));this.slot=0;
+    await this.startCurrent(from);
     this.note('started');
     this.preloadNext();
     this.emit();
@@ -79,12 +80,12 @@ export class ShowController{
     else if(Number.isFinite(t?.finishAtEpoch)&&this.epochNow)this.deadline=this.now()+(t.finishAtEpoch-this.epochNow())/1000;
     else this.deadline=null;
   }
-  async startCurrent(){
+  async startCurrent(from=0){
     const item=this.loaded.get(this.current.id);
-    await this.session.load(this.slot,item.manifest,0);
+    await this.session.load(this.slot,item.manifest,from);
     this.makeRunner(this.slot,item);
     this.session.mix(this.slot,item.baseMix);
-    this.runner.start(0);
+    if(from>0)this.runner.startAt(from);else this.runner.start(0);
     this.status='playing';
     this.onSong(this.current.songId,item);
   }
@@ -109,6 +110,7 @@ export class ShowController{
   position(m){
     if(!this.session||this.status==='finished'||this.status==='stopped')return;
     if(m.slot!==this.slot)return;
+    if(this.status==='gap'&&this.now()>=this.gapEnds){this.status='playing';this.gapEnds=null;this.note('gap-ended');}
     const rate=(this.runner?.rate??100)/100;
     this.lastReport=m;
     this.runner?.tick({played:m.played,source:m.sourceFrame,heard:Math.max(0,m.heardFrame-Math.round((m.latency||0)*RATE*rate)),state:m.state,now:this.now()});
@@ -199,7 +201,7 @@ export class ShowController{
   }
   /** Stop everything now. Never locked, never quantized. */
   stop(){
-    this.runner?.stop();this.status='stopped';this.power?.release?.();this.note('stopped');
+    this.runner?.stop();if(this.runner){this.runner.pendingLoop=null;this.runner.pendingNav=null;}this.pendingNext=null;this.status='stopped';this.power?.release?.();this.note('stopped');
     this.session?.dispose?.();this.session=null;this.out({type:'cleanup'});this.emit();
   }
   pressLoop(kind){return this.runner?.pressLoop(kind)??null;}

@@ -201,6 +201,51 @@ class PerformanceStore:
             if not db.execute('UPDATE shows SET deleted=?,draft=NULL,draft_base=NULL WHERE id=? AND deleted IS NULL',(now(),show_id)).rowcount:raise KeyError('Show not found')
         return {'deleted':True}
 
+    # ---- moving a show between libraries: its arrangements come along, the recordings never do
+    def export_show(self,show_id):
+        record=self.show(show_id)
+        songs={};performances=[]
+        for entry in record['body']['entries']:
+            song=self.library.song(entry['songId'])
+            songs[entry['songId']]={'id':entry['songId'],'title':song['title'],'artist':song['artist']}
+            if entry.get('performanceId'):
+                saved=self.performance(entry['performanceId'],entry['revision'])
+                performances.append({'id':entry['performanceId'],'revision':entry['revision'],'body':saved['body']})
+        return {'format':'chordbuddy-show','version':SCHEMA,'show':record['body'],'performances':performances,'songs':list(songs.values())}
+
+    def import_show(self,bundle):
+        """Brings in a show from an export, under new identifiers, so nothing here is overwritten. Songs are matched by id, and missing ones are reported, not guessed at."""
+        if not isinstance(bundle,dict) or bundle.get('format')!='chordbuddy-show':raise ValueError('That isn’t a Chord Buddy show file.')
+        if bundle.get('version')!=SCHEMA:raise ValueError('That show was made by a different version of Chord Buddy.')
+        _measure(bundle)
+        show=bundle.get('show');performances=bundle.get('performances');songs=bundle.get('songs')
+        if not isinstance(show,dict) or not isinstance(performances,list) or not isinstance(songs,list):raise ValueError('That isn’t a Chord Buddy show file.')
+        missing=[]
+        for song in songs:
+            if not isinstance(song,dict):raise ValueError('That isn’t a Chord Buddy show file.')
+            try:self.library.song(song.get('id'))
+            except KeyError:missing.append({'id':song.get('id'),'title':song.get('title')})
+        if missing:return {'show_id':None,'missing_songs':missing}
+        with self.library.transaction(immediate=True):
+            renamed={}
+            for item in performances:
+                if not isinstance(item,dict) or not isinstance(item.get('body'),dict):raise ValueError('That isn’t a Chord Buddy show file.')
+                key=(item.get('id'),item.get('revision'))
+                if key in renamed:continue
+                body=dict(item['body'],id=self.new_id())
+                saved=self.save_performance(body,0)
+                renamed[key]=(saved['id'],saved['revision'])
+            entries=[]
+            for entry in show.get('entries') or []:
+                if not isinstance(entry,dict):raise ValueError('That isn’t a Chord Buddy show file.')
+                copy=dict(entry,id=self.new_id())
+                if entry.get('performanceId'):
+                    if (entry['performanceId'],entry.get('revision')) not in renamed:raise ValueError('That show file is missing an arrangement.')
+                    copy['performanceId'],copy['revision']=renamed[(entry['performanceId'],entry['revision'])]
+                entries.append(copy)
+            saved=self.save_show(dict(show,id=self.new_id(),entries=entries,sourceList=None),0)
+        return {'show_id':saved['id'],'missing_songs':[]}
+
     @staticmethod
     def new_id():
         return uuid.uuid4().hex[:16]

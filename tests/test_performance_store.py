@@ -118,3 +118,39 @@ def test_saved_values_survive_a_restart(service,song,tmp_path):
     save(service,body(song,cues=[{'id':'z'}]))
     again=PerformanceStore(service.app.library)
     assert again.performance('perf1')['body']['cues']==[{'id':'z'}]
+
+
+def test_a_show_travels_with_its_arrangements_under_new_ids_and_overwrites_nothing(service,song):
+    save(service,body(song,cues=[{'id':'kept'}]))
+    post(service,'/api/show/save',{'body':show(entries=[{'id':'e1','songId':song,'performanceId':'perf1','revision':1}]),'base':0})
+    bundle=json.load(request(service,'/api/show/show1/export'))
+    assert bundle['format']=='chordbuddy-show' and bundle['songs'][0]['id']==song and 'path' not in json.dumps(bundle['songs'])
+    result=post(service,'/api/show/import',{'bundle':bundle})
+    assert result['missing_songs']==[] and result['show_id']!='show1'
+    copy=json.load(request(service,'/api/show/'+result['show_id']))['body']
+    assert copy['entries'][0]['performanceId']!='perf1' and copy['entries'][0]['id']!='e1'
+    assert json.load(request(service,f"/api/performance/{copy['entries'][0]['performanceId']}"))['body']['cues']==[{'id':'kept'}]
+    assert json.load(request(service,'/api/show/show1'))['head']==1,'the original is untouched'
+
+
+def test_an_import_with_a_missing_song_says_which_and_changes_nothing(service,song):
+    save(service,body(song))
+    post(service,'/api/show/save',{'body':show(entries=[{'id':'e1','songId':song,'performanceId':'perf1','revision':1}]),'base':0})
+    bundle=json.load(request(service,'/api/show/show1/export'))
+    bundle['songs'][0]['id']='nosuchsong00'
+    result=post(service,'/api/show/import',{'bundle':bundle})
+    assert result['show_id'] is None and result['missing_songs'][0]['id']=='nosuchsong00'
+    assert len(json.load(request(service,'/api/shows')))==1
+
+
+def test_bad_show_files_are_refused_and_a_failed_import_leaves_nothing_behind(service,song):
+    def refused(bundle):
+        return code(service,'/api/show/import',json.dumps({'bundle':bundle}).encode(),JSONH)
+    assert refused({'format':'something else'})==400
+    assert refused({'format':'chordbuddy-show','version':99})==400
+    assert refused({'format':'chordbuddy-show','version':1,'show':'x','performances':[],'songs':[]})==400
+    good={'format':'chordbuddy-show','version':1,'songs':[{'id':song}],'performances':[{'id':'a','revision':1,'body':body(song,'a')}],
+          'show':show(entries=[{'id':'e','songId':song,'performanceId':'other','revision':1}])}
+    assert refused(good)==400
+    assert json.load(request(service,'/api/performances/'+song))==[],'rolled back'
+    assert json.load(request(service,'/api/shows'))==[]

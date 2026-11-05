@@ -449,6 +449,7 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/power':return self._json(self.app.power.status())
         if path=='/api/shows':return self._json(self.app.performances.shows())
         if path.startswith('/api/performances/'):return self._json(self.app.performances.performances_for_song(path.removeprefix('/api/performances/')))
+        if re.fullmatch(r'/api/show/[^/]+/export',path):return self._json(self.app.performances.export_show(path.split('/')[3]))
         if path.startswith('/api/performance/') or path.startswith('/api/show/'):
             revision=parse_qs(urlparse(self.path).query).get('revision',[None])[0]
             revision=int(revision) if revision is not None else None
@@ -708,6 +709,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path=='/api/performance/delete':result=self.app.performances.delete_performance(body['id'])
         elif path=='/api/show/save':result=self.app.performances.save_show(body['body'],body['base'])
         elif path=='/api/show/draft':result=self.app.performances.save_show_draft(body['body'],body['base'])
+        elif path=='/api/show/import':result=self.app.performances.import_show(body['bundle'])
         elif path=='/api/show/delete':result=self.app.performances.delete_show(body['id'])
         elif path=='/api/visual-patches':
             result=self.app.visual_patches.save(body['visual'],body.get('patch'),body.get('song_id'))

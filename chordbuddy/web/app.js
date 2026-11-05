@@ -36,6 +36,7 @@ import {mountVisualizer,loadVisualizations} from './visualizer-view.js';
 import {readSetup,readUsual,writeSetup,writeUsual} from './visual-setup.js';
 import {createMidiImport} from './midi-import.js';
 import {buildScene} from './visual-scene.js';
+import {createPerformanceApp} from './performance-app.js';
 
 const $ = id => document.getElementById(id);
 document.querySelector('.chart-intro h2')?.remove();
@@ -407,6 +408,14 @@ function closeVisualEditor(){
   visualEditor.dispose();visualEditor=null;$('visual-editor').classList.add('hidden');document.body.classList.remove('editing-visuals');
 }
 $('visual-editor-open').onclick=openVisualEditor;
+// The show system (performance-app.js): the Prepare, Show and Perform pages, and the one running show.
+let lastNow=null;{const setNow=player.setNow;player.setNow=value=>{lastNow=value;setNow(value);};}
+const performanceApp=createPerformanceApp({api,token,transport,visuals,$,showError,
+  songs:()=>(model.state?.songs||[]).filter(song=>song.active_run),setlists:()=>model.state?.setlists||[],currentSong,
+  showSong:id=>selectSong(id,{forShow:true}).catch(showError),
+  chordNow:()=>lastNow?{now:lastNow.chord,next:lastNow.next}:null,mappings:()=>{try{return JSON.parse(prefs.get('cb-midi-mappings','[]'));}catch{return [];}},saveMappings:value=>prefs.set('cb-midi-mappings',JSON.stringify(value))});
+$('visual-editor-open').addEventListener('click',()=>performanceApp.closePage());
+$('all-songs').addEventListener('click',()=>performanceApp.closePage());
 $('all-songs').addEventListener('click',closeVisualEditor);     // All songs takes the same place
 // The visualizer as an OBS Browser Source: OBS draws it off screen at the size set there, so it never pauses while you use this window,
 // and it shows no controls. Its address stays the same between launches (unless that port was taken).
@@ -719,7 +728,8 @@ async function refreshState(){
   }
   const song=currentSong();if(song&&(song.status!==oldStatus || song.active_run!==oldRun || model.state.job?.kind!=='separation' && model.state.job?.song_id===song.id && isJobActive(model.state.job)))await refreshSongDetail(song.id,false);
 }
-async function selectSong(id){
+async function selectSong(id,{forShow=false}={}){
+  if(!forShow&&performanceApp?.ownsSong()&&performanceApp.ownsSong()!==id){showError(Error('A show is playing. Stop it to open another song, or change the set from the Perform view.'));return;}
   if(id===model.song){if(model.view!=='song'){model.view='song';renderLibrary();}return;}
   if(!practiceView.canNavigate())return;
   const request=++model.loadingSong;

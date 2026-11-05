@@ -12,6 +12,12 @@ export const TOOLS={
   cue:{label:'Cue',key:'Q',title:'Write a cue',
     body:'Click a chord to put a short note above it for that moment, like “pick scratch”, “count-in” or “feedback”. The chord stays as it is. Click a cue to retype it; empty it to remove it.'},
 };
+// The Prepare page's rail (performance-prepare.js).
+Object.assign(TOOLS,{
+  'prepare-select':{label:'Select',key:'V',title:'Select bars and actions',body:'Click a bar, a section or an action to work on it. Shift-click a second bar to select everything between. Its settings appear on the right.'},
+  'prepare-repeat':{label:'Repeat',key:'N',title:'Make a repeat',body:'Select the bars to repeat, then set how many plays on the right. Each pass can then be edited on its own.'},
+  'prepare-action':{label:'Action',key:'A',title:'Add an action',body:'Click a lane at a bar to add a mute, a visual change, a MIDI message or a note there. Its settings appear on the right.'},
+});
 export const CHART_TOOLS=['play','edit','timing','cue'];
 export const CHART_FOR_KEY={V:'play',E:'edit',T:'timing',Q:'cue'};
 
@@ -39,6 +45,7 @@ export const TOOL_ICONS={
 };
 // the chart's tools wear the drawings of the places they work on
 TOOL_ICONS.play=TOOL_ICONS.navigate;TOOL_ICONS.edit=TOOL_ICONS.write;TOOL_ICONS.timing=TOOL_ICONS.words;
+TOOL_ICONS['prepare-select']=TOOL_ICONS.navigate;TOOL_ICONS['prepare-repeat']=TOOL_ICONS.repeat;TOOL_ICONS['prepare-action']=TOOL_ICONS.write;
 export const toolIcon=(name,cls='')=>`<svg class="tool-ic ${cls}" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TOOL_ICONS[name]||''}</svg>`;
 
 // Cursors: the tool's own icon, in plain ink and yellow so it reads on any theme.
