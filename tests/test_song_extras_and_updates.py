@@ -235,3 +235,13 @@ def test_update_routes(service,monkeypatch):
     monkeypatch.setattr(webbrowser,'open',lambda url:opened.append(url))
     assert post(service,'/api/update-page',{'url':'https://evil.example'})=={'opened':True}
     assert opened==[update_check.PAGE_URL],'only ever the project’s own page, whatever is asked'
+
+
+def test_a_portable_build_keeps_the_version_file(tmp_path):
+    import shutil
+    from pathlib import Path
+    import build_portable
+    source=tmp_path/'src';source.mkdir();shutil.copy(Path(__file__).parent.parent/'VERSION',source/'VERSION');(source/'notes.bin').write_bytes(b'x');(source/'Start Portable.cmd').write_bytes(b'@echo off')
+    out=tmp_path/'out';out.mkdir()
+    build_portable.copy_code(source,out)
+    assert (out/'VERSION').is_file() and not (out/'notes.bin').exists()

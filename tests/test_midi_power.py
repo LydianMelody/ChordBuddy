@@ -180,7 +180,7 @@ def test_all_of_it_through_the_api_on_a_fake_port(service):
     assert json.load(request(service,'/api/power'))['supported'] is True
 
 
-# ---- the newer Windows route, on a stand-in for Windows
+# ---- WinRT MIDI, on a stand-in for Windows
 class FakeMessage:
     def __init__(self,data):self.raw_data=bytes(data)
 
@@ -227,28 +227,28 @@ def service_on(back):
     return MidiService(back,autostart=False)
 
 
-def test_listening_prefers_the_newer_route_and_offers_each_device_once():
+def test_listening_prefers_winrt_and_offers_each_device_once():
     api=FakeWinrtApi();b=backend(api);got=[]
-    assert b.inputs()==['Line 6 Helix','Other Keys 1'],'the Helix once, and what only the older route has'
+    assert b.inputs()==['Line 6 Helix','Other Keys 1'],'the Helix once, and what only WinMM has'
     opened=b.open_input('Line 6 Helix',got.append)
-    assert api.opened==['id-Line 6 Helix'] and b.routes=={'Line 6 Helix':'newer'}
+    assert api.opened==['id-Line 6 Helix'] and b.routes=={'Line 6 Helix':'winrt'}
     api.port.handler(None,FakeArgs([0xB0,20,127]))
     assert got==[[0xB0,20,127]]
     opened.close_port()
     assert api.port.removed=='token' and api.port.closed is True
 
 
-def test_a_device_only_the_older_route_has_still_works():
+def test_a_device_only_winmm_has_still_works():
     b=backend(FakeWinrtApi());got=[]
     midi=b.open_input('Other Keys 1',got.append)
-    assert midi.opened==1 and b.routes['Other Keys']=='older'
+    assert midi.opened==1 and b.routes['Other Keys']=='winmm'
     midi.callback(([0x90,60,100],0.0))
     assert got==[[0x90,60,100]]
 
 
-def test_with_the_newer_route_failing_or_missing_it_falls_back():
+def test_with_winrt_failing_or_missing_it_falls_back():
     failed=backend(FakeWinrtApi(port=None))
-    assert failed.open_input('Line 6 Helix',lambda m:None).opened==0 and failed.routes['Line 6 Helix']=='older'
+    assert failed.open_input('Line 6 Helix',lambda m:None).opened==0 and failed.routes['Line 6 Helix']=='winmm'
     absent=backend(None)
     assert absent.inputs()==['Line 6 Helix 0','Other Keys 1']
     class Broken(FakeWinrtApi):
@@ -263,12 +263,12 @@ def test_a_bad_message_from_windows_cannot_raise_on_its_thread():
     port.handler(None,object())
 
 
-def test_the_whole_service_on_the_newer_route():
+def test_the_whole_service_on_winrt():
     api=FakeWinrtApi();midi=service_on(backend(api))
     assert midi.connect('Line 6 Helix',output=False)=={'name':'Line 6 Helix','output':False,'input':True,'error':None}
     api.port.handler(None,FakeArgs([0xB0,20,127]))
     assert midi.read_events()['events'][0]['bytes']==[0xB0,20,127]
-    assert midi.status()['routes']=={'Line 6 Helix':'newer'}
+    assert midi.status()['routes']=={'Line 6 Helix':'winrt'}
     midi.disconnect('Line 6 Helix')
     assert api.port.closed is True
 

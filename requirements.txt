@@ -2,7 +2,7 @@ mutagen==1.47.0
 mido==1.3.3
 # python-rtmidi: live MIDI to and from a pedal or controller in a performance (chordbuddy/midi_service.py)
 python-rtmidi==1.5.8
-# Windows' newer MIDI route: on some Windows 11 systems a device (a Line 6 Helix, for one) reaches the computer only this way
+# WinRT MIDI 1.0: on some Windows 11 systems a device (a Line 6 Helix, for one) reaches the computer only this way
 winrt-runtime==4.1.0
 winrt-Windows.Devices.Midi==4!10.0.28000.2957
 winrt-Windows.Devices.Enumeration==4!10.0.28000.2957

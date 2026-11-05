@@ -37,8 +37,9 @@ def _in_a_thread(work,timeout=10):
 
 
 class _WinrtApi:
-    """Windows' newer MIDI route (Windows.Devices.Midi), which reaches some devices the older one doesn't: on some Windows 11 systems a Line 6 Helix
-    delivers nothing through the older route while this one hears it perfectly."""
+    """WinRT MIDI 1.0 (Windows.Devices.Midi): on some Windows 11 systems a Line 6 Helix delivers nothing through WinMM, while this hears it perfectly.
+    Microsoft lists it among its older APIs, without a removal date. Windows MIDI Services (Windows.Devices.Midi2) is the future: when that is out of
+    preview and usable from Python, this one class is what would change."""
     def __init__(self):
         from winrt.windows.devices.enumeration import DeviceInformation
         from winrt.windows.devices.midi import MidiInPort
@@ -87,8 +88,8 @@ class WinrtInputs:
 
 
 class RtMidiBackend:
-    """The real ports, imported on first use so the app runs where they're missing. Sending goes through rtmidi. Listening uses Windows' newer route
-    when it has the device and the older one otherwise."""
+    """The real ports, imported on first use so the app runs where they're missing. Sending goes through rtmidi (WinMM). Listening uses WinRT when
+    it has the device, and rtmidi otherwise."""
     def __init__(self,winrt=False):
         import rtmidi
         self.rtmidi=rtmidi
@@ -98,14 +99,14 @@ class RtMidiBackend:
         self.winrt=winrt
         self.routes={}
 
-    def _newer(self):
+    def _winrt_names(self):
         if self.winrt is None:return []
         try:return self.winrt.names()
         except Exception:return []
 
     def inputs(self):
-        newer=self._newer();named={logical_name(n) for n in newer}
-        return newer+[p for p in self.rtmidi.MidiIn().get_ports() if logical_name(p) not in named]
+        found=self._winrt_names();named={logical_name(n) for n in found}
+        return found+[p for p in self.rtmidi.MidiIn().get_ports() if logical_name(p) not in named]
 
     def outputs(self):return self.rtmidi.MidiOut().get_ports()
 
@@ -113,17 +114,17 @@ class RtMidiBackend:
         out=self.rtmidi.MidiOut();out.open_port(out.get_ports().index(port));return out
 
     def open_input(self,port,callback):
-        if port in self._newer():
+        if port in self._winrt_names():
             try:
-                opened=self.winrt.open(port,callback);self.routes[logical_name(port)]='newer';return opened
+                opened=self.winrt.open(port,callback);self.routes[logical_name(port)]='winrt';return opened
             except Exception:
-                pass                                     # fall through to the older route, if it has the device
+                pass                                     # fall through to WinMM, if it has the device
         midi=self.rtmidi.MidiIn();midi.ignore_types(sysex=True,timing=False,active_sense=True)
         ports=midi.get_ports()
         match=next((p for p in ports if p==port or logical_name(p)==logical_name(port)),None)
         if match is None:raise OSError('Windows wouldn’t open this device.')
         midi.open_port(ports.index(match));midi.set_callback(lambda event,data=None:callback(event[0]))
-        self.routes[logical_name(port)]='older'
+        self.routes[logical_name(port)]='winmm'
         return midi
 
 

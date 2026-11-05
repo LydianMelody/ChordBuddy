@@ -6,6 +6,8 @@
 // controls such as the sustain pedal; usually empty, so use them only when they are there).
 // `inputs` (optional) names the parts the patch bay can rewire: each has a default source (what it does unchanged), and the person can
 // connect any sound or signal to it instead, including their own MIDI. Read them as env.inputs.key; see visual-patch.js for the sources.
+// In a show, your `inputs` can also be set or fired by the arrangement. When a live loop repeats, env.events.replay is set: to repeat the same way each
+// pass, start over then, and use env.random() in place of Math.random().
 // The full guide (the data in `frame` and `env`, how to make it feel musical, sync and performance rules) is the chordbuddy-visuals skill.
 import {chordColor} from '../visual-color.js';
 

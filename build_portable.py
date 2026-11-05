@@ -59,7 +59,7 @@ def copy_code(source,destination):
         if directory.is_dir():
             count+=copy_tree(directory,destination/name)
     for file in source.iterdir():
-        if file.is_file() and not file.is_symlink() and not ignored(file.name) and file.name!='portable.json' and file.suffix.lower() in {'.py','.md','.txt','.cmd','.bat','.json'}:
+        if file.is_file() and not file.is_symlink() and not ignored(file.name) and file.name!='portable.json' and (file.name=='VERSION' or file.suffix.lower() in {'.py','.md','.txt','.cmd','.bat','.json'}):
             copy_file(file,destination/file.name)
             count+=1
     # the empty My Visuals folder, with its README (never anyone's own visuals)

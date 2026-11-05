@@ -13,12 +13,13 @@ The server only listens on `127.0.0.1`. Each session gets a random token, passed
 
 ## The library
 
-Songs and everything you change live in the `Data` folder next to the app (or the folder given with `--library`). A SQLite database holds the song list, set lists, preferences and every document revision; each song has its own folder for the imported MP3, the analysis results and the stems.
+Songs and everything you change live in the `Data` folder next to the app (or the folder given with `--library`). A SQLite database holds the song list, set lists, preferences, every document revision, and saved arrangements and shows; each song has its own folder for the imported MP3, the analysis results, the stems and your own MIDI files (`my-midi`). Visual connections are in `visual-patches.json`.
 
 - The imported recording and the models' original output are never overwritten.
 - Every edit is saved as a revision, so Undo and Redo survive closing the app.
 - Each analysis is kept. **Previous transcriptions** (in the ⋯ menu) opens an earlier one with its own edits and history.
 - Deleted songs go to the trash first and can be restored.
+- **Whole song · zip** (`song_transfer.py`, `song_extras.py`) carries everything about one song: rows, files, your MIDI, its visual connections, look and arrangements. Importing only adds, and a damaged extra is left out without losing the song.
 
 ## Analysis
 
@@ -41,6 +42,21 @@ Each analysis produces a **chart** (Chord Buddy's own JSON), a **lead sheet** (A
 
 On the lead sheet, chord symbols the model was less sure of are drawn fainter. A chord you type yourself is confirmed and drawn at full strength. Confidence scores are the model's own prediction certainty, not a guarantee that a chord is right.
 
+## Visuals
+
+Visualizations are JavaScript modules in `chordbuddy/web/visualizations/`, or `My Visuals` beside the app. Each draws from a frame of musical data built by `visual-scene.js`. The player publishes the song and its clock over a BroadcastChannel (`visual-bridge.js`), and to OBS through the server (`visual_relay.py`), so any number of windows follow one player. `visual-patch.js` turns sounds and signals into each visualization's inputs; the Advanced Visuals Editor (`visual-patchbay.js`) edits those connections. A file you drop for the visualizer (`midi-import.js`, `user_midi.py`) never changes the chart or the model's data.
+
+## Performance
+
+The Prepare, Shows and Perform pages run a set from one Start. Practice playback (`transport.js`, `pcm-mixer-core.js`) doesn't use any of this until a show takes the transport over, and gets its mix and speed back afterward.
+
+- **Model:** `performance-model.js` is what's saved: an arrangement's cues by bar and beat, its repeats and each pass's own program. `performance_store.py` keeps them as revisions that never change, so a show can pin the exact one it was checked with.
+- **Compiler:** `performance-compiler.js` turns an arrangement and the song's bars into a path: one segment per play, in exact frames. `performance-duration.js` works out every clock from that path. `performance-actions.js` is the list of everything an arrangement can do; imported files can only name these, and never run code.
+- **Runner:** `performance-runner.js` decides what plays next. Loops, exits, switches and jumps are all edits to the path, and each happens at a bar line. It's pure, so tests drive it with the real mixer and check the output sample by sample (`tests/performance-sim.mjs`, including a randomized soak).
+- **Engine:** `pcm-path.js` plays up to an exact frame and then the target, with no stop, in its own `stem-path` processor (`pcm-worklet.js`, `pcm-path-session.js`). One AudioContext lasts the whole show, with two players, so the next song starts on an exact sample. Mix changes are applied on their exact output frame, ahead of any time stretch.
+- **Show:** `performance-controller.js` moves between songs, and `performance-app.js` connects it to the app. `performance-prepare.js` and `performance-view.js` are the pages.
+- **Outside:** `performance-visuals.js` sends timed cues to every visualizer. `midi_service.py` schedules MIDI out on a thread with its own clock, and `performance-midi.js` talks to it. Input comes through WinRT MIDI, because WinMM delivers nothing from a Line 6 Helix on some Windows 11 systems, with WinMM as the fallback. Only a control you taught does anything. `power_service.py` keeps the computer awake during a show.
+
 ## The API
 
 `chordbuddy/server.py` handles every request; the route names describe what they do. The main groups are:
@@ -50,7 +66,10 @@ On the lead sheet, chord symbols the model was less sure of are drawn fainter. A
 - **documents:** `/api/song/<id>`, `/api/document/<id>` (with `/undo`, `/redo` and `/restore`), `/api/confirm-chord`;
 - **playback:** `/api/audio/…`, `/api/separation-audio/…`, `/api/waveform/…`, `/api/playback/…`;
 - **exports:** `/api/export-midi/…`, `/api/export-outputs/…`, `/api/mix-export/…`, and opening a file in another program with `/api/midi/external` and `/api/lead-sheet/external`;
-- **models:** `/api/models…` (stem models) and `/api/chord-model…` (the chord model).
+- **models:** `/api/models…` (stem models) and `/api/chord-model…` (the chord model);
+- **visuals:** `/api/visual-patches…`, `/api/visual-relay/…`, `/api/user-midi/…`;
+- **performance:** `/api/performance…` and `/api/performances/<song>`, `/api/show…` and `/api/shows` (with `/export` and `/import`), `/api/midi/…`, `/api/power…`;
+- **updates:** `/api/update-check` runs only when someone chooses Check for updates. It reads the `VERSION` file on the project's `main` branch, and sends nothing about the library.
 
 Errors come back as JSON `{error}` with a 4xx or 5xx status. The page learns about running jobs by polling `/api/state`. Document saves carry a revision number, so an edit made from stale data is refused instead of overwriting newer work.
 
@@ -58,4 +77,5 @@ Errors come back as JSON `{error}` with a 4xx or 5xx status. The page learns abo
 
 - JavaScript: `node --test tests/*.test.mjs`
 - Python: `runtime\python.exe -m pytest -q tests`
+- 16 Python tests currently fail on a long temporary path (`PathBudgetError`), in the analysis, separation and short-path tests, whatever else changes. Compare against that list.
 - Try changes against a separate library, never your real one: `runtime\python.exe portable_start.py --browser --library C:\some\test\library`

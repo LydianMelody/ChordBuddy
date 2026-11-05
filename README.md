@@ -1,6 +1,6 @@
 # Chord Buddy
 
-A free practice app for Windows. Give it a song (an MP3) and it works out the chords, the melody and the song's sections, then gives you three ways to play along:
+A free practice and performance app for Windows. Give it a song (an MP3) and it works out the chords, the melody and the song's sections, then gives you three ways to play along:
 
 - **Chord chart:** the song's chords bar by bar, with the lyrics under them, repeats folded (`G C D C ×2`) and the current chord lit as the music plays.
 - **Lead sheet:** the melody on a staff with chord symbols and lyrics, ready to print or save as a PDF.
@@ -16,6 +16,8 @@ Everything runs on your own computer. Your music is never uploaded anywhere.
 - **Correct the chart:** retype chords and words, split and join sections, fold or unfold repeats, time the words to the beat, and fix bar lines for short or long bars. Every change can be undone, even after closing the app.
 - **Edit the lead sheet:** fix chord symbols, type lyrics (they are shared with the chart), choose where lines break, or open it in MuseScore or another notation program as a MusicXML file.
 - **Export:** PDF of the chart or the lead sheet, MIDI (one multichannel file or one file per track), a mix of the stems as an MP3, or a zip of everything the model produced. **Whole song · zip** moves a song to another computer with everything that belongs to it: your edits, your own MIDI files, its visual connections and look, and its arrangements.
+- **Watch it:** visualizations that react to the chords, beats, stems and melodies, on a second monitor or streamed to OBS. Rewire what moves what, bring in your own MIDI, or add your own looks.
+- **Perform it:** plan repeats, mutes, visuals and MIDI for each song, put songs in order, and run a whole set with one Start.
 - **Make it yours:** three color themes, each with a light and dark look.
 
 ## Install
@@ -85,7 +87,7 @@ The Perform view has its own **Mixer**, and you can leave it at any time: the sh
 
 A loop that lasts until you release it makes the finish time an estimate: it's planned as four plays and grows if you stay longer. Leaving early takes the unused plays back off.
 
-**MIDI:** connect a device from the **Shows** page (the Line 6 Helix has its own action for setlist, preset and snapshot). You can teach it controls with **Learn**: only a control you taught does anything, so a pedal's own chatter when it changes preset is ignored. Nothing is sent while you edit, and Preview sends MIDI only if you tick **Send to hardware**. A sent message means it was sent, not that the device did anything; presets can take a moment to load, so an action can be set to go a little early. **Watch incoming MIDI** lists what's arriving from a device, and says so if its MIDI clock is coming through, to check it's reaching the computer. Chord Buddy listens through Windows' newer MIDI route when it can, so a Helix that other programs can't hear on Windows 11 can still work here. A device marked **This show needs it** stops the show at the next bar line if it's disconnected; any other is noted, and gets where things stand when it comes back, not what it missed.
+**MIDI:** connect a device from the **Shows** page (the Line 6 Helix has its own action for setlist, preset and snapshot). You can teach it controls with **Learn**: only a control you taught does anything, so a pedal's own chatter when it changes preset is ignored. Nothing is sent while you edit, and Preview sends MIDI only if you tick **Send to hardware**. A sent message means it was sent, not that the device did anything; presets can take a moment to load, so an action can be set to go a little early. **Watch incoming MIDI** lists what's arriving from a device, and says so if its MIDI clock is coming through, to check it's reaching the computer. Chord Buddy listens through Windows' WinRT MIDI when it can, so a Helix that some other programs can't hear on Windows 11 can still work here. A device marked **This show needs it** stops the show at the next bar line if it's disconnected; any other is noted, and gets where things stand when it comes back, not what it missed.
 
 While a show runs, Chord Buddy keeps the computer and screen from going to sleep by themselves. It can't stop you putting it to sleep or closing the lid, and it changes no power settings.
 
