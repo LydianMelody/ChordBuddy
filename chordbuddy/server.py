@@ -34,6 +34,7 @@ from .song_transfer import SongTransfer
 from .user_midi import UserMidi
 from .visual_relay import VisualRelay,stream_key
 from .visual_patches import VisualPatches
+from .performance_store import PerformanceStore
 
 
 PROJECT=Path(__file__).resolve().parent.parent
@@ -47,6 +48,7 @@ class Application:
         self.my_visuals=Path(project_dir)/'My Visuals'
         self.user_midi=UserMidi(self.library)   # your own MIDI files, kept with each song
         self.visual_patches=VisualPatches(self.library)   # the patch bay's patches (which sounds drive which parts of a visualization)
+        self.performances=PerformanceStore(self.library)   # saved arrangements of a song, and shows made of them
         # visualizers in another browser (an OBS Browser Source): the player's messages, relayed; their address has a key kept with the library
         self.visual_relay=VisualRelay()
         self.stream_key_path=self.library.root/'visualizer-stream.key'
@@ -432,6 +434,13 @@ class Handler(BaseHTTPRequestHandler):
             key=stream_key(self.app.stream_key_path,True)
             return self._json({'url':f'http://127.0.0.1:{self.server.server_port}/visualizer.html?stream={key}','port':self.server.server_port})
         if path=='/api/visual-relay/player':return self._event_stream('player')
+        if path=='/api/shows':return self._json(self.app.performances.shows())
+        if path.startswith('/api/performances/'):return self._json(self.app.performances.performances_for_song(path.removeprefix('/api/performances/')))
+        if path.startswith('/api/performance/') or path.startswith('/api/show/'):
+            revision=parse_qs(urlparse(self.path).query).get('revision',[None])[0]
+            revision=int(revision) if revision is not None else None
+            if path.startswith('/api/performance/'):return self._json(self.app.performances.performance(path.removeprefix('/api/performance/'),revision))
+            return self._json(self.app.performances.show(path.removeprefix('/api/show/'),revision))
         if path=='/api/visual-patches':return self._json(self.app.visual_patches.read())
         if path.startswith('/api/visual-patches/'):return self._json(self.app.visual_patches.read(path.removeprefix('/api/visual-patches/')))
         if path.startswith('/api/user-midi/'):
@@ -674,6 +683,12 @@ class Handler(BaseHTTPRequestHandler):
             if os.name=='nt':
                 os.startfile(str(folder))
             result={'ok':True}
+        elif path=='/api/performance/save':result=self.app.performances.save_performance(body['body'],body['base'])
+        elif path=='/api/performance/draft':result=self.app.performances.save_performance_draft(body['body'],body['base'])
+        elif path=='/api/performance/delete':result=self.app.performances.delete_performance(body['id'])
+        elif path=='/api/show/save':result=self.app.performances.save_show(body['body'],body['base'])
+        elif path=='/api/show/draft':result=self.app.performances.save_show_draft(body['body'],body['base'])
+        elif path=='/api/show/delete':result=self.app.performances.delete_show(body['id'])
         elif path=='/api/visual-patches':
             result=self.app.visual_patches.save(body['visual'],body.get('patch'),body.get('song_id'))
         elif path=='/api/user-midi/settings':
