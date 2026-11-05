@@ -140,6 +140,9 @@ export function renderMidiRoll(container,state,options){
     options.dock.dataset.owner='midi';
     renderRail(options.dock,{groups:[],active:null,onPick(){},actions:[
       {id:'external',label:EDITOR.label,title:EDITOR.title,body:EDITOR.body,run:()=>Promise.resolve(options.onExternal?.()).then(r=>r&&say(r.message,true)).catch(e=>{say(e?.message||String(e),true);options.onError?.(e);})},
+      ...(options.onYourMidi?[{id:'yourmidi',label:'Your MIDI',title:'Your own MIDI for the visualizer',
+        body:'Bring MIDI from your DAW (real velocity, pedals, bends, MPE) and line it up with the recording, or make a file laid out on this song\'s beats. You can also drop a .mid anywhere.',
+        run:()=>options.onYourMidi()}]:[]),
     ]});
   }
   const fit=el('button','tl-btn roll-fit','Fit song');fit.type='button';fit.title='Zoom out to the whole song and every pitch in it';

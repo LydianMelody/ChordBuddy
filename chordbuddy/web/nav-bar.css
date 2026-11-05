@@ -76,8 +76,9 @@
 .speed button{width:30px;height:100%;padding:0;display:grid;place-items:center;font:800 18px/1 var(--g);background:none;min-width:0;min-height:0}
 .speed button:hover:not(:disabled){background:var(--hl)}
 .speed button:disabled{opacity:.4;cursor:default}
-.speed>span{display:flex;align-items:center;gap:5px;padding:0 6px;font:700 12px var(--m);border-left:2px solid var(--ink);border-right:2px solid var(--ink);height:100%}
-.speed>span .ic{width:16px}
+.speed>span{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:46px;padding:0 6px;font:700 12px var(--m);border-left:2px solid var(--ink);border-right:2px solid var(--ink);height:100%}
+.speed>span small{font:800 9px/1 var(--g);letter-spacing:.1em;text-transform:uppercase;color:var(--soft)}
+.speed.slowed>span small{color:inherit}
 .speed.slowed>span{background:var(--hl)}
 
 /* locked: dim everything but the pill */

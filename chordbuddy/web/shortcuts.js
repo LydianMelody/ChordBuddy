@@ -1,5 +1,6 @@
 // Every keyboard shortcut, for the Keyboard shortcuts dialog (More options, or ?). Keep it in step with the handlers:
-// playback-keys.js, app.js, chart-page.js, lead-sheet.js (lead-tool-info.js), visualizer-view.js and visualizer-page.js.
+// playback-keys.js, app.js, chart-page.js (tool-icons.js), lead-sheet.js (lead-tool-info.js), page-nav.js, visualizer-view.js and
+// visualizer-page.js.
 // keys: what to press, each a list of keycaps shown side by side ('/' between alternatives).
 export const SHORTCUTS=[
   {title:'Playing',note:'These work in the visualizer too.',rows:[
@@ -9,22 +10,28 @@ export const SHORTCUTS=[
     [['←','/','→'],'Previous or next bar'],
     [['Ctrl','←','/','→'],'Previous or next section'],
   ],after:'Drag the loop handles on the waveform for any range: they win over R and L, and either key then ends the loop.'},
-  {title:'Chord chart',rows:[
-    [['Hold Ctrl'],'Editing tools'],
-    [['Hold Shift'],'Timing tools'],
-    [['Esc'],'Put the tool down'],
-    [['Ctrl','Z'],'Undo'],
-    [['Ctrl','Shift','Z','/','Ctrl','Y'],'Redo'],
-    [['+','/','−'],'Zoom in or out (timing view)'],
-    [['Ctrl','+','/','−','/','0'],'Zoom the page'],
+  {title:'Chord chart',note:'The tools are also in the rail to the left of the chart.',rows:[
+    [['V'],'Play tool: click any chord, word, bar number or section name to play from there'],
+    [['E'],'Edit tool: click to retype chords or words, rename a section, or split and join sections and bars'],
+    [['T'],'Timing tool: the chart drawn true to time, to drag words and chords onto the beat and fold repeats'],
+    [['Q'],'Cue tool: click a chord to write a short note above it for that moment, like “pick scratch” or “count-in”. The chord stays as it is.'],
+    [['Esc'],'Back to the Play tool (or stop folding a repeat)'],
+    [['Hold Ctrl'],'Swap Play and Edit while it is held: a quick edit while playing, or a quick jump while editing'],
+    [['Hold Shift'],'Show the Timing tool until you let go'],
+    [['Shift','click'],'On two bar numbers (Timing tool): fold the part between them, like Fold a repeat'],
+    [['Ctrl','Z'],'Undo your last change to the song (a note says what was undone, with Redo). The History button, the clock by Undo, lists your changes by name to go back several at once.'],
+    [['Ctrl','Shift','Z','/','Ctrl','Y'],'Redo: put back what you just undid'],
+    [['+','/','−'],'Zoom in or out (Timing tool)'],
+    [['Ctrl','+','/','−','/','0'],'Zoom the page in or out, or back to normal size'],
   ]},
   {title:'Typing lyrics',rows:[
     [['Enter'],'Next line (on the last one: done)'],
     [['Tab','/','Shift','Tab'],'Next or previous pass'],
+    [['Ctrl','V','/','Ctrl','Shift','V'],'Paste several lines at once: one per pass from here, then on into the following rows. Lines past the end of the song join its last line.'],
     [['Esc'],'Drop this row’s changes'],
   ],after:'Click away to save the row.'},
   {title:'Lead sheet',rows:[
-    [['V','C','L','B'],'Select, Chords, Lyrics or Breaks tool (here L picks the tool, not a loop)'],
+    [['V','C','W','B'],'Select, Chords, Lyrics (W for words) or Breaks tool'],
     [['←','/','→'],'Previous or next note'],
     [['↑','/','↓'],'Raise or lower the note (with Shift: an octave)'],
     [['Delete','/','0'],'Make it a rest'],
@@ -32,12 +39,22 @@ export const SHORTCUTS=[
     [['Esc'],'Back to Select, or deselect'],
   ]},
   {title:'Visualizer',rows:[
-    [['1','–','9'],'Choose a scene'],
-    [['Y'],'Lyrics on or off'],
-    [['C'],'Calm'],
-    [['M'],'Mixer'],
-    [['P'],'Frame rate'],
-    [['F'],'Full screen (visualizer window)'],
+    [['1','–','9'],'Choose a visualization, in the order of the buttons'],
+    [['Y'],'Show or hide the lyrics'],
+    [['C'],'Calm mode on or off: gentler motion, with no shaking, flashing or sudden bursts of light (easier on the eyes, and safer for light sensitivity)'],
+    [['M'],'Slide the mixer out or back in'],
+    [['Ctrl','Z','/','Ctrl','Shift','Z'],'In the Advanced Visuals Editor: undo or redo your last change there (never the chart’s). It also has Undo and Redo buttons.'],
+    [['P'],'Show or hide how many frames a second it is drawing, in the bottom corner (to check it runs smoothly; it does not change the speed)'],
+    [['K'],'Plain controls: the buttons and mixer keep their usual look instead of matching the visualization'],
+    [['F'],'Full screen (in the visualizer window)'],
   ]},
-  {title:'Anywhere',rows:[[['?'],'This list']]},
+  {title:'On air (streaming the visualizer)',note:'Turn on with On air at the top. Then these work in the chart and MIDI views too, and change every visualizer, OBS included.',rows:[
+    [['1','–','9'],'Choose a visualization, in the order of the visualizer’s buttons'],
+    [['Y'],'Show or hide the lyrics'],
+    [['C'],'Calm mode on or off'],
+  ]},
+  {title:'Anywhere',rows:[
+    [['?'],'This list'],
+    [['Middle button','drag'],'Pan the chart, lead sheet or piano roll (the scroll bars do the same)'],
+  ]},
 ];

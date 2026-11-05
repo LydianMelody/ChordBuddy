@@ -18,6 +18,8 @@
 //   Stage entry -> into a chorus the ship races ahead of the camera with an engine bloom; into a verse it brakes back toward it.
 //   HUD (inside the tape image, under the same VHS pass): chord + next chord, stage + section countdown, bar/beat pips,
 //   a pitch altimeter with the melody note's name and scale degree, the lyric line with the current word wiped in.
+// Inputs (rewired in the patch bay; each default is what it always did): engines, shooting stars, grid pulse, lasers, chord flare, sun,
+// warm glow, wingtip trails and nebula haze. The melody path, beacons and the solo's shots are planned from the song ahead of time.
 // Post pass: 2-3 px chroma shift, ~1 px gate weave, ~5% flicker, scanlines, tape noise and an occasional tracking line,
 // all seeded by frame index (song time x 60). Calm mode: no shake, flicker or tracking line.
 import {chordColor} from '../visual-color.js';
@@ -63,7 +65,8 @@ function notePos(scene,pn,t){
   }
 }
 
-function prep(song){
+// notes: the melody wired to Melody rings (the patch bay's whole list for it), or null without a patch bay: then the song's own melodies
+function prep(song,notes=null){
   const dur=Math.max(10,song?.duration||0);
   const secs=(song?.sections||[]).filter(s=>s&&s.end>s.start).slice().sort((a,b)=>a.start-b.start);
   const segs=[{start:-1e9,scene:'space',name:null}];let prevEnd=0;
@@ -81,9 +84,11 @@ function prep(song){
   const midi=song?.midi||{},mel=midi.melody?.notes||[],voc=midi.vocal?.notes||[],ins=midi.instrumental?.notes||[];
   const vox=new Set();voc.forEach(x=>vox.add(Math.round(x.start*50)));
   const isVox=s=>{const r=Math.round(s*50);return vox.has(r)||vox.has(r-1)||vox.has(r+1);};
-  let src=mel.length?mel.slice():ins.slice();
-  if(voc.length){const have=new Set(src.map(x=>Math.round(x.start*50)));for(const x of voc){const r=Math.round(x.start*50);if(!have.has(r)&&!have.has(r-1)&&!have.has(r+1))src.push(x);}}
-  let N=src.filter(x=>x&&x.end>x.start&&isFinite(x.pitch)).map(x=>({start:x.start,end:x.end,pitch:x.pitch,str:x.strength??1})).sort((a,b)=>a.start-b.start);
+  let src=notes?notes.slice():mel.length?mel.slice():ins.slice();
+  if(voc.length&&!notes){const have=new Set(src.map(x=>Math.round(x.start*50)));for(const x of voc){const r=Math.round(x.start*50);if(!have.has(r)&&!have.has(r-1)&&!have.has(r+1))src.push(x);}}
+  // in time order, a chord's notes low to high; the same note twice (two melodies that share it) is drawn once
+  let N=src.filter(x=>x&&x.end>x.start&&isFinite(x.pitch)).map(x=>({start:x.start,end:x.end,pitch:x.pitch,str:x.strength??1})).sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
+  N=N.filter((x,i)=>!N.slice(Math.max(0,i-4),i).some(y=>y.pitch===x.pitch&&Math.abs(y.start-x.start)<0.02));
   for(let i=0;i<N.length-1;i++)if(N[i].end>N[i+1].start-0.01)N[i].end=Math.max(N[i].start+0.03,N[i+1].start-0.01);
   const ps=N.map(x=>x.pitch).sort((a,b)=>a-b);let lo=60,hi=76;
   if(ps.length){lo=ps[Math.floor(ps.length*0.03)];hi=ps[Math.min(ps.length-1,Math.floor(ps.length*0.97))];}
@@ -103,7 +108,9 @@ function prep(song){
   const RH=[];let lastR=-9;
   for(const x of (song?.features?.tracks?.rhythm?.hits||[]).slice().sort((a,b)=>a.start-b.start))if(x.start-lastR>0.09){RH.push({t:x.start,s:dist(x.start),str:x.strength??0.6,side:RH.length%2,scene:segAt(x.start).scene});lastR=x.start;}
   const dh=(song?.features?.tracks?.drums?.hits||[]).map(x=>x.strength||0).sort((a,b)=>a-b),thr=dh.length?Math.max(0.2,dh[Math.floor(dh.length*0.7)]):0.8;
-  const info={segs,segAt,dist,N,lo,hi,keyRoot,flats,maxDur:Math.min(8,maxDur),G,BT,RH,thr,A:[]};
+  // S: the wired melody untrimmed, in time order (a chord low to high), for the pitch gauge
+  const S=notes?notes.filter(x=>x&&x.end>x.start&&isFinite(x.pitch)).sort((a,b)=>a.start-b.start||a.pitch-b.pitch):null;
+  const info={segs,segAt,dist,N,S,lo,hi,keyRoot,flats,maxDur:Math.min(8,maxDur),G,BT,RH,thr,A:[]};
   bars.forEach((b,i)=>{
     const len=b.end?b.end-b.start:(bars[i+1]?bars[i+1].start-b.start:2),sg=segAt(b.start);if(sg.scene!=='ufo')return;
     const rel=Math.round((b.start-sg.start)/Math.max(0.3,len));if(rel%4!==1)return;   // the 2nd bar of the stage, then every 4 bars
@@ -124,6 +131,12 @@ function killPlan(song,segs,BT){
     for(let slot=0;slot<3;slot++)K.push({t:end,slot,spawn:prev[slot],i:K.length,end,survivor:true});
   });
   return K.sort((a,b)=>a.t-b.t);
+}
+// the note the pitch gauge shows at t: of those sounding, the last to start (the highest of a chord), as the melody's own notes are listed
+function soundingAt(S,t){
+  let a=0,b=S.length-1,i=-1;while(a<=b){const m=(a+b)>>1;if(S[m].start<=t){i=m;a=m+1;}else b=m-1;}
+  for(let k=i;k>=0&&k>i-64;k--)if(t<S[k].end)return S[k];
+  return null;
 }
 // where the melody puts the ship at song time t: on a note for its whole length, gliding to the next one so it arrives as it starts
 function basePos(info,t){
@@ -151,6 +164,21 @@ export default {
   name:'Starlane',
   order:45,
   hud:false,   // the cockpit HUD shows the chord and the lyrics itself
+  inputs:{
+    engines:{label:'Engine flare',type:'trigger',default:'stem/drums/hit',help:'Flares the ship’s engines on strong hits (and shakes the camera in hyperdrive)'},
+    stars:{label:'Shooting stars',type:'trigger',default:'stem/piano/hit',help:'Sends a shooting star across the sky'},
+    grid:{label:'Grid pulse',type:'trigger',default:'song/downbeat',help:'Makes the ground grid glow'},
+    lasers:{label:'Lasers',type:'trigger',default:'song/beat',help:'Fires the ship’s lasers (in hyperdrive, the invasion and the dogfight)'},
+    chordFlare:{label:'Ring flare',type:'trigger',default:'song/chord',help:'Sends a big ring out around the ship'},
+    rings:{label:'Melody rings',type:'notes',default:'melody/melody/notes',help:'The notes the ship flies through (rings, arrows, diamonds or stars, by stage), the path it follows and the pitch gauge'},
+    sun:{label:'Sun size',type:'amount',default:'stem/bass/level',help:'How big the sun swells in the atmosphere stage'},
+    glow:{label:'Warm glow',type:'amount',default:'stem/vocals/level',help:'The sun’s brightness and the warm light around the ship'},
+    trails:{label:'Wingtip trails',type:'amount',default:'stem/lead/level',help:'How bright and wide the trails behind the wings are'},
+    haze:{label:'Nebula haze',type:'amount',default:'stem/other/level',help:'How thick the nebula haze is'},
+  },
+  // the picker and mixer as cockpit consoles: night-sky panels with cyan neon edges, a hot-pink shadow, scanlines and spaced capitals
+  skin:{paper:INK,ink:'#f4f0ff',desk:'#1a1430',tint:'#2a2145',soft:LAV,line:CYAN,shadowColor:PINK,active:PINK,highlight:WARM,
+    accent1:PINK,accent2:'#4a3a8a',accent3:CYAN,font:MONO,mono:MONO,border:2,shadow:4,glow:12,corners:3,texture:'scanlines',caps:true,tracking:0.08},
   create(){
     let w=0,h=0,k=1,L=null,layKey='',info=null,infoKey='',songRef=null,art=null,glow=null,noise=null,pats=null;
     let B=null,c=null,T1=null,t1=null,T2=null,t2=null,sc=1,scan=null;
@@ -163,10 +191,11 @@ export default {
     let px=0,py=0,pk=0;
     const P=(x,y,z)=>{if(z<NEAR)return false;pk=L.F/z;px=L.cx+(x-V.camX)*pk;py=L.hy-(y-V.camY)*pk;return true;};
 
-    function ensureInfo(song){
+    let ringsRef=null;
+    function ensureInfo(song,rings){
       const key=(song?.title||'')+'|'+(song?.duration||0)+'|'+Object.entries(song?.midi||{}).map(([a,b])=>a+(b?.notes?.length||0)).join(',')+'|'+(song?.features?.tracks?Object.keys(song.features.tracks).length:0)+'|'+(song?.sections?.length||0);
-      if(song===songRef&&key===infoKey&&info)return;
-      songRef=song;infoKey=key;info=prep(song);bolts.length=flares.length=comets.length=0;lyr={key:''};if(art)art.titleKey='';
+      if(song===songRef&&key===infoKey&&info&&rings===ringsRef)return;
+      songRef=song;infoKey=key;ringsRef=rings;info=prep(song,rings);bolts.length=flares.length=comets.length=0;lyr={key:''};if(art)art.titleKey='';
     }
     function ensureLayout(env,g){
       const zc=env.zones?.chord||{top:0,bottom:h*0.27},zl=env.zones?.lyrics||null;
@@ -575,9 +604,9 @@ export default {
       const LX=u*0.04,by=zc.top+Z*0.56;txt('BAR '+String(b.bar).padStart(3,'0'),LX,by,Z*0.1,'700',WARM,'left');
       const n=b.beats||4,r=Z*0.035;for(let i=0;i<n;i++){const on=i===(b.beat||1)-1;g.fillStyle=on?(i===0?WARM:PINK):'rgba(185,169,214,0.3)';g.beginPath();g.arc(LX+r+i*r*3,by+Z*0.12,on?r*1.15:r*0.8,0,TAU);g.fill();}
     }
-    function hudAlt(g,fr,dt){
+    function hudAlt(g,fr,dt,rings){
       if(!info.N.length)return;const u=L.u,x0=u*0.05,y0=L.top+L.M*0.12,y1=L.bot-L.M*0.12,lo=info.lo,hi=info.hi;
-      const act=fr.notes?.melody?.active?.[0]||fr.notes?.vocal?.active?.[0]||fr.notes?.instrumental?.active?.[0];
+      const act=rings?soundingAt(info.S,fr.time):fr.notes?.melody?.active?.[0]||fr.notes?.vocal?.active?.[0]||fr.notes?.instrumental?.active?.[0];
       if(act){altNote=act.pitch;altA=1;}else altA*=Math.exp(-dt*2);
       if(altNote!=null)altS+=(clamp((altNote-lo)/(hi-lo),0,1)-altS)*Math.min(1,dt*18);
       g.fillStyle='rgba(185,169,214,0.35)';g.fillRect(x0,y0,1,y1-y0);
@@ -667,7 +696,7 @@ export default {
       draw(g,frame,env){
         w=env.w;h=env.h;if(!w||!h)return;
         const wall=env.wall||0,calm=!!env.calm,dt=env.dt||1/60,t=frame.time||0,tr=frame.tracks||{},ev=env.events||{},playing=!!frame.playing;
-        ensureInfo(env.song);ensureLayout(env,g);
+        ensureInfo(env.song,env.inputs?.rings?.all||null);ensureLayout(env,g);
         const u=L.u,jumped=lastT==null||t<lastT-0.02||t-lastT>0.5;
         if(jumped){bolts.length=0;flares.length=0;}
         V.t=t;V.wall=wall;V.Dt=info.dist(t);V.speed=(info.dist(t+0.05)-info.dist(t-0.05))/0.1;V.beat=frame.beat?.beat||0;
@@ -677,17 +706,20 @@ export default {
         const sm=(v,x,r)=>v+((x??0)-v)*Math.min(1,dt*r);
         {let e=0;for(const k in tr)e+=tr[k]?.level||0;eS=sm(eS,e,4);ePk=Math.max(eS,ePk*Math.exp(-dt/25),0.05);}
         const ampI=clamp(eS/ePk,0,1),amp=0.15+0.85*ampI*ampI;
-        bassS=sm(bassS,tr.bass?.level,10);vocS=sm(vocS,tr.vocals?.level,8);leadS=sm(leadS,tr.lead?.level,8);otherS=sm(otherS,tr.other?.level,3);
+        const inp=env.inputs||{},has=k=>k in inp;
+        bassS=sm(bassS,has('sun')?inp.sun:tr.bass?.level,10);vocS=sm(vocS,has('glow')?inp.glow:tr.vocals?.level,8);
+        leadS=sm(leadS,has('trails')?inp.trails:tr.lead?.level,8);otherS=sm(otherS,has('haze')?inp.haze:tr.other?.level,3);
         const dec=r=>Math.exp(-dt*r);thrust*=dec(7);gridPulse*=dec(5);shake*=dec(14);for(let i=0;i<12;i++)pcFlash[i]*=dec(2.6);
         const br=tr.drums?.brightness??0.5;
-        for(const s of ev.hits?.drums||[]){const kick=br<0.45||s>=info.thr;if(kick)thrust=Math.max(thrust,(0.4+0.6*s)*(0.5+0.5*amp));if((seg.scene==='hyper'||seg.scene==='solo')&&!calm&&(kick||s>=info.thr))shake=Math.max(shake,u*(s>=info.thr?0.012:0.007)*s*(seg.scene==='solo'?0.6:1)*amp);}
+        for(const s of has('engines')?inp.engines:ev.hits?.drums||[]){const kick=br<0.45||s>=info.thr;if(kick)thrust=Math.max(thrust,(0.4+0.6*s)*(0.5+0.5*amp));if((seg.scene==='hyper'||seg.scene==='solo')&&!calm&&(kick||s>=info.thr))shake=Math.max(shake,u*(s>=info.thr?0.012:0.007)*s*(seg.scene==='solo'?0.6:1)*amp);}
         if(!jumped&&playing&&!calm)for(let q=after(info.K,lastT);q<info.K.length&&info.K[q].t<=t;q++)if(!info.K[q].survivor)shake=Math.max(shake,u*0.007*(0.4+0.6*amp));
         if(!tr.drums&&ev.beat)thrust=Math.max(thrust,ev.beat.downbeat?0.9:0.5);
-        if(ev.beat){if(ev.beat.downbeat)gridPulse=1;
+        if(has('grid')?inp.grid.length:ev.beat?.downbeat)gridPulse=1;
+        if(has('lasers')?inp.lasers.length:ev.beat){
           if((seg.scene==='hyper'||seg.scene==='ufo'||seg.scene==='solo')&&tp>0.5){const sp=shipAt(t);for(const sd of [-1,1])if(bolts.length<40)bolts.push({x:sp.x+sd*0.95,y:sp.y+0.12,z:SZ,col:seg.scene==='ufo'?'pink':seg.scene==='solo'?'warm':'cyan'});}}
-        for(const s of ev.hits?.piano||[])if(comets.length<(calm?4:16)){const a=Math.PI*(0.15+Math.random()*0.15)*(Math.random()<0.5?1:-1);comets.push({x:w*(0.1+Math.random()*0.8),y:L.top*0.4+Math.random()*(L.hy-L.top*0.4)*0.7,vx:Math.sin(a)*u*1.2,vy:Math.cos(a)*u*0.5,age:0,max:0.5+s*0.3});}
+        for(const s of has('stars')?inp.stars:ev.hits?.piano||[])if(comets.length<(calm?4:16)){const a=Math.PI*(0.15+Math.random()*0.15)*(Math.random()<0.5?1:-1);comets.push({x:w*(0.1+Math.random()*0.8),y:L.top*0.4+Math.random()*(L.hy-L.top*0.4)*0.7,vx:Math.sin(a)*u*1.2,vy:Math.cos(a)*u*0.5,age:0,max:0.5+s*0.3});}
         if(!jumped&&playing){const N=info.N;for(let i=after(N,lastT);i<N.length&&N[i].start<=t;i++){const n=N[i];pcFlash[n.pc]=1;pcCol[n.pc]=n.col;if(flares.length<24)flares.push({age:0,col:n.col,big:0});}}
-        if(ev.chordChanged&&flares.length<24)flares.push({age:0,col:kindOf(frame.chord?.label),big:1});
+        if((has('chordFlare')?inp.chordFlare.length:ev.chordChanged)&&flares.length<24)flares.push({age:0,col:kindOf(frame.chord?.label),big:1});
         const label=noChord(frame.chord?.label)?null:frame.chord.label;
         if(label!==chordCur){chordPrev=chordCur===undefined?null:chordCur;chordCur=label;chordWall=(jumped||!playing)?wall-1:wall;}
         lastT=t;
@@ -745,7 +777,7 @@ export default {
         if(!titled)stageCard(c,seg,t);
         const PW=hudChord(c,frame,wall,calm);
         hudSide(c,frame,PW,seg);
-        hudAlt(c,frame,dt);
+        hudAlt(c,frame,dt,env.inputs?.rings);
         if(env.lyrics!==false)hudLyrics(c,frame,t);
         post(g,fi,calm,band);
       },

@@ -27,3 +27,13 @@ test('only chord symbols in the music are found', () => {
   const spans=chordSymbolSpans(ABC).map(([a,b])=>ABC.slice(a,b));
   assert.deepEqual(spans,['"C"','"C"','"G"','"Am"']);
 });
+
+test('a cue from the chart is an annotation above the note sounding at its moment, before that note’s chord, and never a chord symbol', () => {
+  const analysis=analyzeScore(ABC,abcjs);
+  const chart={chords:[{id:'f',label:'F',start:2,end:4}],cues:[{id:'q',text:'pick "scratch"',start:2},{id:'r',text:'feedback',start:6.5}],sections:[]};
+  const placed=placeChartOnScore(ABC,analysis,measures,chart);
+  assert.match(placed.abc,/\|"\^pick 'scratch'""F"c2d2\|/);assert.match(placed.abc,/\|"\^feedback""\^hi"f2g2\|/,'mid-note, on the note sounding then, as a chord would be');
+  assert.deepEqual(placed.chords.map(c=>[c.id,placed.abc.slice(c.abc_index,c.abc_index+3)]),[['f','"F"']],'the chord still points at its own symbol');
+  assert.deepEqual(chordSymbolSpans(placed.abc).length,1,'the cues are not chord symbols');
+  assert.deepEqual(analyzeScore(placed.abc,abcjs).notes.map(n=>n.pitch),analysis.notes.map(n=>n.pitch));
+});

@@ -58,3 +58,7 @@ GEMINI.md
 
 # screenshots and scratch files to share, kept on this computer only
 /temp/
+
+# --- Your own visualizations: they stay on this computer (only the folder's README is part of the app) ---
+/My Visuals/*
+!/My Visuals/README.txt

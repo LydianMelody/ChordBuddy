@@ -244,7 +244,7 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
    for(const m of list){
     picture.push({from:m.seconds,to:m.end,colour:'var('+(SECTION_COLOUR[nameKey(m.sectionName)]||'--tint')+')',opacity:.55});
     if(m.end<=v.start||m.seconds>=v.end)continue;
-    const block=node('button','practice-section-block',m.sectionName);block.type='button';block.dataset.name=nameKey(m.sectionName);block.title=m.sectionName+' · '+positionAt(m.seconds)+' · double-click to loop it';
+    const block=node('button','practice-section-block',m.sectionName);block.type='button';block.dataset.name=nameKey(m.sectionName);block.title=m.sectionName+' · '+positionAt(m.seconds)+'\nClick to play from here. Double-click to loop this section (the Loop button, or R, loops the one that is playing).';
     block.style.left=100*(Math.max(v.start,m.seconds)-v.start)/(v.end-v.start)+'%';block.style.width=100*(Math.min(v.end,m.end)-Math.max(v.start,m.seconds))/(v.end-v.start)+'%';
     block.onclick=()=>transport.seek(m.seconds).catch(onError);
     block.ondblclick=()=>applyLoop({start:m.seconds,end:m.end},{follow:true});

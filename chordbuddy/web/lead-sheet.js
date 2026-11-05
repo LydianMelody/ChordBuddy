@@ -6,9 +6,9 @@ import {mountLyricEditors} from './lead-lyric-editor.js';
 import {CHORD_SUGGESTIONS} from './chart-page.js';
 import {renderRail} from './tool-rail.js';
 import {TOOLS,toolIcon} from './tool-icons.js';
-import {LEAD_GROUPS,LEAD_NAMES,LEAD_DEFAULT,LEAD_FOR_KEY,EXTERNAL} from './lead-tool-info.js';
+import {LEAD_GROUPS,LEAD_NAMES,LEAD_DEFAULT,LEAD_FOR_KEY} from './lead-tool-info.js';
 import {shiftSteps,toggleAccidental,toRest,editNoteInContent,noteName} from './lead-edit.js';
-import {tuneToMusicXml,exportFileName} from './musicxml.js';
+import {tuneToMusicXml,exportFileName,isChordSymbol} from './musicxml.js';
 import {spellChord} from './spelling.js';
 import {placeChartOnScore,eventTimes} from './lead-chart.js';
 import {rekeyAbc} from './abc-key.js';
@@ -274,8 +274,9 @@ function createView(container){
   function renderTools(){
     if(!options.dock)return;
     options.dock.dataset.owner='lead';
-    renderRail(options.dock,{groups:LEAD_GROUPS,active:tool,onPick:setTool,disabled:LEAD_NAMES.filter(name=>!editable(name)),
-      actions:[{id:'external',label:EXTERNAL.label,title:EXTERNAL.title,body:EXTERNAL.body,run:()=>openExternal().catch(error=>{say(error?.message||String(error));options.onError?.(error);})}]});
+    // Opening the score in another editor is not a tool: it is in the Export menu, behind a warning (it stops the lead sheet following
+    // the chart), see openLeadElsewhere in app.js
+    renderRail(options.dock,{groups:LEAD_GROUPS,active:tool,onPick:setTool,disabled:LEAD_NAMES.filter(name=>!editable(name))});
   }
   function setTool(next){
     if(!LEAD_NAMES.includes(next)||!editable(next))return tool;
@@ -667,7 +668,7 @@ function createView(container){
       const tune=abcjs.parseOnly(shownAbc)[0];
       const chordsFor=item=>{
         const own=shownChords.filter(c=>Number.isInteger(c.abc_index)&&c.abc_index>=item.startChar&&c.abc_index<item.endChar).map(c=>c.label);
-        return (own.length?own:(item.chord||[]).map(c=>c.name)).filter(name=>name&&!isNoChordLabel(name)).map(spellChord);   // as the chart spells them for the key
+        return (own.length?own:(item.chord||[]).filter(isChordSymbol).map(c=>c.name)).filter(name=>name&&!isNoChordLabel(name)).map(spellChord);   // as the chart spells them for the key
       };
       const chosen=options.getMeter?.(),meter=Array.isArray(chosen)?{num:chosen[0],den:chosen[1]}:null;
       const xml=tuneToMusicXml(tune,{title:options.title,artist:options.artist,staffIndex:analysis.staffIndex,voiceIndex:analysis.voiceIndex,lyrics:synced||new Map(),chordsFor,meter,tempo:options.music?.timing?.bpm});
@@ -702,7 +703,7 @@ function createView(container){
 
   // Draws the sheet for paper (and puts it back afterwards). The caller prints in between.
   function printMode(on){if(printing===on)return;printing=on;paintScoreNow();if(!on){markSelection();}}
-  return {root,getTool:()=>tool,setTool,handleKey,printMode,chordNodeAt,chords:()=>shownChords,showTools(){renderTools();paintNote();markSelection();},
+  return {root,getTool:()=>tool,setTool,handleKey,openExternal,printMode,chordNodeAt,chords:()=>shownChords,showTools(){renderTools();paintNote();markSelection();},
     update(next){
       if(options.key!==next.key){selection=null;tool=LEAD_DEFAULT;}
       options=next;content=next.content||{};

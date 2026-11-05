@@ -54,16 +54,29 @@ function standInTrack(mix,chosen){
   }
   return {level,bands,brightness:mix.brightness,flux:mix.flux,hits:mix.hits,peakDb:mix.peakDb};
 }
-function midiTracks(midi){
+// One track of notes, ready to look up by time. A note may carry per-note expression (MPE, or key pressure) as [{time,value}] curves.
+function noteTrack(notes,user=false){
+  const list=(notes||[]).filter(n=>Number.isFinite(n.start)&&Number.isFinite(n.end)&&n.end>n.start&&Number.isFinite(n.pitch))
+    .map(n=>{const out={start:n.start,end:n.end,pitch:n.pitch,velocity:Number.isFinite(n.velocity)?n.velocity:100,strength:1,mine:user||!!n.mine};
+      for(const k of ['bend','pressure','slide'])if(n[k]?.length)out[k]=n[k];return out;}).sort((a,b)=>a.start-b.start);
+  let longest=0;for(const n of list)longest=Math.max(longest,n.end-n.start);
+  let low=Infinity,high=-Infinity;for(const n of list){low=Math.min(low,n.pitch);high=Math.max(high,n.pitch);}
+  // your own MIDI (midi-user.js) has real dynamics: its velocity is its strength, unless every one of its notes has the same velocity
+  // (then it is measured like the model's). `played` marks the notes whose strength is their velocity.
+  const mine=list.filter(n=>n.mine),dynamic=mine.some(n=>n.velocity!==mine[0].velocity);
+  for(const n of list){n.played=dynamic&&n.mine;if(n.played)n.strength=Math.max(0,Math.min(1,n.velocity/127));delete n.mine;}
+  return {notes:list,longest,low:list.length?low:null,high:list.length?high:null,user,dynamic:dynamic&&mine.length===list.length};
+}
+function midiTracks(midi,user=new Set()){
   const out={};
-  for(const [name,notes] of Object.entries(midi||{})){
-    const list=(notes||[]).filter(n=>Number.isFinite(n.start)&&Number.isFinite(n.end)&&n.end>n.start&&Number.isFinite(n.pitch))
-      .map(n=>({start:n.start,end:n.end,pitch:n.pitch,velocity:Number.isFinite(n.velocity)?n.velocity:100,strength:1})).sort((a,b)=>a.start-b.start);
-    let longest=0;for(const n of list)longest=Math.max(longest,n.end-n.start);
-    let low=Infinity,high=-Infinity;for(const n of list){low=Math.min(low,n.pitch);high=Math.max(high,n.pitch);}
-    out[name]={notes:list,longest,low:list.length?low:null,high:list.length?high:null};
-  }
+  for(const [name,notes] of Object.entries(midi||{}))out[name]=noteTrack(notes,user.has(name));
   return out;
+}
+// Extra parts from your own MIDI files: each a track of notes plus the controls it really has (sustain, mod wheel, bend...), typed.
+function extraParts(extras){
+  return (extras||[]).map(x=>({name:x.name,kind:x.kind,signals:x.signals||[],track:noteTrack(x.notes,true),
+    hits:(x.notes||[]).map(n=>({start:n.start,strength:Math.max(0,Math.min(1,(n.velocity??100)/127))})).sort((a,b)=>a.start-b.start),
+    controls:Object.fromEntries(Object.entries(x.controls||{}).map(([k,points])=>[k,[...points].sort((a,b)=>a.time-b.time)]))}));
 }
 
 // Every placed lyric line with each word's time, exactly as the chart places them (pins, spreading, and the melody guess when the
@@ -89,7 +102,7 @@ function lyricLines(content,measures,onsets){
  * features: the server's /api/visual-features answer, or null while it loads. key: the song's key name, for spelling chords.
  * lyricGuess: place unpinned words on the vocal melody's notes, as the chart does when its melody guess is on.
  */
-export function buildScene({content={},music={},midi={},features:raw=null,title='',key=null,lyricGuess=false}={}){
+export function buildScene({content={},music={},midi={},user=[],extras=[],features:raw=null,title='',key=null,lyricGuess=false}={}){
   const measures=music?.measures?.length?effectiveMeasures(music,content.layout||{}):[];
   const shown=chartPresentation(content,measures);
   const chords=(content.chords||[]).filter(c=>shown.visible(c)&&Number.isFinite(c.start)&&c.end>c.start)
@@ -103,7 +116,13 @@ export function buildScene({content={},music={},midi={},features:raw=null,title=
   const onsets=lyricGuess&&midi?.vocal?.length?onsetsFromNotes(midi.vocal):null;
   const lyrics=measures.length?lyricLines(content,measures,onsets):{lines:[],unplaced:0};
   const f=features(raw);
-  return {title,key,duration:content.duration||music?.duration||0,chords,bars,sections,lyrics,midi:noteStrengths(midiTracks(midi),f),features:f};
+  // cues ("pick scratch", "count-in": chart-cues.js) are words, never chords: each shows while the chord it falls on lasts (2 s in silence)
+  const cues=(content.cues||[]).filter(c=>Number.isFinite(c.start)&&c.text).map(c=>{
+    const under=chords.find(ch=>ch.start<=c.start+1e-6&&c.start<ch.end);
+    return {text:String(c.text),start:c.start,end:under&&under.label!==null?under.end:c.start+2};
+  }).sort((a,b)=>a.start-b.start);
+  return {title,key,duration:content.duration||music?.duration||0,chords,cues,bars,sections,lyrics,midi:noteStrengths(midiTracks(midi,new Set(user)),f),
+    extras:extraParts(extras),features:f};
 }
 export function withFeatures(scene,raw){const f=features(raw);return {...scene,features:f,midi:noteStrengths(scene.midi,f)};}
 
@@ -123,9 +142,10 @@ export function noteStrengths(midi,f){
   const sourceOf=(name,note)=>name==='vocal'||(name==='melody'&&vocalStarts.some(t=>Math.abs(t-note.start)<0.03))?STRENGTH_SOURCES.vocal:STRENGTH_SOURCES.instrumental;
   const out={};
   for(const [name,track] of Object.entries(midi)){
+    if(track.dynamic){out[name]=track;continue;}      // your own MIDI with real velocities keeps them
     const raw=track.notes.map(n=>loudness(sourceOf(name,n),n.start)),sorted=[...raw].sort((a,b)=>a-b);
     const lo=sorted[Math.floor(sorted.length*0.1)]??0,hi=sorted[Math.floor(sorted.length*0.95)]??1,span=hi-lo;
-    out[name]={...track,notes:track.notes.map((n,i)=>({...n,strength:span>1e-3?Math.max(0,Math.min(1,(raw[i]-lo)/span)):(raw[i]>0?1:0)}))};
+    out[name]={...track,notes:track.notes.map((n,i)=>n.played?n:{...n,strength:span>1e-3?Math.max(0,Math.min(1,(raw[i]-lo)/span)):(raw[i]>0?1:0)})};
   }
   return out;
 }
@@ -146,6 +166,11 @@ function chordAt(chords,t){
   const next=upcoming[0]||null;
   return {label:current?.label??null,start:current?.start??null,end:current?.end??null,index:current?i:-1,
     progress:current?(t-current.start)/(current.end-current.start):0,next,timeToNext:next?next.start-t:null,upcoming};
+}
+// the cue showing now: {text, start, end, progress}, or null
+function cueAt(cues,t){
+  const i=lastStartingBy(cues,t),cue=i>=0&&t<cues[i].end?cues[i]:null;
+  return cue?{text:cue.text,start:cue.start,end:cue.end,progress:(t-cue.start)/(cue.end-cue.start)}:null;
 }
 function beatAt(bars,t){
   const i=lastStartingBy(bars,t),bar=i>=0&&t<bars[i].end?bars[i]:null;
@@ -170,10 +195,19 @@ function lyricAt(lyrics,t){
   result.words=line.words.map((x,n)=>({text:x.text,start:x.start,end:x.end,state:n<w||(n===w&&t>=x.end)?'sung':n===w?'now':'ahead'}));
   return result;
 }
+// The value of a [{time,value}] curve at t (the last point at or before it), or `fallback` before the first.
+function curveAt(points,t,fallback){
+  let lo=0,hi=points.length-1,found=-1;
+  while(lo<=hi){const mid=(lo+hi)>>1;if(points[mid].time<=t){found=mid;lo=mid+1;}else hi=mid-1;}
+  return found>=0?points[found].value:fallback;
+}
 function notesAt(track,t){
   const notes=track.notes,active=[];
   for(let i=lastStartingBy(notes,t);i>=0&&notes[i].start>=t-track.longest;i--){
-    const n=notes[i];if(t<n.end)active.push({pitch:n.pitch,velocity:n.velocity,strength:n.strength,start:n.start,end:n.end,progress:(t-n.start)/(n.end-n.start)});
+    const n=notes[i];if(t>=n.end)continue;
+    const note={pitch:n.pitch,velocity:n.velocity,strength:n.strength,start:n.start,end:n.end,progress:(t-n.start)/(n.end-n.start)};
+    if(n.bend)note.bend=curveAt(n.bend,t,0);if(n.pressure)note.pressure=curveAt(n.pressure,t,0);if(n.slide)note.slide=curveAt(n.slide,t,0);
+    active.push(note);
   }
   const next=notes[lastStartingBy(notes,t)+1]||null;
   return {active,next:next?{pitch:next.pitch,strength:next.strength,in:next.start-t}:null,low:track.low,high:track.high};
@@ -187,12 +221,34 @@ function trackAt(feature,frame,t,gain){
     sinceHit:since,hit:hit?hit.strength:0,hitIndex:h,pulse:hit&&gain>0?hit.strength*Math.exp(-since/0.12):0,gain};
 }
 
+// An extra part at a moment: its notes (as frame.notes has them), its last note start (hit: 0..1 velocity, sinceHit, pulse) and the value
+// of every control it really has, by key (cc64, cc1, bend, pressure...): gates as true/false, amounts 0..1, bends -1..1.
+function extraAt(part,t){
+  const out={kind:part.kind,...notesAt(part.track,t),values:{}};
+  const h=lastStartingBy(part.hits,t),hit=h>=0?part.hits[h]:null,since=hit?t-hit.start:Infinity;
+  out.hit=hit?hit.strength:0;out.sinceHit=since;out.hitIndex=h;out.pulse=hit?hit.strength*Math.exp(-since/0.12):0;
+  for(const sig of part.signals){
+    const points=part.controls[sig.key];if(!points)continue;
+    out.values[sig.key]=sig.type==='gate'?curveAt(points,t,0)>=0.5:curveAt(points,t,0);   // before its first point: off, 0, centered
+  }
+  return out;
+}
+
 /** Everything a visual needs for one moment. t: song seconds; state: {playing, rate (1 = normal), mix (the transport's mix)}. */
-export function sampleFrame(scene,t,{playing=false,rate=1,mix=null}={}){
+// The loop the player is repeating, as a visual sees it (null when none): its range and kind ('section' from R, 'bars' from L, 'custom' from
+// the handles), how far through it the song is (0-1), its bars (count) and which of them is playing (1-based, null outside), and pass: which
+// time around this is (1 = the first; counted by frameEvents, which sees the wraps).
+function loopAt(bars,loop,t){
+  if(!loop||!(loop.end>loop.start))return null;
+  const inside=bars.filter(bar=>bar.start>=loop.start-0.05&&bar.start<loop.end-0.05),now=inside.findIndex(bar=>t>=bar.start&&t<bar.end);
+  return {start:loop.start,end:loop.end,kind:loop.kind||'custom',length:loop.end-loop.start,progress:Math.max(0,Math.min(1,(t-loop.start)/(loop.end-loop.start))),
+    bars:inside.length,bar:now>=0?now+1:null,inside:t>=loop.start&&t<loop.end,pass:1};
+}
+export function sampleFrame(scene,t,{playing=false,rate=1,mix=null,loop=null}={}){
   const time=Math.max(0,Math.min(scene.duration||Infinity,t));
   const frame={time,playing,rate,duration:scene.duration,title:scene.title,key:scene.key,
     chord:chordAt(scene.chords,time),beat:beatAt(scene.bars,time),section:sectionAt(scene.sections,time),
-    lyric:lyricAt(scene.lyrics||{lines:[],unplaced:0},time),tracks:{},notes:{}};
+    lyric:lyricAt(scene.lyrics||{lines:[],unplaced:0},time),loop:loopAt(scene.bars,loop,time),cue:cueAt(scene.cues||[],time),tracks:{},notes:{}};
   const f=scene.features;
   frame.stems=!!f&&!f.standIn;
   if(f){
@@ -201,5 +257,6 @@ export function sampleFrame(scene,t,{playing=false,rate=1,mix=null}={}){
     for(const [role,feature] of Object.entries(f.tracks))frame.tracks[role]=trackAt(feature,index,time,(f.standIn?gains.original:gains[role])??1);
   }
   for(const [name,track] of Object.entries(scene.midi))frame.notes[name]=notesAt(track,time);
+  frame.midi={};for(const part of scene.extras||[])frame.midi[part.name]=extraAt(part,time);
   return frame;
 }

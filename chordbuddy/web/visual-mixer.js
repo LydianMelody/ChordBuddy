@@ -1,19 +1,22 @@
-// The visualizer's slide-out mixer: the main window's mixer rack (same markup and styles, mixer-rack.css), on a darkened panel that
-// slides in from the right edge. It controls the real mix over the visual bridge, so the mix can be changed while the visualizer is
-// full screen or on another monitor. It shows the mix the player reports, and each stem's level as the scene sees it.
+// The visualizer's mixer: the main window's mixer rack (same markup and styles, mixer-rack.css), floating over the scene wherever it was
+// dragged (by its title bar; visual-layout.js). It controls the real mix over the visual bridge, so the mix can be changed while the
+// visualizer is full screen or on another monitor. It shows the mix the player reports, and each stem's level as the scene sees it.
 import {STRIPS,PRESETS,presetMix,activePreset,effectiveLevels,fallingLevel} from './mixer-rack.js';
 import {icon} from './icons.js';
 
 const el=(tag,className,text)=>{const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;};
 const withIcon=(node,name)=>{node.insertAdjacentHTML('afterbegin',icon(name));return node;};
 
-/** container: the visualizer's stage. send(mix): ask the player to use this mix. Returns {toggle(open?), setMix(mix), setLevels(frame), dispose()}. */
-export function mountMixerDrawer(container,{send}){
-  const drawer=el('div','visualizer-mixer');drawer.hidden=true;
+/** container: the visualizer's stage. send(mix): ask the player to use this mix. docked: in the Advanced Visuals Editor, under its preview:
+ *  always there, not dragged, and its button folds it down to its title instead of hiding it. Returns {toggle(open?), setMix(mix),
+ *  setLevels(frame), element (the floating panel), handle (what it is dragged by), docked, dispose()}. */
+const FOLDED='chordbuddy.editorMixerFolded';
+export function mountMixerDrawer(container,{send,docked=false}){
+  const drawer=el('div','visualizer-mixer'+(docked?' docked open':''));drawer.hidden=!docked;
   const rack=el('aside','rack');rack.setAttribute('aria-label','Mixer');
   const head=el('div','rack-head'),title=withIcon(el('b','','Mixer'),'layers'),close=withIcon(el('button','fold'),'chevron');
   close.type='button';close.title='Hide the mixer (M)';close.setAttribute('aria-label','Hide the mixer');
-  head.append(title,el('span','rack-count',STRIPS.length+' STEMS'),close);
+  head.append(title,el('span','rack-count',STRIPS.length+' STEMS'),close);head.title='Drag to move the mixer';
   const presets=el('div','presets'),stripsRoot=el('div','strips');
   const presetButtons=PRESETS.map(p=>{const b=el('button','',p.label);b.type='button';b.onclick=()=>change(mix=>Object.assign(mix,presetMix(mix,p.id)));presets.append(b);return b;});
   const strips=STRIPS.map(strip=>{
@@ -37,13 +40,17 @@ export function mountMixerDrawer(container,{send}){
   masterRow.append(el('b','','Master'),master,masterOut);
   const note=el('p','visualizer-mixer-note','Waiting for the player…');
   rack.append(head,note,presets,stripsRoot,masterRow);drawer.append(rack);container.append(drawer);
-  close.onclick=()=>toggle(false);
-  // clicking the darkened area beside the rack closes it, like the M key
-  drawer.addEventListener('click',event=>{if(event.target===drawer)toggle(false);});
+  close.onclick=()=>docked?fold(!rack.classList.contains('folded')):toggle(false);
+  function fold(value){
+    rack.classList.toggle('folded',value);close.setAttribute('aria-expanded',String(!value));
+    close.title=value?'Show the mixer':'Fold the mixer down to its title';close.setAttribute('aria-label',close.title);
+    try{localStorage.setItem(FOLDED,value?'1':'');}catch{}
+  }
+  if(docked){head.title='';let folded=false;try{folded=!!localStorage.getItem(FOLDED);}catch{}fold(folded);}
   // keys inside the drawer (arrows on a fader, space on a button) belong to the drawer, not to the visualizer's shortcuts
   drawer.addEventListener('keydown',event=>{if(event.key!=='Escape'&&event.key!=='m'&&event.key!=='M')event.stopPropagation();});
 
-  let mix=null,open=false;
+  let mix=null,open=docked;
   const shown=Array(7).fill(0);
   function change(edit){if(!mix)return;const next=structuredClone(mix);edit(next);mix=next;send(next);render();}
   function render(){
@@ -66,8 +73,9 @@ export function mountMixerDrawer(container,{send}){
     if(!open)setTimeout(()=>{if(!open)drawer.hidden=true;},300);}
   render();
   return {
-    toggle,
+    toggle,docked,
     get open(){return open;},
+    element:drawer,handle:head,
     // the mix the player reports (while a fader is held, that fader keeps the value under the finger)
     setMix(value){if(!value||JSON.stringify(value)===JSON.stringify(mix))return;mix=structuredClone(value);render();},
     // the scene's loudness per stem (already 0..1), falling back gradually like the main rack's meters

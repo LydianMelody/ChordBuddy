@@ -24,8 +24,8 @@ function setScheme(choice, save = true) {
   root.dataset.scheme = scheme;
   const button = $('scheme-toggle');
   if (button) {
-    button.innerHTML = icon(scheme === 'dark' ? 'sun' : 'moon');
-    button.dataset.tip = scheme === 'dark' ? 'Switch to the light look.' : 'Switch to the dark look.';
+    button.innerHTML = icon(scheme === 'dark' ? 'sun' : 'moon') + `<em>${scheme === 'dark' ? 'Light mode' : 'Dark mode'}</em>`;
+    button.title = scheme === 'dark' ? 'Switch to the light look' : 'Switch to the dark look';
     button.setAttribute('aria-pressed', String(scheme === 'dark'));
   }
   if (save) remember.set('cb-scheme', scheme);
@@ -67,7 +67,7 @@ $('side-open').onclick = () => setSide(true);
 
 // Everything in the Export menu is handled by the app, which knows what each view needs (see runExport in app.js).
 
-// Close the "more tools" menu when clicking elsewhere.
+// Close the menus at the top (details.more) when clicking elsewhere.
 document.addEventListener('click', event => {
   for (const menu of document.querySelectorAll('details.more[open]')) if (!menu.contains(event.target)) menu.open = false;
 });

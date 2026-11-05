@@ -139,7 +139,32 @@ def validate_chart(content,duration,music=None):
         clean_chords.append(cleaned)
     result={'version':1,'duration':duration,'sections':clean_sections,'chords':clean_chords}
     if 'layout' in content: result['layout']=validate_layout(content['layout'],clean_sections,music,clean_chords)
+    if 'cues' in content: result['cues']=validate_cues(content['cues'],duration)
     return result
+
+
+CUE_LENGTH=40
+
+
+def validate_cues(cues,duration):
+    """Cues are short notes on the chart ("pick scratch", "count-in"), each at a moment of the recording, apart from the chords."""
+    if not isinstance(cues,list) or len(cues)>5000:
+        raise ValueError('Invalid chart cues')
+    clean=[]
+    ids=set()
+    for cue in cues:
+        if not isinstance(cue,dict):
+            raise ValueError('Invalid chart cue')
+        identifier,text,start=cue.get('id'),cue.get('text'),cue.get('start')
+        if not isinstance(identifier,str) or not identifier or len(identifier)>200 or identifier in ids:
+            raise ValueError('Every cue needs a unique identifier')
+        if not isinstance(text,str) or not text.strip() or len(text.strip())>CUE_LENGTH or any(c in text for c in '\x00\r\n'):
+            raise ValueError(f'Keep a cue to one line of {CUE_LENGTH} characters at most')
+        if not finite_time(start) or not 0<=start<duration:
+            raise ValueError('Every cue needs a time within the recording')
+        ids.add(identifier)
+        clean.append({'id':identifier,'text':text.strip(),'start':start})
+    return sorted(clean,key=lambda cue:cue['start'])
 
 
 def validate_layout(layout,sections,music,chords=None):

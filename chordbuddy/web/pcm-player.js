@@ -2,7 +2,7 @@
 // Normal speed uses the mixer directly, exactly as before. Any other speed switches (until the next seek or reset)
 // to a stretched path that stretches the already-mixed stereo output, so all stems stay in time with each other and with loops.
 import {PcmMixer,RAMP} from './pcm-mixer-core.js';
-import {WsolaStretcher} from './time-stretch.js';
+import {checkRate,createStretcher,SignalsmithStretcher} from './time-stretch.js';
 
 export class StemPlayer{
   constructor(mixer=new PcmMixer()){
@@ -13,19 +13,21 @@ export class StemPlayer{
     if(this.rate!==1)this.startStretch();   // a seek or loop change keeps the chosen speed
   }
   setRate(rate){
-    new WsolaStretcher({pull:()=>0}).setRate(rate);   // one place owns the allowed range
+    checkRate(rate);
     this.rate=rate;
     if(this.stretch)this.stretch.setRate(rate);
     else if(rate!==1)this.startStretch();
   }
   startStretch(){
     const mixer=this.mixer;
-    this.stretch=new WsolaStretcher({pull:(l,r,n)=>mixer.pullMixed(l,r)});
+    this.stretch=createStretcher({pull:(l,r,n)=>mixer.pullMixed(l,r)});
     this.stretch.setRate(this.rate);
     this.env=mixer.envelope;                 // carry the current fade level across, so switching never steps the volume
     this.endedHeard=false;
   }
   get stretching(){return !!this.stretch;}
+  // Which stretcher is playing (for diagnostics): 'signalsmith', 'wsola' (the fallback), or null at normal speed.
+  get stretcher(){return !this.stretch?null:this.stretch instanceof SignalsmithStretcher?'signalsmith':'wsola';}
   // Source frame being heard right now.
   get sourceFrame(){return this.stretch?Math.max(0,Math.min(this.mixer.total,Math.round(this.stretch.currentSourceFrame()))):this.mixer.frame;}
   get state(){

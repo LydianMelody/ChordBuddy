@@ -42,6 +42,14 @@ function drawDiagnostic(g,frame,w,h,status,fps){
     g.font='600 14px system-ui';g.fillStyle='#9aa0b4';
     g.fillText(`Bar ${beat.bar} · beat ${beat.beat}/${n}${beat.bpm?` · ${Math.round(beat.bpm)} bpm`:''}${section.name?` · ${section.name}`:''}`,cx,y+24);
   }
+  // the loop: its kind, the bar of it playing, which time around, and a bar filling through it
+  const loop=frame.loop;
+  if(loop){
+    const y=h*0.12+48,width=Math.min(260,w*0.4);
+    g.font='600 13px system-ui';g.fillStyle='#38d9a9';
+    g.fillText(`Loop (${{section:'section · R',bars:'bars · L',custom:'handles'}[loop.kind]||loop.kind}) · ${loop.bar?`bar ${loop.bar}/${loop.bars}`:'outside'} · pass ${loop.pass}`,cx,y);
+    g.fillStyle='#2a2d3a';g.fillRect(cx-width/2,y+12,width,4);g.fillStyle='#38d9a9';g.fillRect(cx-width/2,y+12,width*loop.progress,4);
+  }
   // stems: level column, eight bands, flash on hits
   const stems=STEM_ORDER.filter(r=>frame.tracks[r]),colW=Math.min(110,w/(stems.length+1)),baseY=h*0.92,maxH=h*0.26,x0=cx-colW*stems.length/2;
   stems.forEach((role,i)=>{

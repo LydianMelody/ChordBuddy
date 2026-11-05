@@ -9,6 +9,8 @@
 //   Bass              -> the big front clouds swell and rise.          Vocals -> the sun glows.
 //   Lead guitar       -> glitter sheds from the rainbow trail.         Rhythm guitar -> the trail flares on each strum.
 //   Piano             -> bubbles rise from the clouds.                 Other -> the big background rainbow fades in.
+//   Inputs (rewired in the patch bay; each default is what it always did): bounce, trail flare, bubbles, chord sparkles, clouds, sun,
+//   glitter and the background rainbow. Twinkles on bright drum hits stay with the drums.
 import {chordColor} from '../visual-color.js';
 
 const TAU=Math.PI*2;
@@ -42,6 +44,16 @@ function analyze(song){
 
 export default {
   id:'skyward',
+  inputs:{
+    bounce:{label:'Bounce',type:'trigger',default:'stem/drums/kick',help:'The pegasus bounces and kicks up a cloud puff'},
+    flare:{label:'Trail flare',type:'trigger',default:'stem/rhythm/hit',help:'The rainbow trail flares'},
+    bubbles:{label:'Bubbles',type:'trigger',default:'stem/piano/hit',help:'A bubble rises from the clouds'},
+    sparkles:{label:'Sparkle burst',type:'trigger',default:'song/chord',help:'A burst of sparkles around the pegasus'},
+    clouds:{label:'Cloud swell',type:'amount',default:'stem/bass/level',help:'How much the big front clouds swell and rise'},
+    sun:{label:'Sun glow',type:'amount',default:'stem/vocals/level',help:'How brightly the sun glows'},
+    glitter:{label:'Glitter',type:'amount',default:'stem/lead/level',help:'How much glitter the rainbow trail sheds'},
+    rainbow:{label:'Background rainbow',type:'amount',default:'stem/other/level',help:'How strongly the big rainbow behind shows'},
+  },
   name:'Skyward',
   order:45,
   create(){
@@ -192,7 +204,9 @@ export default {
         const lab=frame.chord?.label;
         if(!noChord(lab)){cHue=angLerp(cHue,chordColor(lab).hue,Math.min(1,dt*2));cAmt=Math.min(1,cAmt+dt);}else cAmt=Math.max(0,cAmt-dt);
         const sm=(v,x,r)=>v+((x??0)-v)*Math.min(1,dt*r);
-        bassS=sm(bassS,tr.bass?.level,10);vocS=sm(vocS,tr.vocals?.level,6);leadS=sm(leadS,tr.lead?.level,8);otherS=sm(otherS,tr.other?.level,3);
+        const inp=env.inputs||{},has=k=>k in inp;
+        bassS=sm(bassS,has('clouds')?inp.clouds:tr.bass?.level,10);vocS=sm(vocS,has('sun')?inp.sun:tr.vocals?.level,6);
+        leadS=sm(leadS,has('glitter')?inp.glitter:tr.lead?.level,8);otherS=sm(otherS,has('rainbow')?inp.rainbow:tr.other?.level,3);
         // pegasus pose (song time)
         const b=frame.beat,slow=(b?.bpm||0)>160,beatPh=b?.bar!=null&&playing?(slow?(((b.beat-1)%2)+b.phase)/2:b.phase):(wall*1.1)%1;
         const flap=0.5+0.5*Math.cos(beatPh*TAU);                      // 1 = wing down, on the beat
@@ -200,13 +214,11 @@ export default {
         const dy=pathY(t+0.08)-pathY(t-0.08),tilt=clamp(Math.atan2(dy,sp*0.16)*0.7,-0.4,0.4);
         // reactions
         const bright=(tr.drums?.brightness??0.3)>=0.45;
-        for(const s of ev.hits?.drums||[]){
-          if(bright){const n=calm?1:2;for(let i=0;i<n;i++)sparkle(rnd()*w,rnd()*(L.top+L.M*0.4),0,0,u*(0.008+rnd()*0.01)*(0.6+s*0.6),[48,330,198,268][Math.floor(rnd()*4)],0.55);}
-          else{if(!calm)squash=Math.max(squash,s);for(let i=0;i<(calm?2:4);i++)puffs.push({x:pegX-u*0.02+rnd()*u*0.05,y:py+L.ps*55,vx:-sp*(0.3+rnd()*0.3),vy:u*(rnd()-0.6)*0.08,s:u*(0.03+rnd()*0.03),age:0,max:0.7});}
-        }
-        for(const s of ev.hits?.rhythm||[])rhyFlare=Math.max(rhyFlare,s);
-        for(const s of ev.hits?.piano||[])if(bubbles.length<40)bubbles.push({x:rnd()*w,y:L.bot+u*0.03,vy:-u*(0.07+rnd()*0.07),r:u*(0.01+0.014*s+rnd()*0.008),ph:rnd()*TAU,age:0,hue:Math.floor(rnd()*360)});
-        if(ev.chordChanged)for(let i=0;i<(calm?5:12);i++){const a=rnd()*TAU,v=u*(0.1+rnd()*0.25);sparkle(pegX+u*0.03,py-u*0.03,Math.cos(a)*v-sp*0.4,Math.sin(a)*v,u*(0.008+rnd()*0.008),RAINBOW[i%6][0],0.6+rnd()*0.4);}
+        if(bright)for(const s of ev.hits?.drums||[]){const n=calm?1:2;for(let i=0;i<n;i++)sparkle(rnd()*w,rnd()*(L.top+L.M*0.4),0,0,u*(0.008+rnd()*0.01)*(0.6+s*0.6),[48,330,198,268][Math.floor(rnd()*4)],0.55);}
+        for(const s of has('bounce')?inp.bounce:bright?[]:ev.hits?.drums||[]){if(!calm)squash=Math.max(squash,s);for(let i=0;i<(calm?2:4);i++)puffs.push({x:pegX-u*0.02+rnd()*u*0.05,y:py+L.ps*55,vx:-sp*(0.3+rnd()*0.3),vy:u*(rnd()-0.6)*0.08,s:u*(0.03+rnd()*0.03),age:0,max:0.7});}
+        for(const s of has('flare')?inp.flare:ev.hits?.rhythm||[])rhyFlare=Math.max(rhyFlare,s);
+        for(const s of has('bubbles')?inp.bubbles:ev.hits?.piano||[])if(bubbles.length<40)bubbles.push({x:rnd()*w,y:L.bot+u*0.03,vy:-u*(0.07+rnd()*0.07),r:u*(0.01+0.014*s+rnd()*0.008),ph:rnd()*TAU,age:0,hue:Math.floor(rnd()*360)});
+        if(has('sparkles')?inp.sparkles.length:ev.chordChanged)for(let i=0;i<(calm?5:12);i++){const a=rnd()*TAU,v=u*(0.1+rnd()*0.25);sparkle(pegX+u*0.03,py-u*0.03,Math.cos(a)*v-sp*0.4,Math.sin(a)*v,u*(0.008+rnd()*0.008),RAINBOW[i%6][0],0.6+rnd()*0.4);}
         const dec=r=>Math.exp(-dt*r);squash*=dec(9);rhyFlare*=dec(6);
         // sky
         const topHue=angLerp(sky[0],cHue,0.22*cAmt),grd=g.createLinearGradient(0,0,0,h);

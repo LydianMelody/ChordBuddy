@@ -9,6 +9,18 @@ import webbrowser
 from .server import make_server
 
 
+STABLE_PORT=51730   # the same address every launch, so an OBS Browser Source pointed at the visualizer keeps working
+
+
+def start_server(library,port=0):
+    if port==0:
+        try:
+            return make_server(library,STABLE_PORT)
+        except OSError:
+            pass                                        # taken (another Chord Buddy, or another program): any free port
+    return make_server(library,port)
+
+
 class NativeCloseGuard:
     """Veto native closing until every pending browser edit has been saved."""
     def __init__(self,window):
@@ -92,6 +104,21 @@ class NativeCloseGuard:
         self._show_error('Your edits could not finish saving. '+detail+' Keep this window open and retry the failed save before closing.')
 
 
+KEEP_DRAWING_FLAGS=('--disable-features=ElasticOverscroll,CalculateNativeWinOcclusion,IntensiveWakeUpThrottling',
+                    '--disable-backgrounding-occluded-windows','--disable-background-timer-throttling','--disable-renderer-backgrounding')
+
+
+def keep_drawing_arguments(existing=''):
+    """WebView2 flags so the windows keep drawing at full speed when covered, behind other windows or not focused: a visualizer captured
+    for a stream must not freeze or drop to one frame a second. The environment variable overrides pywebview's own arguments, so its one
+    feature switch (ElasticOverscroll) is kept here; anything the person set themselves is kept too."""
+    extra=[part for part in str(existing or '').split() if not part.startswith('--disable-features=')]
+    switched=[part.split('=',1)[1] for part in str(existing or '').split() if part.startswith('--disable-features=')]
+    features=KEEP_DRAWING_FLAGS[0].split('=',1)[1].split(',')+[f for p in switched for f in p.split(',') if f]
+    return ' '.join(['--disable-features='+','.join(dict.fromkeys(features)),*KEEP_DRAWING_FLAGS[1:],
+                     *[part for part in extra if part not in KEEP_DRAWING_FLAGS]])
+
+
 class WindowApi:
     """What a page in the desktop app can ask of its own window (as window.pywebview.api): the web page cannot open a second
     window or make its window full screen inside WebView2 by itself. One instance per window. Names starting with _ stay private."""
@@ -140,7 +167,7 @@ def main():
     parser.add_argument('--headless',action='store_true')
     parser.add_argument('--session-file',type=Path,help='Write local test URL to this file')
     args=parser.parse_args()
-    server=make_server(args.library,args.port)
+    server=start_server(args.library,args.port)
     url=f'http://127.0.0.1:{server.server_port}/#token={server.app.token}'
     if args.session_file:
         args.session_file.write_text(url,encoding='utf-8')
@@ -176,6 +203,7 @@ def main():
             window.events.loaded += close_guard.on_loaded
             window.events.closing += close_guard.on_closing
             webview.settings['ALLOW_DOWNLOADS']=True   # exports (mix, charts) are saved through the window's Save dialog
+            os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS']=keep_drawing_arguments(os.environ.get('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'))
             webview.start(gui='edgechromium' if os.name=='nt' else None,private_mode=True)
     except KeyboardInterrupt:
         pass

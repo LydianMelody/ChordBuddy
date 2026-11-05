@@ -31,6 +31,9 @@ from .playback_ready import PlaybackReadiness
 from .filenames import safe_stem
 from . import original_playback
 from .song_transfer import SongTransfer
+from .user_midi import UserMidi
+from .visual_relay import VisualRelay,stream_key
+from .visual_patches import VisualPatches
 
 
 PROJECT=Path(__file__).resolve().parent.parent
@@ -40,6 +43,13 @@ class Application:
     def __init__(self,root,project_dir=PROJECT):
         self.token=secrets.token_urlsafe(32)
         self.library=Library(root,project_dir=project_dir)
+        # your own visualizations: a folder beside the app (never inside it), so an update never touches them
+        self.my_visuals=Path(project_dir)/'My Visuals'
+        self.user_midi=UserMidi(self.library)   # your own MIDI files, kept with each song
+        self.visual_patches=VisualPatches(self.library)   # the patch bay's patches (which sounds drive which parts of a visualization)
+        # visualizers in another browser (an OBS Browser Source): the player's messages, relayed; their address has a key kept with the library
+        self.visual_relay=VisualRelay()
+        self.stream_key_path=self.library.root/'visualizer-stream.key'
         self.library.recover_interrupted()
         self.documents=DocumentStore(self.library)
         self.inference_gate=InferenceGate()
@@ -159,6 +169,20 @@ class Application:
         if result['opened']:result['message']='Opened in your '+('notation' if what=='MusicXML' else 'music')+' program. Changes made there are not read back.'
         return result
 
+    def open_user_midi(self,song_id,file_id):
+        # The stored file itself, not a copy: export back over it from the music program and the change is picked up.
+        path=self.user_midi.path(song_id,file_id)
+        result={'path':str(path),'opened':False,'message':''}
+        try:
+            if os.name=='nt':
+                os.startfile(str(path))
+                result['opened']=True
+            else:result['message']='Open this file in your music program: '+str(path)
+        except OSError:
+            result['message']='No program on this computer opens MIDI files yet. The file is here: '+str(path)
+        if result['opened']:result['message']='Opened in your music program. Export back over this same file and Chord Buddy picks up the change.'
+        return result
+
     def propose_rhythm(self,document_id):
         with self.job_lock:
             if self._closed:raise RevisionConflict('Chord Buddy is closing')
@@ -240,6 +264,7 @@ class Application:
                 return self.library.activate_run(song_id,run_id)
 
     def close(self):
+        self.visual_relay.close()
         with self.job_lock:
             if self._closed:
                 return
@@ -259,10 +284,11 @@ class Application:
 
 class Server(ThreadingHTTPServer):
     daemon_threads=True
+    allow_reuse_address=os.name!='nt'   # on Windows it would let a second server share a port that is already in use
 
     def server_close(self):
         super().server_close()
-        self.app.close()
+        if hasattr(self,'app'):self.app.close()       # a port that could not be bound closes before there is an app
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -280,7 +306,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('X-Content-Type-Options','nosniff')
         self.send_header('Referrer-Policy','no-referrer')
         self.send_header('Cache-Control','no-store')
-        self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+        # 'wasm-unsafe-eval' lets the page compile WebAssembly (Signalsmith Stretch, for practice speed) and nothing else: eval stays blocked.
+        self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
         super().end_headers()
 
     def _allowed(self,path,query):
@@ -292,7 +319,7 @@ class Handler(BaseHTTPRequestHandler):
             return False
         if path.startswith('/api/'):
             token=self.headers.get('X-ChordBuddy-Token','')
-            if path.startswith(('/api/audio/','/api/export/','/api/mix-export/','/api/stems-export/','/api/export-midi/','/api/export-outputs/','/api/song-export/')):
+            if path.startswith(('/api/audio/','/api/export/','/api/mix-export/','/api/stems-export/','/api/export-midi/','/api/export-outputs/','/api/song-export/','/api/visual-relay/player')):
                 token=token or query.get('token',[''])[0]
             return secrets.compare_digest(token,self.app.token)
         return True
@@ -349,7 +376,13 @@ class Handler(BaseHTTPRequestHandler):
             if not self._allowed(path,query):
                 self._json({'error':'This request is not authorized'},403)
                 return
-            if method=='GET':
+            if method=='GET' and path=='/visual-stream':
+                key=stream_key(self.app.stream_key_path)
+                if not key or not secrets.compare_digest(query.get('key',[''])[0],key):
+                    self._json({'error':'This stream address is not valid. Copy it again from Chord Buddy (More options, Visualizer for OBS).'},403)
+                    return
+                self._event_stream('viewer')
+            elif method=='GET':
                 self._get(path)
             elif path=='/api/models/import':
                 self._json(self._models_import(query))
@@ -361,6 +394,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(self.app.transfer.receive(self.rfile.read,size))
             elif path=='/api/import':
                 self._json(self.app.library.import_audio(query.get('filename',[''])[0],self._read(250*1024*1024),query.get('setlist',['default'])[0]))
+            elif path=='/api/user-midi/upload':
+                midi=self.app.user_midi;song=query.get('song',[''])[0];name=query.get('name',[''])[0]
+                if query.get('unique',[''])[0]=='1':name=midi.next_name(song,name or 'Custom MIDI')   # generated files never collide with or overwrite anything
+                self._json(midi.add(song,name,self._read(16*1024*1024),query.get('replace',[None])[0]))
             else:
                 payload=json.loads(self._read(24*1024*1024))
                 if not isinstance(payload,dict):
@@ -379,7 +416,35 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             self._json({'error':f'Chord Buddy could not complete this action: {exc}'},500)
 
+    def _event_stream(self,role):
+        # server-sent events from the visual relay, until the browser goes away
+        self.send_response(200)
+        self.send_header('Content-Type','text/event-stream; charset=utf-8')
+        self.end_headers()
+        self.close_connection=True
+        def write(text):
+            self.wfile.write(text.encode('utf-8'));self.wfile.flush()
+        try:self.app.visual_relay.stream(role,write)
+        except OSError:pass                              # the page closed or reloaded (Windows reports it as aborted, not reset)
+
     def _get(self,path):
+        if path=='/api/visual-relay/address':
+            key=stream_key(self.app.stream_key_path,True)
+            return self._json({'url':f'http://127.0.0.1:{self.server.server_port}/visualizer.html?stream={key}','port':self.server.server_port})
+        if path=='/api/visual-relay/player':return self._event_stream('player')
+        if path=='/api/visual-patches':return self._json(self.app.visual_patches.read())
+        if path.startswith('/api/visual-patches/'):return self._json(self.app.visual_patches.read(path.removeprefix('/api/visual-patches/')))
+        if path.startswith('/api/user-midi/'):
+            parts=path.removeprefix('/api/user-midi/').split('/')
+            if len(parts)==1:return self._json({'files':self.app.user_midi.list(parts[0])})
+            if len(parts)==2:
+                data=self.app.user_midi.read(parts[0],parts[1])
+                self.send_response(200)
+                self.send_header('Content-Type','audio/midi')
+                self.send_header('Content-Length',str(len(data)))
+                self.end_headers()
+                return self.wfile.write(data)
+            raise KeyError('Page not found')
         if re.fullmatch(r'/api/documents/[^/]+/rhythm/proposals/[^/]+',path):
             parts=path.split('/');doc=self.app.documents.get(parts[3]);version=self.app.documents.timing.version(parts[6])
             stamp=self.app.documents.revision_stamp(doc['id'])
@@ -489,15 +554,25 @@ class Handler(BaseHTTPRequestHandler):
         web=(PROJECT/'chordbuddy'/'web').resolve()
         if path=='/visualizations/index.json':
             # the visualizer's scenes: every .js file in web/visualizations whose name does not start with _ (templates, drafts)
-            # with a version for each (its time and size), so a file that was changed is loaded fresh; files can come and go at any time
-            folder=web/'visualizations';versions={}
-            for p in folder.glob('*.js'):
-                if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*\.js',p.name):continue
-                try:
-                    if p.is_file():stat=p.stat();versions[p.name]=f'{stat.st_mtime_ns:x}-{stat.st_size:x}'
-                except OSError:continue                      # deleted while being listed
-            return self._json({'files':sorted(versions),'versions':versions})
-        relative='index.html' if path=='/' else path.lstrip('/')
+            # with a version for each (its time and size), so a file that was changed is loaded fresh; files can come and go at any time.
+            # `mine` lists the same for the My Visuals folder in the app's root (served at /my-visuals/).
+            def scan(folder):
+                versions={}
+                try:files=list(folder.glob('*.js'))
+                except OSError:files=[]
+                for p in files:
+                    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 _-]*\.js',p.name):continue
+                    try:
+                        if p.is_file():stat=p.stat();versions[p.name]=f'{stat.st_mtime_ns:x}-{stat.st_size:x}'
+                    except OSError:continue                      # deleted while being listed
+                return versions
+            versions,mine=scan(web/'visualizations'),scan(self.app.my_visuals)
+            return self._json({'files':sorted(versions),'versions':versions,'mine':sorted(mine),'mine_versions':mine})
+        if path.startswith('/my-visuals/'):
+            # a file of My Visuals (a visualization, or a picture or font it uses), never anything outside that folder
+            web=self.app.my_visuals.resolve();relative=path.removeprefix('/my-visuals/')
+        else:
+            relative='index.html' if path=='/' else path.lstrip('/')
         target=(web/relative).resolve()
         if not target.is_relative_to(web) or not target.is_file():
             raise KeyError('Page not found')
@@ -510,6 +585,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _post(self,path,body):
         lib=self.app.library
+        if path=='/api/visual-relay/send':
+            return self._json({'viewers':self.app.visual_relay.send(body.get('messages'))})
         if re.fullmatch(r'/api/documents/[^/]+/timing',path):
             result=self.app.documents.set_chart_timing(path.split('/')[3],body['timing'],body['revision'])
         elif re.fullmatch(r'/api/documents/[^/]+/cleanup/(preview|apply)',path):
@@ -597,6 +674,20 @@ class Handler(BaseHTTPRequestHandler):
             if os.name=='nt':
                 os.startfile(str(folder))
             result={'ok':True}
+        elif path=='/api/visual-patches':
+            result=self.app.visual_patches.save(body['visual'],body.get('patch'),body.get('song_id'))
+        elif path=='/api/user-midi/settings':
+            result=self.app.user_midi.save_settings(body['song_id'],body['id'],body['settings'])
+        elif path=='/api/user-midi/rename':
+            result=self.app.user_midi.rename(body['song_id'],body['id'],body['name'])
+        elif path=='/api/user-midi/remove':
+            self.app.user_midi.remove(body['song_id'],body['id']);result={'ok':True}
+        elif path=='/api/user-midi/open':
+            result=self.app.open_user_midi(body['song_id'],body['id'])
+        elif path=='/api/user-midi/folder':
+            folder=self.app.user_midi.folder_path(body['song_id'])
+            if os.name=='nt':os.startfile(str(folder))
+            result={'ok':True,'path':str(folder)}
         elif path.startswith('/api/document/'):
             tail=path.removeprefix('/api/document/').split('/')
             if len(tail)==1:
@@ -604,7 +695,7 @@ class Handler(BaseHTTPRequestHandler):
             elif len(tail)==2 and tail[1]=='export':
                 result=self.app.documents.retry_export(tail[0],body['revision'])
             elif len(tail)==2:
-                result=self.app.documents.history(tail[0],tail[1],body['revision'])
+                result=self.app.documents.history(tail[0],tail[1],body['revision'],body.get('position'))
             else:
                 raise KeyError('Unknown document action')
         else:

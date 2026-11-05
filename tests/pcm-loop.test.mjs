@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {PcmMixer,RAMP} from '../chordbuddy/web/pcm-mixer-core.js';
+import {PcmMixer,RAMP,HISTORY_FRAMES} from '../chordbuddy/web/pcm-mixer-core.js';
 import {planChunk,loopEngaged,validLoop,CHUNK_FRAMES} from '../chordbuddy/web/pcm-stream.js';
 
 // A chunk whose "original" left channel encodes its own source frame number, so playback order is visible in the output.
@@ -79,16 +79,38 @@ test('chunks that straddle the loop end or arrive out of order are rejected', ()
   mixer.enqueue(chunk(1000,500));assert.equal(mixer.queuedFrames,1500);
 });
 
-test('splice: a loop turned on mid-stream keeps the queued audio up to its end, then streams on from its start', () => {
+test('splice: a loop turned on mid-stream keeps the queued audio up to its end, queues its start from memory, then streams on from its start', () => {
   const mixer=start(null,0,100000);streamInto(mixer,{sentEnd:0,frames:100000,loop:null},2);mixer.setPlaying(true);
   render(mixer,500);
   const plan=mixer.splice({generation:2,loop:{start:200,end:5000}});
-  assert.deepEqual(plan,{startFrame:200,sent:500+4500,consumed:500,engaged:true});
-  assert.equal(mixer.generation,2);assert.equal(mixer.queuedFrames,4500);
+  assert.deepEqual(plan,{startFrame:200,sent:500+4500+4800,consumed:500,engaged:true});   // 200..5000 again, from the audio already here
+  assert.equal(mixer.generation,2);assert.equal(mixer.queuedFrames,4500+4800);
   const heard=render(mixer,4500);assert.equal(+heard[0].toFixed(4),.05);assert.equal(+heard[4000].toFixed(4),.45,'plays on without a gap toward the loop end');
   assert.equal(mixer.enqueue(chunk(200,100,1)),false,'chunks of the old stream are ignored');
   assert.throws(()=>mixer.enqueue(chunk(5000,100,2)),/contiguous/);
   assert.equal(mixer.enqueue(chunk(200,100,2)),true,'the next chunk is the loop start');
+});
+
+test('splice: a loop turned on a moment before its end wraps from played audio with no gap, without waiting for the server', () => {
+  // the queue holds 0..88199; play to 4990, then loop 2000..5000 with only 10 frames left before its end and nothing more streamed
+  const mixer=start(null,0,100000);streamInto(mixer,{sentEnd:0,frames:100000,loop:null},2);mixer.setPlaying(true);
+  render(mixer,4990);
+  const plan=mixer.splice({generation:2,loop:{start:2000,end:5000}});
+  assert.equal(plan.startFrame,2000);assert.equal(mixer.queuedFrames,10+3000);
+  const out=render(mixer,10+3000+5);
+  for(let k=0;k<3010-RAMP;k++){const want=k<10?4990+k:2000+(k-10);assert.ok(Math.abs(out[k]*10000-want)<.5,`sample ${k}: got ${out[k]*10000}, want ${want}`);}   // (the last RAMP frames fade: nothing more was streamed)
+  assert.equal(mixer.played,4990+3010);
+  assert.equal(mixer.enqueue(chunk(2000,100,2)),true,'streaming resumes at the loop start');
+});
+
+test('memory: played chunks are kept up to the limit, oldest dropped first, and only within one song', () => {
+  const mixer=start(null,0,HISTORY_FRAMES*2);mixer.setPlaying(true);
+  const plan={sentEnd:0,frames:HISTORY_FRAMES*2,loop:null},per=CHUNK_FRAMES;
+  for(let i=0;i<34;i++){streamInto(mixer,plan,1);render(mixer,per);}
+  assert.ok(mixer.historyFrames<=HISTORY_FRAMES&&mixer.historyFrames>HISTORY_FRAMES-per);
+  assert.equal(mixer.history[0].start,per*4);                             // 34 chunks played, the 30 newest kept
+  mixer.reset({generation:2,runId:'r',startFrame:0,totalFrames:HISTORY_FRAMES*2,commonGain:1});assert.equal(mixer.history.length,30,'a seek keeps it');
+  mixer.reset({generation:3,runId:'other',startFrame:0,totalFrames:HISTORY_FRAMES*2,commonGain:1});assert.equal(mixer.history.length,0,'another song clears it');
 });
 
 test('splice: turning a loop off drops what was queued after the wrap, and a loop behind the playhead never wraps', () => {

@@ -1,7 +1,8 @@
 // The in-time view: the same chart, drawn true to time. Each bar gets its own width (wide enough that nothing overlaps), chords sit
-// at their onsets, and every lyric line is a lane of word chips. A click plays from there; with Shift a word or a chord can be dragged
-// to another beat (a dragged word becomes a pin, and the unpinned words between its neighbours slide with it; Shift+click a pin to
-// release the word). With Ctrl the barlines can be moved, removed (click) or added (a beat's +).
+// at their onsets, and every lyric line is a lane of word chips. A click plays from there. With the Timing tool (or Shift held) a word
+// or a chord can be dragged to another beat (a dragged word becomes a pin, and the unpinned words between its neighbours slide with it;
+// click a pin to release the word) and a repeat count regrouped. Folding a repeat picks bar numbers (Fold a repeat, or Shift+click).
+// With the Edit tool (or Ctrl held) the barlines can be moved, removed (click) or added (a beat's +).
 import {addressAtSeconds,secondsAtAddress,musicalPosition} from './musical-grid.js';
 import {mapToDisplay,sourceMeasureFor} from './chart-model.js';
 import {placeWord} from './chart-layout.js';
@@ -24,9 +25,11 @@ function textWidth(text,font,padding){
 
 // env: {getData, getModel, getSnap, getZoom, refs, commit(candidate,label), fail(error), say(text), blocked(), rerender(), editBars(change),
 //       seek(seconds,group,pass), seekChunk(group,chunk), moveChord(group,chunk,address), pickBar(group,bar), regroup(group),
-//       splitZone(barNode,group,bar), zone(node,name,keys), dragEnded()}  (all but the first eight are optional)
+//       splitZone(barNode,group,bar), zone(node,name,keys), dragEnded(), isTime(event), isEdit(event), folding()}  (all but the first eight are
+//       optional). isTime: whether a press works in time (the Timing tool, or Shift); isEdit: whether it edits (the Edit tool, or Ctrl).
 export function createTiming(env){
   let drag=null;
+  const timeAct=e=>env.isTime?env.isTime(e):!!e?.shiftKey,editAct=e=>env.isEdit?env.isEdit(e):!!e?.ctrlKey;
 
   function barSpec(g){
     return g.bars.map(bar=>({id:bar.id,beats:bar.measure?.beats?.length||0,bar}));
@@ -102,10 +105,12 @@ export function createTiming(env){
       const n=bar.measure?.beats?.length||0,width=widths.get(bar.id)||perBeat*4,node=el('div','bar tbar'+(index===g.bars.length-1?' last':''));
       node.dataset.bar=bar.id;node.style.width=width+'px';if(env.picked?.(bar.id))node.classList.add('rt-sel');   // picked to fold a repeat
       const bp=n?width/n:width/4;node.style.setProperty?.('--bp',bp+'px');node.style.setProperty?.('--sp',bp*stepBeats(gridSnap())+'px');
-      const offset=env.getModel().barOffset||0,numbers=g.passes.map(p=>measures.find(m=>m.id===p.measureIds[g.bars.indexOf(bar)])?.number).filter(v=>v!==undefined).map(v=>v-offset);
-      // the bar number plays from the bar; Shift+click picks it as one end of a part that repeats
+      // the bar's place in each pass, found by its measure: the row's bars leave out hidden ones (silence before the music) that passes still list
+      const passIndex=g.passes[0]?.measureIds.indexOf(bar.id)??-1;
+      const offset=env.getModel().barOffset||0,numbers=g.passes.map(p=>measures.find(m=>m.id===p.measureIds[passIndex])?.number).filter(v=>v!==undefined).map(v=>v-offset);
+      // the bar number plays from the bar; while folding a repeat (or with Shift) it is picked as one end of the part that repeats
       const no=el('span','tno',numbers.length>1?numbers.join(' · '):String(bar.number));
-      env.zone?.(no,'fold','shift');no.onclick=e=>{if(e?.shiftKey)env.pickBar?.(g,bar);else if(!e?.ctrlKey)env.seek?.(bar.start);};
+      env.zone?.(no,'fold','fold');no.onclick=e=>{if(e?.shiftKey||env.folding?.())env.pickBar?.(g,bar);else if(!editAct(e))env.seek?.(bar.start);};
       node.append(no);
       env.splitZone?.(node,g,bar);
       if(env.editBars&&bar.measure&&bar.mapped&&n)addBarControls(node,bar,width,n,measures);
@@ -114,15 +119,17 @@ export function createTiming(env){
         const a=beatOfSeconds(measures,chunk.start,rowIds),cell=el('span','chunk tchord');cell.dataset.chunk=chunk.key;
         cell.style.left=(n&&a?beatToX(a.beat,width,n):0)+'px';
         const chord=el('span','chord',chunk.continued?'('+spellChord(chunk.label)+')':spellChord(chunk.label));cell.append(chord);
-        if(chunk.repeat>1){const count=el('span','repeat','(×'+chunk.repeat+')');env.zone?.(count,'regroup','shift');count.onclick=e=>{if(e?.shiftKey){e.stopPropagation?.();env.regroup?.(g);}};
+        const cues=env.cuesAt?.(chunk.key)||[];       // cues are written with the Cue tool on the chart as written; here they show where they fall
+        if(cues.length){const lane=el('span','cue-lane');for(const {cue,passNumber} of cues){const b=el('button','cue',cue.text);b.type='button';b.title='Cue'+(g.passCount>1?', pass '+passNumber:'');b.onclick=e=>{e?.stopPropagation?.();env.seek?.(cue.start,g,passNumber);};b.onpointerdown=e=>e?.stopPropagation?.();refs.cues?.push({node:b,cue,chunkKey:chunk.key,passNumber});lane.append(b);}cell.append(lane);}
+        if(chunk.repeat>1){const count=el('span','repeat','(×'+chunk.repeat+')');env.zone?.(count,'regroup','time');count.onclick=e=>{if(timeAct(e)){e.stopPropagation?.();env.regroup?.(g);}};
           count.onpointerdown=e=>e?.stopPropagation?.();         // the count sits inside the chord: pressing it regroups, never starts a chord drag
           cell.append(count);}
         if(!chunk.continued&&chunk.chordId)wireChord(cell,g,chunk);
-        else cell.onclick=e=>{if(!e?.shiftKey&&!e?.ctrlKey)env.seekChunk?.(g,chunk);};
+        else cell.onclick=e=>{if(!e?.shiftKey&&!editAct(e))env.seekChunk?.(g,chunk);};
         chords.append(cell);refs.chunks.push({node:cell,group:g,chunk});
       }
       node.append(chords);
-      melodyOverlay(node,g,index,width,n,pitchRange);
+      melodyOverlay(node,g,passIndex,width,n,pitchRange);
       placedLanes.forEach((lane,i)=>{
         const laneEl=el('div','tlane');laneEl.dataset.lane=String(i);laneEl.dataset.pass=String(lane.passNumber);
         // A repeated row holds one lane per pass. Each pass has its own color and every bar of its lane carries its name, so the words can be told
@@ -212,15 +219,15 @@ export function createTiming(env){
   function makeChip(g,lane,laneIndex,token,tokenIndex){
     const chip=el('span','wchip'+(token.pinned?' pinned':'')+(token.kind==='chord'?' anchor':'')+(token.kind==='suggest'?' guess':''));
     chip.dataset.line=String(token.line);chip.dataset.offset=String(token.offset);
-    env.zone?.(chip,'word','shift');
-    const pin=el('span','pinb');pin.innerHTML=icon('pin');pin.title='Shift+click to release the pin';
-    pin.onpointerdown=e=>{if(e?.shiftKey)e.stopPropagation?.();};
-    pin.onclick=e=>{if(!e?.shiftKey)return;e.stopPropagation?.();release(g,lane,token);};
+    env.zone?.(chip,'word','time');
+    const pin=el('span','pinb');pin.innerHTML=icon('pin');pin.title='Click to release the pin: the word goes back to spreading out between its neighbours';
+    pin.onpointerdown=e=>{if(timeAct(e))e.stopPropagation?.();};
+    pin.onclick=e=>{if(!timeAct(e))return;e.stopPropagation?.();release(g,lane,token);};
     chip.append(pin,document.createTextNode?document.createTextNode(token.text):token.text);
-    chip.ondblclick=e=>{if(e?.shiftKey&&token.pinned)release(g,lane,token);};
-    // a click plays from the word; Shift+drag moves it
-    chip.onclick=e=>{if(e?.shiftKey||e?.ctrlKey||drag?.moved)return;if(finite(token.seconds))env.seek?.(token.seconds,g,token.passNumber);};
-    chip.onpointerdown=e=>{if(e?.shiftKey)startDrag(e,chip,g,lane,laneIndex,token,tokenIndex);};
+    chip.ondblclick=e=>{if(timeAct(e)&&token.pinned)release(g,lane,token);};
+    // a click plays from the word; dragging it (Timing tool, or Shift) moves it
+    chip.onclick=e=>{if(e?.shiftKey||editAct(e)||drag?.moved)return;if(finite(token.seconds))env.seek?.(token.seconds,g,token.passNumber);};
+    chip.onpointerdown=e=>{if(e.button===0)env.positioning?.(g,lane.passNumber);if(timeAct(e))startDrag(e,chip,g,lane,laneIndex,token,tokenIndex);};   // its pass's melody lights up
     chip.onpointermove=moveDrag;chip.onpointerup=endDrag;chip.onpointercancel=cancelDrag;
     chip.onkeydown=e=>{if(e.key==='Escape')cancelDrag(e);};
     return chip;
@@ -253,6 +260,15 @@ export function createTiming(env){
     }
     return best;
   }
+  // How much bigger or smaller the page is drawn than laid out (the page zoom), from a bar's width on screen against the width it was
+  // given. offsetWidth is not used: under CSS zoom some engines report it zoomed and others not, which put the drop point and the ghost
+  // short of the pointer (at 83% zoom, about a fifth of the way back towards the bar's start).
+  function screenScale(ctx){
+    for(const b of ctx.barEls){const w=b.node.getBoundingClientRect?.().width;if(w>0&&b.width>0)return w/b.width;}
+    return 1;
+  }
+  // The pointer's distance from the start of the bar it is over, in the bar's own (laid out) pixels.
+  const pointerX=({b,rect},e)=>rect.width>0?(e.clientX-rect.left)/rect.width*b.width:0;
   function targetsFor(b){
     if(drag.targetsByBar.has(b.id))return drag.targetsByBar.get(b.id);
     const g=drag.g,onsets=b.bar.chunks.map(c=>c.start).filter(finite);
@@ -279,10 +295,10 @@ export function createTiming(env){
       if(Math.hypot(e.clientX-drag.x0,e.clientY-drag.y0)<DRAG_PIXELS)return;
       drag.moved=true;drag.chip.classList.add('lifted');drag.ghost=el('span','wchip ghost',drag.token.text);(drag.ctx.row||document.body).append(drag.ghost);
     }
-    const zoom=drag.ctx.row?.offsetWidth&&drag.ctx.row.getBoundingClientRect?drag.ctx.row.getBoundingClientRect().width/drag.ctx.row.offsetWidth||1:1;     // the page may be zoomed on screen
+    const zoom=screenScale(drag.ctx);     // the page may be zoomed on screen
     drag.ghost.style.left=((e.clientX+8)/zoom)+'px';drag.ghost.style.top=((e.clientY+8)/zoom)+'px';
     const hit=hitBar(drag.ctx,e);if(!hit)return;
-    const {b,rect}=hit,unit=b.node.offsetWidth?rect.width/b.node.offsetWidth:1,x=(e.clientX-rect.left)/unit;
+    const {b}=hit,x=pointerX(hit,e);
     // magnet off: the exact beat under the pointer; on: the nearest grid point, chord or pin
     const target=env.getSnap()==='free'&&b.n?{beat:Math.max(0,Math.min(b.n,x/b.width*b.n))}:nearestTarget(targetsFor(b),x,b.width,b.n);if(!target)return;
     let actual=actualFor(b,target);if(!actual)return;
@@ -330,14 +346,14 @@ export function createTiming(env){
     if(!drag)return;const d=drag;drag=null;d.chip.releasePointerCapture?.(d.pointer);finishVisuals();env.rerender?.();env.dragEnded?.();
   }
 
-  // ---------------- Shift+drag a chord to another beat ----------------
+  // ---------------- drag a chord to another beat (Timing tool, or Shift) ----------------
   // The chord's start moves (the chord before it holds on until then). It stays after the start of the chord before it and before its
   // own end, inside its row, and lands on the grid (or anywhere, with the magnet off).
   function wireChord(cell,g,chunk){
-    env.zone?.(cell,'chord','shift');
-    cell.onclick=e=>{if(e?.shiftKey||e?.ctrlKey||cell._dragged){cell._dragged=false;return;}env.seekChunk?.(g,chunk);};
+    env.zone?.(cell,'chord','time');
+    cell.onclick=e=>{if(e?.shiftKey||editAct(e)||cell._dragged){cell._dragged=false;return;}env.seekChunk?.(g,chunk);};
     cell.onpointerdown=e=>{
-      if(e.button!==0||!e.shiftKey||env.blocked())return;
+      if(e.button!==0||!timeAct(e)||env.blocked())return;
       const ctx=findCtx(g);if(!ctx)return;e.preventDefault?.();
       const {projection}=env.getModel(),o=chunk.occurrence,mine=projection.occurrences.filter(x=>x.groupId===g.id&&x.passNumber===o.passNumber).sort((a,b)=>a.start-b.start);
       const before=mine[mine.indexOf(o)-1];
@@ -352,10 +368,10 @@ export function createTiming(env){
         if(Math.hypot(e.clientX-drag.x0,e.clientY-drag.y0)<DRAG_PIXELS)return;
         drag.moved=true;cell.classList.add('lifted');drag.ghost=el('span','tchord-ghost',cell.textContent);(drag.ctx.row||document.body).append(drag.ghost);
       }
-      const zoom=drag.ctx.row?.offsetWidth&&drag.ctx.row.getBoundingClientRect?drag.ctx.row.getBoundingClientRect().width/drag.ctx.row.offsetWidth||1:1;
+      const zoom=screenScale(drag.ctx);
       drag.ghost.style.left=((e.clientX+8)/zoom)+'px';drag.ghost.style.top=((e.clientY+8)/zoom)+'px';
       const hit=hitBar(drag.ctx,e);if(!hit)return;
-      const {b,rect}=hit,unit=b.node.offsetWidth?rect.width/b.node.offsetWidth:1,x=(e.clientX-rect.left)/unit;
+      const {b}=hit,x=pointerX(hit,e);
       const target=env.getSnap()==='free'&&b.n?{beat:Math.max(0,Math.min(b.n,x/b.width*b.n))}:nearestTarget(targetsFor(b),x,b.width,b.n);if(!target)return;
       let seconds;try{seconds=secondsAtAddress(env.getModel().measures,{measure_id:b.id,beat:target.beat});}catch{return;}
       if(!(seconds>drag.lo&&seconds<drag.hi)){drag.drop=null;drag.mark?.remove?.();env.say?.('A chord moves between the start of the chord before it and its own end.');return;}

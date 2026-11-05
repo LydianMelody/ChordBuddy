@@ -62,6 +62,10 @@ def copy_code(source,destination):
         if file.is_file() and not file.is_symlink() and not ignored(file.name) and file.name!='portable.json' and file.suffix.lower() in {'.py','.md','.txt','.cmd','.bat','.json'}:
             copy_file(file,destination/file.name)
             count+=1
+    # the empty My Visuals folder, with its README (never anyone's own visuals)
+    if (source/'My Visuals'/'README.txt').is_file():
+        copy_file(source/'My Visuals'/'README.txt',destination/'My Visuals'/'README.txt')
+        count+=1
     if not (source/'Start Portable.cmd').is_file():
         raise ValueError('The source Start Portable.cmd launcher is missing')
     copy_file(source/'Start Portable.cmd',destination/'Start Chord Buddy.cmd')

@@ -71,3 +71,13 @@ test('chord names in the file are spelled as the chart spells them, and a chosen
   const other=tuneToMusicXml(flats,{staffIndex:a.staffIndex,voiceIndex:a.voiceIndex,meter:{num:3,den:4}});   // not as long as the score's bar: ignored
   assert.match(other,/<beats>4<\/beats><beat-type>4<\/beat-type>/);
 });
+
+test('text above or below a note (a cue from the chart) is written as words, never as a chord symbol',()=>{
+  const one='X:1\nM:4/4\nL:1/4\nK:C\n"^pick & scratch""G"c2"_soft"c2|\n';
+  const xml=xmlFor(one),tagged=xmlFor(one,{chordsFor:()=>[]});
+  assert.ok(wellFormed(xml));
+  assert.match(xml,/<direction placement="above"><direction-type><words>pick &amp; scratch<\/words><\/direction-type><\/direction>/);
+  assert.match(xml,/<direction placement="below"><direction-type><words>soft<\/words>/);
+  assert.equal((xml.match(/<harmony>/g)||[]).length,1,'only the G is a chord');
+  assert.match(tagged,/<words>pick &amp; scratch<\/words>/,'also when the chart supplies the chords');
+});

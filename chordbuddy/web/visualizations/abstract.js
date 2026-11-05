@@ -1,6 +1,8 @@
 // Abstract: a harmonic bloom. Each stem is a glowing ring whose shape is its eight frequency bands, repeated with a symmetry that changes
 // with each section; hits throw sparks off their ring, kicks send out a shockwave, the beat breathes in the centre, and the vocal melody
 // orbits as a comet (higher notes further out). The palette follows the chord's place on the circle of fifths.
+// Its inputs (rewired in the patch bay; the defaults are what it always did): the shockwave, the center's pulse, the change of symmetry,
+// the spin speed and the comet.
 import {STEM_ORDER,BAND_COUNT} from '../visual-scene.js';
 import {chordColor} from '../visual-color.js';
 
@@ -12,6 +14,13 @@ function lerpHue(from,to,k){const d=((to-from+540)%360)-180;return (from+d*k+360
 
 export default {
   id:'abstract',order:30,name:'Abstract',
+  inputs:{
+    shockwave:{label:'Shockwave',type:'trigger',default:'stem/drums/kick',help:'Sends a ring of light out from the middle (strong hits only)'},
+    pulse:{label:'Center pulse',type:'trigger',default:'song/beat',help:'Makes the middle glow and swell'},
+    symmetry:{label:'Change of pattern',type:'trigger',default:'song/section',help:'Moves the rings to their next symmetry'},
+    spin:{label:'Spin speed',type:'amount',default:'stem/drums/level',help:'How fast the rings turn'},
+    comet:{label:'Comet',type:'notes',default:'melody/lead/notes',help:'The melody the comet follows (higher notes orbit further out)'},
+  },
   create(){
     let hue=220,fold=6,foldTarget=6,foldMix=1,breath=0,spin=0;
     const sparks=[],waves=[],trail=[];
@@ -24,11 +33,14 @@ export default {
         // colour follows the chord, gliding rather than snapping
         const c=chordColor(frame.chord.label);hue=lerpHue(hue,c.hue,Math.min(1,dt*3));
         const sat=c.root===null?25:c.minor?55:75;
-        if(env.events.sectionChanged){foldTarget=FOLDS[(frame.section.index+FOLDS.length)%FOLDS.length];foldMix=0;}
+        if(env.inputs.symmetry.length){   // the section's own pattern, or the next one when the section has not changed
+          const next=FOLDS[(frame.section.index+FOLDS.length)%FOLDS.length];
+          foldTarget=next!==foldTarget?next:FOLDS[(FOLDS.indexOf(foldTarget)+1)%FOLDS.length];foldMix=0;
+        }
         foldMix=Math.min(1,foldMix+dt*1.5);if(foldMix>=1)fold=foldTarget;
         breath=Math.max(0,breath-dt*3.5);
-        if(env.events.beat)breath=env.events.beat.downbeat?1:0.55;
-        spin+=dt*(0.05+0.25*(frame.tracks.drums?.level||0))*(frame.playing?1:0.3);
+        if(env.inputs.pulse.length)breath=Math.max(...env.inputs.pulse);
+        spin+=dt*(0.05+0.25*env.inputs.spin)*(frame.playing?1:0.3);
 
         // background: a deep wash in the chord's colour, brighter at the centre
         g.fillStyle=`hsl(${hue},40%,4%)`;g.fillRect(0,0,w,h);
@@ -61,9 +73,10 @@ export default {
               const a=Math.random()*Math.PI*2,speed=R*(0.25+Math.random()*0.9)*(0.4+strength);
               sparks.push({x:cx+Math.cos(a)*base,y:cy+Math.sin(a)*base,vx:Math.cos(a)*speed,vy:Math.sin(a)*speed,life:1,decay:0.8+Math.random()*1.2,hue:ringHue,size:1+strength*2.2});
             }
-            if(role==='drums'&&t.brightness<0.45&&strength>0.35&&!calm)waves.push({r:base,life:1,hue:ringHue});   // a kick: shockwave
           }
         });
+        // shockwaves, from the drum ring
+        for(const strength of env.inputs.shockwave)if(strength>0.35&&!calm)waves.push({r:R*(0.3+RING_ORDER.indexOf('drums')*0.1),life:1,hue:(hue+RING_ORDER.indexOf('drums')*16)%360});
         // shockwaves
         for(let i=waves.length-1;i>=0;i--){
           const wv=waves[i];wv.r+=R*dt*1.8;wv.life-=dt*1.4;if(wv.life<=0){waves.splice(i,1);continue;}
@@ -81,7 +94,7 @@ export default {
         cg.addColorStop(0,`hsla(${hue},${sat}%,${62+breath*15}%,${0.55+breath*0.3})`);cg.addColorStop(1,`hsla(${hue},${sat}%,40%,0)`);
         g.fillStyle=cg;g.beginPath();g.arc(cx,cy,core*2.4,0,Math.PI*2);g.fill();
         // the vocal melody (or the instrumental one when there is none) as a comet with a trail
-        const melody=frame.notes.vocal?.active.length?frame.notes.vocal:frame.notes.instrumental||frame.notes.melody;
+        const melody=env.inputs.comet;
         const note=melody?.active[0];
         if(note&&melody.high!==null){
           const span=Math.max(12,melody.high-melody.low),r=R*(0.45+0.6*(note.pitch-melody.low)/span),a=frame.time*1.3;

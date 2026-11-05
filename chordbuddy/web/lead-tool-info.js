@@ -7,7 +7,7 @@ const HL='fill="var(--hl)"',INK='fill="currentColor" stroke="none"';
 export const LEAD_GROUPS=[['select','chords','lyrics','breaks']];
 export const LEAD_NAMES=LEAD_GROUPS.flat();
 export const LEAD_DEFAULT='select';
-export const LEAD_FOR_KEY={V:'select',C:'chords',L:'lyrics',B:'breaks'};
+export const LEAD_FOR_KEY={V:'select',C:'chords',W:'lyrics',B:'breaks'};   // W for words: L loops 4 bars everywhere
 // Not a tool: a button at the foot of the tray that takes the score out of Chord Buddy.
 export const EXTERNAL={
   label:'Editor',title:'Open in another editor',
@@ -21,7 +21,7 @@ Object.assign(TOOLS,{
   chords:{label:'Chords',key:'C',mode:'lead',title:'Edit chords',
     body:'Click a chord symbol to retype it. A changed chord is changed in the chord chart too.',
     hint:'Click a chord symbol above the staff to retype it.'},
-  lyrics:{label:'Lyrics',key:'L',mode:'lead',title:'Type lyrics',
+  lyrics:{label:'Lyrics',key:'W',mode:'lead',title:'Type lyrics',
     body:'Click under a staff and type the words, or drag a word onto a note to pin it there. The words belong to the chord chart as well, so both views stay in step.',
     hint:'Click under a staff and type the words. Drag a word onto a note to pin it.'},
   breaks:{label:'Lines',key:'B',mode:'lead',title:'Choose the line breaks',

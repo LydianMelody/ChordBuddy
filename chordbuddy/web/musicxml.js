@@ -5,6 +5,8 @@ const DIVISIONS=24;                          // per quarter note: enough for six
 // Standard note lengths, longest first, as [divisions, type, dots].
 const SHAPES=[[96,'whole',0],[72,'half',1],[48,'half',0],[36,'quarter',1],[24,'quarter',0],[18,'eighth',1],[12,'eighth',0],[9,'16th',1],[6,'16th',0],[4.5,'32nd',1],[3,'32nd',0],[1.5,'64th',0]];
 const esc=text=>String(text??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// abcjs reads "^text", "_text", "<text", ">text" and "@text" as annotations (position above, below...); a chord symbol has none.
+export const isChordSymbol=c=>!c.position||c.position==='default';
 const ACC_ALTER={sharp:1,flat:-1,natural:0,dblsharp:2,dblflat:-2};
 
 // A length in divisions, as a run of standard lengths that are tied together (5 sixteenths: a quarter tied to a sixteenth).
@@ -131,7 +133,9 @@ export function tuneToMusicXml(tune,options={}){
       const startsTie=!!pitch.startTie,endsTie=!!pitch.endTie;
       const sounded=item.pitches.some(p=>!p.endTie);
       const lyric=sounded?lyrics.get(noteIndex):null;
-      const names=options.chordsFor?options.chordsFor(item):(item.chord||[]).map(c=>chordLabel(c.name));
+      // text written above or below the note ("^pick scratch": a cue from the chart) is words, never a chord symbol
+      for(const note of (item.chord||[]).filter(c=>c.name&&!isChordSymbol(c)))current.xml.push(`<direction placement="${note.position==='below'?'below':'above'}"><direction-type><words>${esc(note.name)}</words></direction-type></direction>`);
+      const names=options.chordsFor?options.chordsFor(item):(item.chord||[]).filter(isChordSymbol).map(c=>chordLabel(c.name));
       for(const name of names)current.xml.push(harmony(name));
       const parts=splitLength(divisions);
       parts.forEach((length,k)=>{

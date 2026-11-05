@@ -1,10 +1,14 @@
-// The chart page. A click with no key held plays from there: any chord, word, bar number or section name. The keys you hold decide
-// what else a click does, so the chart needs no tools:
-//   Ctrl   edit what is written. The chords of a row (type them like words), its lyrics, a section name; the strip above a line to start
-//          a new section at that bar, the strip above a section to join it to the one before; a barline to join two bars, a beat to
-//          split a bar there.
-//   Shift  the same chart drawn true to time while it is held (a quick tap keeps it, another tap puts it back). Drag a word or a chord to
-//          another beat; Shift+click a bar number to fold a part that repeats, or a repeat count to regroup it.
+// The chart page. Its tools sit in the rail beside it, as the lead sheet's and the MIDI view's do (tool-rail.js):
+//   Play (V)    a click plays from there: any chord, word, bar number or section name.
+//   Edit (E)    a click edits what is written. The chords of a row (type them like words), its lyrics, a section name; the strip above a
+//               line to start a new section at that bar, the strip above a section to join it to the one before; a barline to join two
+//               bars, a beat to split a bar there.
+//   Timing (T)  the same chart drawn true to time. Drag a word or a chord to another beat, click a pin to let a word go, click a repeat
+//               count to regroup it; Fold a repeat (or Shift+click two bar numbers) folds a part that repeats. A click still plays.
+//   Cue (Q)     a click on a chord writes a short note above it for that moment ("pick scratch"), in its own lane; the chord is left alone
+//               (chart-cues.js). A click on a cue retypes it.
+// Esc puts the tool down (back to Play). The keys help on top of any tool: Ctrl swaps Play and Edit while it is held, and holding Shift
+// shows Timing until it is let go.
 // Every place that does something shows its own cursor and, after a moment's rest, a tooltip that says what it does.
 // Playback decides which repeat pass is highlighted; the page itself never rearranges while it plays.
 import {buildChartModel,playbackTarget} from './chart-model.js';
@@ -21,8 +25,10 @@ import {applyRows} from './row-layout.js';
 import {beatsLabel} from './bar-lengths.js';
 import {createTiming} from './chart-timing.js';
 import {DEFAULT_ZOOM,stepZoom,ZOOM_LEVELS,autoSnap} from './timing-geometry.js';
-import {TOOL_ART,toolCursor} from './tool-icons.js';
+import {TOOL_ART,toolCursor,CHART_TOOLS,CHART_FOR_KEY} from './tool-icons.js';
+import {renderRail} from './tool-rail.js';
 import {detectFadeOut} from './fade-out.js';
+import {placeCues,addCues,editCue,cueWords} from './chart-cues.js';
 
 const el=(tag,cls='',text)=>{const n=document.createElement(tag);n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 const finite=Number.isFinite;
@@ -31,9 +37,9 @@ const clock=s=>finite(s)?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(
 export const CHORD_SUGGESTIONS=['C','Cm','C7','Cmaj7','D','Dm','D7','Dsus4','E','Em','E7','F','Fm','F#','F#m','G','G7','Gsus4','A','Am','A7','Asus4','B','Bm','Bb','Eb','Ab','Db','C/E','D/F#','G/B','Am7','Dm7','Em7','Bm7','Cadd9','N'];
 const nameKey=name=>String(name||'').toLowerCase().replace(/[^a-z]/g,'');
 const joinWords=tokens=>tokens.map((t,i)=>t.text+(i<tokens.length-1&&!t.text.endsWith('-')?' ':'')).join('');
-const TAP_MS=300,SHIFT_DELAY=150;    // a Shift released this soon is a tap; the in-time view waits this long, so Shift+key shortcuts never flash it
+const SHIFT_DELAY=150;    // holding Shift shows Timing after this long, so Shift+key shortcuts never flash it
 
-// What each place on the chart does, for its tooltip (no keys: the key you are holding is why you are seeing it).
+// What each place on the chart does, for its tooltip (shown only while the chart does that: see zone()).
 const ZONES={
   chords:{title:'Type the chords',art:'write',tip:'Type this row’s chords like words: A to G with # or b (Em7, F#m, Bb/D). Unchanged chords keep their timing; a new one splits the chord before it.'},
   words:{title:'Type the words',art:'write',tip:'Type this row’s lyrics. Words spread out between the ones you have pinned in time.'},
@@ -46,10 +52,13 @@ const ZONES={
   chord:{title:'Move in time',art:'words',tip:'Drag the chord to start on another beat. The chord before it holds on until then.'},
   fold:{title:'Fold a repeat',art:'repeat',tip:'Click the first and last bar of a part that repeats, then choose how it folds: 2 bars ×4, 4 bars ×2, or written out.'},
   regroup:{title:'Regroup the repeat',art:'repeat',tip:'Choose how this repeating part is grouped, or write it out in full.'},
+  cue:{title:'Write a cue',art:'cue',tip:'Type a short note for this moment, like “pick scratch” or “count-in”. It sits above the chord and leaves the chord as it is.'},
+  cueEdit:{title:'Retype the cue',art:'cue',tip:'Change the words of this cue, or empty it to remove it.'},
 };
-function zone(node,name,keys){
+// acts: 'edit', 'time' or 'fold', when the place only does this while the chart does (its data-acts, tooltips.js)
+function zone(node,name,acts){
   const z=ZONES[name];node.dataset.tipTitle=z.title;node.dataset.tip=z.tip;node.dataset.tipArt=TOOL_ART[z.art]||'';
-  if(keys)node.dataset.tipKeys=keys;                                   // only while that key is held (tooltips.js)
+  if(acts)node.dataset.tipActs=acts;
   return node;
 }
 
@@ -78,16 +87,19 @@ export function alignChords(before,after){
 }
 
 export function mountChartPage(root,handlers={}){
-  const fixing={a:null,b:null};                      // the bars picked with Shift+click on bar numbers (folding a repeat)
+  const fixing={a:null,b:null};                      // the bars picked to fold a repeat (Fold a repeat, or Shift+click on bar numbers)
   let fixSel={ids:new Set()},foldGroup=null;
   let data=null,model=null,key=null,mode='nav',scope='occurrence',snapping=true,zoom=DEFAULT_ZOOM,draft=null,saving=false,last=null;
   let editing=null;                                  // the one row being typed into: {groupId, kind:'chords'|'words', focus}
-  const held={ctrl:false,shift:false};let latched=false,shiftAt=0,shiftTap=false,shiftTimer=null;
+  // Timing: the pass whose words are being placed ({groupId, pass}, set by clicking a word). Its melody is drawn strongest, whatever the
+  // playhead is playing, so a word is always lined up against its own notes. It stays until another word is clicked or Timing is left.
+  let positioning=null;
+  const held={ctrl:false,shift:false};let tool='play',folding=false,shiftTimer=null;   // folding: Fold a repeat was pressed, so bar numbers pick
   const targetPass={},seekPass={};let pendingName=null;
-  let refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[],repeats:[]},occById=new Map();
+  let refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[],repeats:[],cues:[]},occById=new Map(),cueMap=new Map();
   // The note bar and the status line live outside the chart (the app hands in elements for them); on its own the page makes its own.
   const page=el('div','chart-flow'),notices=el('div','chart-notices'),message=el('p','chart-message'),dock=handlers.dock||el('div','tool-dock'),noteHost=handlers.note||el('div','tool-note'),statusHost=handlers.status||el('div','tool-status');message.setAttribute('role','status');
-  root.replaceChildren(...(handlers.dock?[]:[dock]),...(handlers.note?[]:[noteHost]),...(handlers.status?[]:[statusHost]),notices,page);root.dataset.mode=mode;root.dataset.keys='';
+  root.replaceChildren(...(handlers.dock?[]:[dock]),...(handlers.note?[]:[noteHost]),...(handlers.status?[]:[statusHost]),notices,page);root.dataset.mode=mode;root.dataset.acts='';root.dataset.tool=tool;
   for(const name of Object.keys(TOOL_ART))root.style?.setProperty?.('--cur-'+name,toolCursor(name));
   root.style?.setProperty?.('--cur-glue-bars',toolCursor('glue',90));
   root.onwheel=e=>{
@@ -101,6 +113,9 @@ export function mountChartPage(root,handlers={}){
     editBars:handlers.onBarEdit?change=>Promise.resolve(handlers.onBarEdit(change)).catch(e=>fail(e)):null,commit:(candidate,label)=>commitPlain(candidate,label),fail:e=>fail(e),say:text=>{message.textContent=text;},blocked:()=>blocked(),rerender:()=>render(),
     seek:(seconds,g,pass)=>{if(g&&pass)seekPass[g.id]=pass;seek(seconds);},seekChunk:(g,chunk)=>seekChunk(g,chunk),moveChord:(g,chunk,address)=>moveChord(g,chunk,address),splitZone:(n,g,bar)=>barZones(n,g,bar,true),
     pickBar:(g,bar)=>pickBar(g,bar),picked:id=>fixSel.ids.has(id),regroup:g=>openFold(g),zone,dragEnded:()=>refreshView(),
+    cuesAt:key=>cueMap.get(key)||[],
+    isTime:e=>isTime(e),isEdit:e=>isEdit(e),folding:()=>folding||!!fixing.a,    // once a bar is picked, the next click picks too
+    positioning:(g,pass)=>{positioning={groupId:g.id,pass:pass||1};last=null;if(data?.transport)updatePlayback(data.transport);},
   });
   const notify=()=>handlers.onDraftChange?.({draft:!!draft?.dirty,saving,failed:!!draft?.failed});
   const fail=e=>{message.textContent=e?.message||String(e);handlers.onError?.(e);};
@@ -119,45 +134,47 @@ export function mountChartPage(root,handlers={}){
     return false;
   }
 
-  // ======================= the keys you hold =======================
-  // Ctrl and Shift are read from the keyboard (and from each click, in case a key went down while another window had focus).
+  // ======================= the tool, and the keys that help =======================
+  // The tool picked in the rail decides what a click does. Ctrl swaps Play and Edit while it is held (a quick fix while playing, or a
+  // quick jump while editing) and Shift shows Timing while it is held. Ctrl is read from the keyboard and from each click, in case it
+  // went down while another window had focus.
   const typing=t=>!!t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||''));
   const active=()=>!!data&&(handlers.isActive?.()??true);
-  function paintKeys(){root.dataset.keys=[held.ctrl&&'ctrl',held.shift&&'shift'].filter(Boolean).join(' ');paintLegend();}
-  // The note above the chart ("Hold Ctrl for content editing tools and Shift for timing tools") lights up the tools in use: editing while
-  // Ctrl is held or a row is being typed in, timing while Shift is held or the chart is shown in time.
-  function paintLegend(){
-    const legend=handlers.legend;if(!legend?.classList)return;
-    legend.classList.toggle('editing',!!(held.ctrl||editing));legend.classList.toggle('timing',!!(held.shift||mode==='timing'));
+  const isEdit=e=>(tool==='edit')!==!!e?.ctrlKey;
+  const isCue=e=>tool==='cue'&&!e?.ctrlKey;              // Ctrl over the Cue tool edits, as it does over Play
+  const isTime=e=>tool==='timing'||!!e?.shiftKey;
+  // What the chart does now, for the styles and the tooltips: edit (the Edit tool, or Ctrl over another), time (drawn in time), fold.
+  function paintActs(){
+    root.dataset.acts=[(tool==='edit')!==held.ctrl&&'edit',mode==='timing'&&'time',(folding||fixing.a)&&'fold',tool==='cue'&&!held.ctrl&&'cue'].filter(Boolean).join(' ');
+    root.dataset.tool=tool;
   }
+  // Switching to or from the chart in time keeps the playhead where it was on screen (keepPlayhead), not the top row.
   function refreshView(){
-    paintKeys();
-    const wanted=latched||held.shift?'timing':'nav';
+    paintActs();
+    const wanted=tool==='timing'||held.shift?'timing':'nav';
     if(wanted===mode||timing.isDragging()||draft?.dirty||saving||editing)return;
-    mode=wanted;foldGroup=null;keepPlace(render);handlers.onModeChange?.(mode);
+    mode=wanted;foldGroup=null;if(mode!=='timing'){folding=false;fixing.a=fixing.b=null;}
+    keepPlayhead(render);paintActs();handlers.onModeChange?.(mode);
   }
   function keyDown(e){
     if(!active())return;
-    if(e.key==='Control'){if(!held.ctrl){held.ctrl=true;paintKeys();}return;}
+    if(e.key==='Control'){if(!held.ctrl){held.ctrl=true;paintActs();}return;}
     if(e.key==='Shift'){
-      if(e.repeat||typing(e.target))return;
-      shiftAt=Date.now();shiftTap=!e.ctrlKey&&!e.altKey&&!e.metaKey;clearTimeout(shiftTimer);
-      shiftTimer=setTimeout(()=>{shiftTimer=null;held.shift=true;refreshView();},SHIFT_DELAY);
+      if(e.repeat||typing(e.target)||e.ctrlKey||e.altKey||e.metaKey)return;
+      clearTimeout(shiftTimer);shiftTimer=setTimeout(()=>{shiftTimer=null;held.shift=true;refreshView();},SHIFT_DELAY);
       return;
     }
-    shiftTap=false;                                                   // Shift+something: a shortcut, not the in-time view
-    if(shiftTimer){clearTimeout(shiftTimer);shiftTimer=null;}
+    if(shiftTimer){clearTimeout(shiftTimer);shiftTimer=null;}         // Shift+something: a shortcut, not Timing
   }
   function keyUp(e){
-    if(e.key==='Control'){held.ctrl=false;paintKeys();return;}
+    if(e.key==='Control'){held.ctrl=false;paintActs();return;}
     if(e.key!=='Shift')return;
     if(shiftTimer){clearTimeout(shiftTimer);shiftTimer=null;}
-    if(shiftTap&&Date.now()-shiftAt<TAP_MS&&active()&&!typing(e.target))latched=!latched;
-    shiftTap=false;held.shift=false;refreshView();
+    if(held.shift){held.shift=false;refreshView();}
   }
-  function allUp(){held.ctrl=held.shift=false;shiftTap=false;if(shiftTimer){clearTimeout(shiftTimer);shiftTimer=null;}refreshView();}
+  function allUp(){held.ctrl=held.shift=false;if(shiftTimer){clearTimeout(shiftTimer);shiftTimer=null;}refreshView();}
   const doc=root.ownerDocument||(typeof document!=='undefined'?document:null);
-  const onPointer=e=>{shiftTap=false;if(!!e.ctrlKey!==held.ctrl){held.ctrl=!!e.ctrlKey;paintKeys();}};
+  const onPointer=e=>{if(!!e.ctrlKey!==held.ctrl){held.ctrl=!!e.ctrlKey;paintActs();}};
   doc?.addEventListener?.('keydown',keyDown,true);doc?.addEventListener?.('keyup',keyUp,true);doc?.addEventListener?.('pointerdown',onPointer,true);
   if(typeof window!=='undefined')window.addEventListener?.('blur',allUp);
 
@@ -179,36 +196,38 @@ export function mountChartPage(root,handlers={}){
   function renderChord(g,bar,chunk){
     const holder=el('span','chord-line'),b=el('button','chord'+(isNoChordLabel(chunk.label)?' rest':''),chordLabel(chunk));b.type='button';b.dataset.chunk=chunk.key;
     if(isNoChordLabel(chunk.label)){const r=restSymbols(chunk,bar);if(r){b.append(el('span','rest-glyph',r.glyphs));b.setAttribute('aria-label',r.name);b.title=r.name;}}
-    zone(b,'chords','ctrl');
-    b.onclick=e=>{if(e?.ctrlKey)startChords(g);else seekChunk(g,chunk);};
+    zone(b,'chords','edit');
+    b.onclick=e=>{if(isCue(e))startCue(g,chunk);else if(isEdit(e))startChords(g,chunk);else seekChunk(g,chunk);};
     holder.append(b);
     if(chunk.repeat>1){const r=el('span','repeat','(×'+chunk.repeat+')');r.title='Played '+chunk.repeat+' times';holder.append(r);refs.repeats.push({node:r,chunk,group:g,text:r.textContent});}
     refs.chords.push({node:b,chunk,group:g});return holder;
   }
   function renderLaneSlot(g,bar,chunk,lane,laneIndex,first){
-    const tokens=chunk.lanes[laneIndex]||[],holder=el('span','lane'),slot=zone(el('span','lyr'),'words','ctrl');slot.dataset.lane=String(laneIndex);slot.dataset.pass=String(lane.passNumber);
+    const tokens=chunk.lanes[laneIndex]||[],holder=el('span','lane'),slot=zone(el('span','lyr'),'words','edit');slot.dataset.lane=String(laneIndex);slot.dataset.pass=String(lane.passNumber);
     if(first&&g.passCount>1){
       const tag=el('span','lane-tag',String(lane.passNumber));tag.title='Pass '+lane.passNumber;
       tag.onclick=e=>{e?.stopPropagation?.();seekPass[g.id]=lane.passNumber;};
       refs.lanes.push({tag,group:g,lane});holder.append(tag);
     }
-    slot.onclick=e=>{if(e?.ctrlKey){e.stopPropagation?.();startWords(g,lane.passNumber);}};
+    slot.onclick=e=>{if(isEdit(e)){e.stopPropagation?.();startWords(g,lane.passNumber);}};
     holder.append(slot);refs.slots.push({node:slot,group:g,lane});
     tokens.forEach((t,i)=>{
       const w=el('span','w',t.text+(i<tokens.length-1&&!t.text.endsWith('-')?' ':''));
       w.dataset.line=String(t.line);w.dataset.offset=String(t.offset);
-      w.onclick=e=>{if(e?.ctrlKey)return;if(finite(t.seconds)){seekPass[g.id]=t.passNumber;seek(t.seconds);}};
+      w.onclick=e=>{if(isEdit(e))return;if(finite(t.seconds)){seekPass[g.id]=t.passNumber;seek(t.seconds);}};
       refs.words.push({node:w,token:t,group:g,lane});slot.append(w);
     });
     return holder;
   }
   function renderChunk(g,bar,chunk,edit){
     const node=el('span','chunk'),cell={node,group:g,chunk};node.dataset.chunk=chunk.key;
-    node.append(renderChord(g,bar,chunk));
+    node.append(renderCueLane(g,chunk));
+    const chord=renderChord(g,bar,chunk);node.append(chord);
+    if(edit?.kind==='chords')chord.classList.add('held');                 // while the row's chords are typed, its line lies over them
     if(edit?.kind!=='words')g.lanes.forEach((lane,i)=>node.append(renderLaneSlot(g,bar,chunk,lane,i,bar===g.bars[0]&&chunk===bar.chunks[0])));
     refs.chunks.push(cell);return node;
   }
-  // Ctrl's places on a bar: the strip above it starts a new section there, its barline joins it to the bar before, a beat splits it.
+  // The Edit tool's places on a bar: the strip above it starts a new section there, its barline joins it to the bar before, a beat splits it.
   function barZones(n,g,bar,splitOnly=false){
     if(canCut(bar.start)){
       const strip=zone(el('button','zone-split'),'split');strip.type='button';strip.tabIndex=-1;strip.setAttribute('aria-label','Start a new section at bar '+bar.number);
@@ -230,7 +249,7 @@ export function mountChartPage(root,handlers={}){
   function renderBar(g,bar,index,edit){
     const n=el('div','bar'+(index===g.bars.length-1?' last':''));n.dataset.bar=bar.id;
     const no=el('span','bar-no',String(bar.number));no.title='Jump to bar '+bar.number;
-    no.onclick=e=>{if(e?.ctrlKey)return;const o=g.bars&&occurrenceFor(g.id,bar.chunks[0]?.slotId,passForSeek(g));seek(o?.start??bar.start);};
+    no.onclick=e=>{if(isEdit(e))return;const o=g.bars&&occurrenceFor(g.id,bar.chunks[0]?.slotId,passForSeek(g));seek(o?.start??bar.start);};
     n.append(no);
     // A bar that is shorter or longer than the usual one says so, informally; a real change of meter keeps its signature.
     if(bar.odd)n.append(el('span','bar-meter odd',beatsLabel(bar.beatCount)));
@@ -248,7 +267,7 @@ export function mountChartPage(root,handlers={}){
     const row=el('div','row'+(g.lanes.length?' has-lyrics':'')+(edit?' editing':'')),bars=el('div','bars');row.dataset.group=g.id;
     g.model=g;refs.groups.push({node:row,model:g});
     if(edit&&g.passCount>1){
-      const pick=el('span','pass-pick');pick.title='Which pass your chord changes apply to';
+      const pick=el('span','pass-pick');pick.title=edit.kind==='cue'?'Which pass a new cue goes on':'Which pass your chord changes apply to';
       for(let p=1;p<=g.passCount;p++){const s=el('button','',String(p));s.type='button';s.dataset.pass=String(p);s.onclick=()=>{targetPass[g.id]=p;paintTargets();};pick.append(s);}
       refs.lanes.push({pick,group:g});row.append(pick);
     }
@@ -269,7 +288,7 @@ export function mountChartPage(root,handlers={}){
     row.append(bars);
     if(edit?.kind==='words')row.append(renderLaneEditors(g,row));
     else if(!g.lanes.some(l=>!l.flow)){
-      // a row with no words yet: Ctrl shows a line to type them on
+      // a row with no words yet: Edit shows a line to type them on
       const add=zone(el('div','lane-add',g.passCount>1?'Click and type the words for pass '+passForEdit(g):'Click and type the words'),'words');
       add.onclick=e=>{e?.stopPropagation?.();startWords(g,passForEdit(g));};row.append(add);
     }
@@ -277,7 +296,7 @@ export function mountChartPage(root,handlers={}){
       const alts=el('div','alt-endings');
       for(const e of g.endings.filter(e=>!e.passNumbers.includes(1))){
         const item=el('div','alt-ending');item.append(el('span','ending-label',(e.passNumbers.length===1?'Ending ':'Endings ')+e.passNumbers.join(', ')),el('span','bar-no',String(e.measureNumber)));
-        for(const o of e.chords){const rest=isNoChordLabel(o.label);const b=el('button','chord ending-chord'+(rest?' rest':''),rest?'':o.label);b.type='button';b.dataset.occurrence=o.id;b.onclick=ev=>{if(ev?.ctrlKey){targetPass[g.id]=o.passNumber;startChords(g);}else seek(o.start);};refs.endings.push({node:b,occurrence:o});item.append(b);}
+        for(const o of e.chords){const rest=isNoChordLabel(o.label);const b=el('button','chord ending-chord'+(rest?' rest':''),rest?'':o.label);b.type='button';b.dataset.occurrence=o.id;b.onclick=ev=>{if(isEdit(ev)){targetPass[g.id]=o.passNumber;startChords(g);}else seek(o.start);};refs.endings.push({node:b,occurrence:o});item.append(b);}
         alts.append(item);
       }
       if(alts.children.length)row.append(alts);
@@ -285,22 +304,25 @@ export function mountChartPage(root,handlers={}){
     return row;
   }
 
-  // ======================= the note bar and the status line =======================
-  // The chart keeps no tools of its own: the rail beside it is left empty (the lead sheet and the MIDI view still use it).
+  // ======================= the rail, the note bar and the status line =======================
+  // The rail is shared with the lead sheet and the MIDI view: whichever is showing draws its own tools in it.
   function renderTools(){
-    if(dock.dataset?.owner!=='chart'){dock.dataset.owner='chart';dock.replaceChildren();}
+    dock.dataset.owner='chart';
+    renderRail(dock,{groups:[CHART_TOOLS],active:tool,onPick:name=>api.setTool(name)});
     const controls=el('div','tool-controls'),lines=[];
     if(fixing.a)fillRepeatHint(controls,lines);
+    else if(folding)lines.push('Click the bar number where a part that repeats starts');
     else if(foldGroup)fillFoldChoices(controls,lines);
     statusHost.replaceChildren(...(lines.length?[el('span','status-hint',lines.join(' · '))]:[]));
-    if(fixing.a||foldGroup||latched){
-      const back=el('button','tool-put-down');back.type='button';back.innerHTML='<kbd>Esc</kbd> '+(fixing.a||foldGroup?'cancel':'back to the chart as written');back.onclick=()=>api.handleKey({key:'Escape'});statusHost.append(back);
+    if(fixing.a||folding||foldGroup||tool!=='play'){
+      const back=el('button','tool-put-down');back.type='button';back.innerHTML='<kbd>Esc</kbd> '+(fixing.a||folding||foldGroup?'cancel':'back to Play');back.onclick=()=>api.handleKey({key:'Escape'});statusHost.append(back);
     }
     statusHost.append(message);
     noteHost.replaceChildren(...(controls.children.length?[controls]:[]));
+    paintActs();handlers.onToolChange?.(tool);                         // the toolbar shows whether Fold a repeat is on
   }
 
-  // ---------------- Fold repeats by hand (Shift+click bar numbers) ----------------
+  // ---------------- Fold repeats by hand (Fold a repeat, then click bar numbers; or Shift+click them) ----------------
   const barNumber=id=>{const m=model.measures.find(m=>m.id===id);return m?m.number-model.barOffset:'?';};
   const measureIndex=id=>model.measures.findIndex(m=>m.id===id);
   function pickBar(g,bar){
@@ -324,7 +346,7 @@ export function mountChartPage(root,handlers={}){
   // The steps go in the status line (`lines`), the choices and links in the bar above it (`controls`).
   function fillRepeatHint(controls,lines){
     const sel=fixSel;
-    if(!fixing.b)lines.push('Bar '+barNumber(fixing.a.start)+' picked. Shift+click the last bar to take in more, or choose above');
+    if(!fixing.b)lines.push('Bar '+barNumber(fixing.a.start)+' picked. Click the last bar of the part to take in more, or choose above');
     if(sel.info){
       const info=sel.info;
       if(info?.measureIds){
@@ -332,7 +354,7 @@ export function mountChartPage(root,handlers={}){
         if(info.problem)lines.push(info.problem);
         for(const choice of info.choices||[]){
           const b=el('button','fix-choice'+(choice.expanded?' plain':''),choice.label);b.type='button';
-          b.onclick=()=>{try{const next=applyCompactRange(data.content,data.music,model.projection,sel.range.from,sel.range.to,choice);fixing.a=fixing.b=null;commitPlain(next,choice.expanded?'Unfold repeat':'Fold repeat');}catch(e){fail(e);}};
+          b.onclick=()=>{try{const next=applyCompactRange(data.content,data.music,model.projection,sel.range.from,sel.range.to,choice);fixing.a=fixing.b=null;folding=false;commitPlain(next,choice.expanded?'Unfold repeat':'Fold repeat');}catch(e){fail(e);}};
           controls.append(b);
         }
       }else if(info?.problem)lines.push(info.problem);
@@ -340,7 +362,7 @@ export function mountChartPage(root,handlers={}){
     const again=el('button','fix-link','Start over');again.type='button';again.onclick=()=>{fixing.a=fixing.b=null;keepPlace(()=>render());};controls.append(again);
     if(hasCompactPreferences(data.content)){const reset=el('button','fix-link','Reset all my repeat choices');reset.type='button';reset.onclick=()=>{fixing.a=fixing.b=null;commitPlain(resetCompactPreferences(data.content),'Reset repeat grouping');};controls.append(reset);}
   }
-  // Shift+click a repeat count: how that repeating part is grouped (2 bars x4, 4 bars x2, or written out).
+  // Click a repeat count (in time): how that repeating part is grouped (2 bars x4, 4 bars x2, or written out).
   function openFold(g){fixing.a=fixing.b=null;foldGroup=g.id;renderTools();}
   function fillFoldChoices(controls,lines){
     const source=model.projection.groups.find(x=>x.id===foldGroup),choices=source?compactFoldChoices(model.projection,source):[];
@@ -362,15 +384,27 @@ export function mountChartPage(root,handlers={}){
     const again=refs.groups.find(r=>r.model.id===id);
     if(again&&desk&&desk.scrollTop!==undefined)desk.scrollTo?.({top:desk.scrollTop+again.node.getBoundingClientRect().top-top-offset,left:left??0,behavior:'instant'});
   }
+  // Switching between the chart as written and in time keeps your place by the playhead: across, it lands in the middle of the desk
+  // (the chart in time is much wider); up and down it stays where it was, or goes to the middle if it was out of sight. With no
+  // playhead on the chart, the row nearest the top stays put instead.
+  function keepPlayhead(fn){
+    const desk=root.closest?.('.desk')||root.parentElement,box=desk?.getBoundingClientRect?.();
+    const before=playMark?.isConnected&&playMark.getBoundingClientRect?.();
+    if(!box||!before||!desk.scrollTo){keepPlace(fn);return;}
+    const seen=before.top>=box.top&&before.bottom<=box.bottom,wantY=seen?before.top-box.top:box.height/2;
+    fn();
+    const after=playMark?.isConnected&&playMark.getBoundingClientRect?.();if(!after)return;
+    desk.scrollTo({left:desk.scrollLeft+after.left-box.left-box.width/2,top:desk.scrollTop+after.top-box.top-wantY,behavior:'instant'});
+  }
   // Every redraw keeps the chart where it is on screen: rebuilding empties the page for a moment, which would otherwise scroll it to the top.
   // While the page is rebuilt, the line being typed in is removed and the browser reports it as left: that is not the player leaving it.
   let drawing=false;
-  function render(){drawing=true;try{keepPlace(draw);}finally{drawing=false;}paintLegend();}
+  function render(){drawing=true;try{keepPlace(draw);}finally{drawing=false;}}
   function draw(){
     if(!data)return;
     model=buildChartModel(data.content,data.music,{onsets:data.suggest?data.onsets:null});
-    refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[],repeats:[]};
-    occById=new Map(model.projection.occurrences.map(o=>[o.id,o]));
+    refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[],repeats:[],cues:[]};
+    occById=new Map(model.projection.occurrences.map(o=>[o.id,o]));cueMap=placeCues(model,data.content.cues);
     notices.replaceChildren();for(const w of model.warnings)notices.append(el('p','chart-notice',w));
     fixSel=fixing.a?fixSelection():{ids:new Set()};
     cutTimes=cutPoints();
@@ -379,14 +413,14 @@ export function mountChartPage(root,handlers={}){
     for(const section of model.sections){
       const sec=el('section','sec');sec.dataset.section=section.id;sec.dataset.name=nameKey(section.name);
       if(refs.sections.length>0){
-        // Ctrl: the strip above a section glues it onto the one before
+        // Edit: the strip above a section glues it onto the one before
         const join=zone(el('button','zone-join'),'join');join.type='button';join.tabIndex=-1;join.setAttribute('aria-label','Join '+section.name+' with the section above');
         join.onclick=e=>{e?.stopPropagation?.();joinWithPrevious(section);};sec.append(join);
       }
-      const head=el('header','sec-head'),num=el('span','sec-num',pad2(section.number)),name=zone(el('h3','sec-name',section.name),'name','ctrl'),time=el('span','sec-time',clock(section.start));
+      const head=el('header','sec-head'),num=el('span','sec-num',pad2(section.number)),name=zone(el('h3','sec-name',section.name),'name','edit'),time=el('span','sec-time',clock(section.start));
       head.append(num,name,time);
-      head.onclick=e=>{if(e?.ctrlKey){if(e.target===name||name.contains?.(e.target))renameSection(name,section);return;}seek(section.start);};
-      name.onclick=e=>{if(e?.ctrlKey){e.stopPropagation?.();renameSection(name,section);}};
+      head.onclick=e=>{if(isEdit(e)){if(e.target===name||name.contains?.(e.target))renameSection(name,section);return;}seek(section.start);};
+      name.onclick=e=>{if(isEdit(e)){e.stopPropagation?.();renameSection(name,section);}};
       copyButtons(head,section);
       sec.append(head);refs.sections.push({node:sec,section});
       // Short rows share a line: a one-bar repeat and its neighbours sit side by side while together they fit in a line's worth of bars
@@ -411,8 +445,11 @@ export function mountChartPage(root,handlers={}){
     if(pendingName){const node=page.querySelector?.('[data-section="'+pendingName+'"] .sec-name');const section=model.sections.find(s=>s.id===pendingName);pendingName=null;if(node&&section)renameSection(node,section);}
     root.dataset.mode=mode;last=null;paintTargets();updatePlayback(data.transport);positionEditors();
     const focus=editing&&refs.editors.find(r=>r.id===editing.focus)||refs.editors[0];
-    // a chord line is selected whole (to retype); a line of words gets the cursor at its end, ready to go on typing
-    if(editing&&focus){focus.node.focus?.();const sel=globalThis.getSelection?.();sel?.selectAllChildren?.(focus.node);if(editing.kind!=='chords')sel?.collapseToEnd?.();}
+    // a line of words gets the cursor at its end, ready to go on typing; the chord line gets it right after the chord that was clicked
+    if(editing&&focus){
+      focus.node.focus?.();const sel=globalThis.getSelection?.();sel?.selectAllChildren?.(focus.node);sel?.collapseToEnd?.();
+      const text=focus.node.firstChild;if(Number.isInteger(focus.caret)&&text?.nodeType===3)sel?.collapse?.(text,Math.min(focus.caret,text.length));
+    }
   }
 
   // A recording that fades out says so after its last bar, and where the fade begins; a click plays from there.
@@ -425,7 +462,7 @@ export function mountChartPage(root,handlers={}){
     const note=el('button','fade-note');note.type='button';note.dataset.tipTitle='The recording fades out';
     note.dataset.tip='The music keeps going but gets quieter until the recording ends. Click to play from where the fade begins.';
     note.append(el('span','fade-mark','↘'),el('b','','Fade out'),...(bar!==null&&bar>0?[el('small','','from bar '+bar)]:[]));
-    note.onclick=e=>{if(e?.ctrlKey||e?.shiftKey)return;seek(fade.start);};
+    note.onclick=e=>{if(isEdit(e)||e?.shiftKey)return;seek(fade.start);};
     return note;
   }
   // Share the bars of each row out evenly over its lines (2 + 2, not 3 + 1) and close every line with a barline.
@@ -465,7 +502,8 @@ export function mountChartPage(root,handlers={}){
   function paintPlayMark(seconds,target,occ){
     const row=target&&refs.groups.find(r=>r.model.id===target.groupId),g=row?.model;
     const measure=occ&&model.measures.find(m=>m.id===occ.measureId),pass=g?.passes?.find(p=>p.number===target.passNumber);
-    const index=measure&&pass?pass.measureIds.indexOf(measure.id):-1,barId=index>=0?g.bars?.[index]?.id:null;
+    // by measure id, not position: a row's bars leave out hidden ones (silence before the music starts) that its passes still list
+    const index=measure&&pass?pass.measureIds.indexOf(measure.id):-1,barId=index>=0?g.passes[0]?.measureIds[index]:null;
     const bar=barId?findBar(row.node,barId):null;
     if(!bar){playMark?.remove?.();markIn=null;return;}
     if(!playMark){playMark=el('i','playmark');playMark.setAttribute?.('aria-hidden','true');}
@@ -494,15 +532,19 @@ export function mountChartPage(root,handlers={}){
     const changedTarget=!last||last.sig!==sig;
     if(last&&last.wsig===wsig&&last.mode===mode){last={...last,target};return;}
     last={sig,wsig,mode,target};
+    for(const r of refs.cues)r.node.classList.toggle('now',target?.chunkKey===r.chunkKey&&target.passNumber===r.passNumber);
     for(const r of refs.sections)r.node.classList.toggle('now',r.section.id===target?.sectionId);
+    if(mode!=='timing')positioning=null;
     for(const r of refs.groups){
       const here=target?.groupId===r.model.id;
       if(here)r.node.dataset.cur=String(target.passNumber);else delete r.node.dataset.cur;
       r.node.classList.toggle('now',here);
-      // timing: the melody of the pass being played is drawn strongest (chart-timing.js draws one per pass)
-      for(const layer of r.node.querySelectorAll?.('.tmelody')||[])layer.classList.toggle('cur',here&&layer.dataset.pass===String(target.passNumber));
-      // and the words of the other passes step back too, as their lines do when reading
-      for(const lane of r.node.querySelectorAll?.('.tlane')||[])lane.classList.toggle('dim',here&&r.model.passCount>1&&lane.dataset.pass!==String(target.passNumber));
+      // timing: the melody of the pass whose words are being placed is drawn strongest (or else the one being played; chart-timing.js
+      // draws one per pass), and the words of the other passes step back too, as their lines do when reading
+      const placing=positioning?.groupId===r.model.id,focus=placing?positioning.pass:here?target.passNumber:null;
+      r.node.classList?.toggle('positioning',placing);
+      for(const layer of r.node.querySelectorAll?.('.tmelody')||[])layer.classList.toggle('cur',focus!==null&&layer.dataset.pass===String(focus));
+      for(const lane of r.node.querySelectorAll?.('.tlane')||[])lane.classList.toggle('dim',focus!==null&&r.model.passCount>1&&lane.dataset.pass!==String(focus));
       if(here&&r.model.passCount>1)seekPass[r.model.id]=target.passNumber;
     }
     for(const r of refs.chunks)r.node.classList.toggle('now',!!target&&!alt&&r.chunk.key===target.chunkKey);
@@ -561,6 +603,65 @@ export function mountChartPage(root,handlers={}){
   }
   function stopEditing(){editing=null;draft=null;render();notify();refreshView();}
 
+  // ======================= Cue: short notes above the chords =======================
+  // Each chunk has a thin lane above its chord for the cues at its moment, one per pass (a repeated row tags each with its pass). With the
+  // Cue tool a click on the chord (or on the lane's +) types a new one right there; a click on a cue retypes it. Enter or a click away keeps
+  // it, Esc drops it, and no words removes it. "This pass" writes one cue; "All matching" one in every matching pass.
+  function renderCueLane(g,chunk){
+    const lane=el('span','cue-lane'),typing=editing?.kind==='cue'&&editing.groupId===g.id&&editing.chunkKey===chunk.key;
+    for(const {cue,passNumber} of cueMap.get(chunk.key)||[]){
+      if(typing&&editing.cueId===cue.id){lane.append(cueEditor(g,chunk,cue));continue;}
+      const b=el('button','cue');b.type='button';b.title='Cue at '+clock(cue.start)+(g.passCount>1?', pass '+passNumber:'');
+      if(g.passCount>1)b.append(el('span','cue-pass',String(passNumber)));
+      b.append(el('span','cue-text',cue.text));
+      zone(b,'cueEdit','cue');
+      b.onclick=e=>{e?.stopPropagation?.();if(isCue(e)||isEdit(e))startCue(g,chunk,cue);else{seekPass[g.id]=passNumber;seek(cue.start);}};
+      refs.cues.push({node:b,cue,chunkKey:chunk.key,passNumber});lane.append(b);
+    }
+    if(typing&&!editing.cueId)lane.append(cueEditor(g,chunk,null));
+    else if(chunk.chordId){
+      const add=zone(el('button','cue-add'),'cue','cue');add.type='button';add.tabIndex=-1;add.setAttribute('aria-label','Write a cue here');
+      add.onclick=e=>{e?.stopPropagation?.();startCue(g,chunk);};lane.append(add);
+    }
+    return lane;
+  }
+  function startCue(g,chunk,cue=null){
+    if(blocked()||!canEdit())return;
+    editing={groupId:g.id,kind:'cue',chunkKey:chunk.key,cueId:cue?.id??null,focus:'cue'};foldGroup=null;keepPlace(render);
+  }
+  // where a new cue goes: the start of this chord in the pass picked, or in every matching pass with "All matching"
+  function cueStarts(g,chunk){
+    const occ=occurrenceFor(g.id,chunk.slotId,passForEdit(g))||chunk.occurrence;if(!occ)return [];
+    if(scope!=='all-matching')return [occ.start];
+    const own=model.projection.occurrences.filter(o=>o.chordId===occ.chordId),nth=own.indexOf(occ);
+    return compactEditTargets(model.projection,{groupId:g.id,slotId:chunk.slotId,passNumber:occ.passNumber,scope}).chordIds
+      .map(id=>model.projection.occurrences.filter(o=>o.chordId===id)[Math.max(0,nth)]?.start).filter(finite);
+  }
+  function cueEditor(g,chunk,cue){
+    const editor=el('span','cue-type');editor.contentEditable='plaintext-only';editor.spellcheck=true;
+    editor.dataset.placeholder='Type a cue: pick scratch';editor.setAttribute('aria-label','Cue');
+    const text=cue?.text??'';editor.append(document.createTextNode?document.createTextNode(text):text);
+    refs.editors.push({id:'cue',group:g,node:editor,line:editor,row:null,original:text,anchorKey:null});
+    let done=false;
+    const finish=async save=>{
+      if(done)return;
+      let words;try{words=save?cueWords(editor.textContent):text;}catch(e){fail(e);editor.focus?.();return;}   // too long: keep typing
+      done=true;draft=null;editing=null;
+      if(!save||words===text){stopEditing();return;}
+      try{
+        const next=cue?editCue(data.content,cue.id,words):addCues(data.content,cueStarts(g,chunk),words,()=>crypto.randomUUID());
+        render();
+        await commitPlain(next,cue?(words?'Edit cue':'Remove cue'):'Add cue');
+      }catch(e){fail(e);}
+      stopEditing();
+    };
+    editor.onfocus=()=>{draft={kind:'cue',node:editor,dirty:false,failed:false};notify();};
+    editor.oninput=()=>{if(draft?.node!==editor)draft={kind:'cue',node:editor,dirty:false,failed:false};draft.dirty=editor.textContent.trim()!==text;notify();};
+    editor.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault?.();finish(true);}else if(e.key==='Escape'){e.preventDefault?.();finish(false);}};
+    editor.onblur=()=>finish(true);
+    return editor;
+  }
+
   // ======================= Ctrl: the chords of a row, typed like words =======================
   // One chord per item, in order: a chord held over a barline is written once (its later bars show it in brackets).
   function rowChords(g){
@@ -571,16 +672,19 @@ export function mountChartPage(root,handlers={}){
     }
     return items;
   }
-  function startChords(g){
+  // clicked: the chunk whose chord was clicked, so the cursor lands right after that chord
+  function startChords(g,clicked=null){
     if(blocked()||!canEdit())return;
     if(!rowChords(g).length){message.textContent='This row has no chords to type over.';return;}
-    editing={groupId:g.id,kind:'chords',focus:g.id+'|chords'};foldGroup=null;keepPlace(render);
+    editing={groupId:g.id,kind:'chords',focus:g.id+'|chords',chordId:clicked?.chordId??null};foldGroup=null;keepPlace(render);
   }
   function renderChordEditor(g,row){
     const items=rowChords(g),text=items.map(i=>i.text).join(' '),line=el('div','lane-edit chord-edit'),editor=el('span','lyr chord-type');
     editor.contentEditable='plaintext-only';editor.spellcheck=false;editor.dataset.placeholder='Type the chords: E A B E (N for a rest)';
     editor.append(document.createTextNode?document.createTextNode(text):text);
-    const ref={id:g.id+'|chords',group:g,node:editor,line,row,original:text,anchorKey:null};refs.editors.push(ref);
+    // the cursor goes right after the chord that was clicked (or at the end), as a click in a line of words would put it
+    const at=items.findIndex(i=>i.chunk.chordId===editing?.chordId),caret=at<0?text.length:items.slice(0,at+1).map(i=>i.text).join(' ').length;
+    const ref={id:g.id+'|chords',kind:'chords',group:g,node:editor,line,row,original:text,anchorKey:items[0]?.chunk.key??null,caret};refs.editors.push(ref);
     let done=false;
     const finish=async save=>{
       if(done)return;done=true;const raw=editor.textContent;
@@ -701,6 +805,9 @@ export function mountChartPage(root,handlers={}){
       const chunk=refs.chunks.find(c=>c.chunk.key===ref.anchorKey)?.node,rowBox=ref.row.getBoundingClientRect?.(),box=chunk?.getBoundingClientRect?.();
       const x=rowBox&&box?Math.max(0,box.left-rowBox.left):0;
       ref.line.style?.setProperty?.('--start',x+'px');
+      // the chord line lies right on the row's chords, at their height
+      const held=ref.kind==='chords'?chunk?.querySelector?.('.chord-line')?.getBoundingClientRect?.():null;
+      if(held&&rowBox)ref.line.style?.setProperty?.('--top',(held.top-rowBox.top)+'px');
     }
   }
   // A row's lines of words are typed freely: Tab and Enter only move between its passes (nothing is saved or redrawn while typing),
@@ -714,6 +821,20 @@ export function mountChartPage(root,handlers={}){
     const editor=ref.node;
     editor.onfocus=()=>{typingIn=ref;editing={...editing,focus:ref.id};draft={kind:'lyric',node:editor,dirty:rowLines(ref.group).some(changed),failed:false};notify();};
     editor.oninput=()=>{if(draft)draft.dirty=rowLines(ref.group).some(changed);notify();};
+    // Several lines pasted at once (Ctrl+V, or Ctrl+Shift+V for plain text) go one per pass, from this line down, so you see where they
+    // land. Lines past the row's last pass wait on its last line and spill into the following rows when the row is saved (commitRow).
+    editor.onpaste=e=>{
+      const lines=String(e?.clipboardData?.getData?.('text/plain')??'').split(/\r?\n/).map(t=>t.replace(/\s+/g,' ').trim()).filter(Boolean);
+      if(lines.length<2)return;                                        // one line: the browser pastes it as usual
+      e.preventDefault?.();
+      const mine=rowLines(ref.group),slots=mine.slice(mine.indexOf(ref));
+      // the first line goes where the cursor is (over a selection); each following pass is replaced by the next line
+      const here=slots.length===1?lines.join('\n'):lines[0];          // on the row's last line, everything waits there
+      if(!(typeof document!=='undefined'&&document.execCommand?.('insertText',false,here)))editor.append(document.createTextNode?document.createTextNode(here):here);
+      for(let k=1;k<slots.length&&k<lines.length;k++)slots[k].node.textContent=k===slots.length-1?lines.slice(k).join('\n'):lines[k];
+      editor.oninput();
+      focusEnd(slots[Math.min(slots.length,lines.length)-1].node);
+    };
     editor.onmousedown=e=>{
       // a new line begins at the chord nearest the click
       if(ref.lane||ref.node.textContent||!finite(e?.clientX))return;
@@ -753,16 +874,16 @@ export function mountChartPage(root,handlers={}){
     return list;
   }
   // Save every changed line of a row as one edit. Several lines pasted into one line at once flow into the next lines in order, so a
-  // whole song can be pasted into the first one.
+  // whole song can be pasted into the first one. Lines past the end of the song join the last line, so nothing pasted is lost.
   async function commitRow(lines){
     if(saving)return;
-    const every=allLines(),texts=new Map();let multiple=false;      // line id -> what it now says
+    const every=allLines(),texts=new Map();let multiple=false,overflow=0;      // line id -> what it now says; lines joined onto the last
     for(const ref of lines){
       if(texts.get(ref.id)?.pasted||!changed(ref))continue;
       const parts=String(ref.node.textContent).split(/\n+/).map(t=>t.replace(/\s+/g,' ').trim()),filled=parts.filter(Boolean),list=filled.length>1?filled:[filled[0]??''];
       const at=every.findIndex(l=>l.id===ref.id);if(at<0)continue;
       const targets=[{...every[at],anchorKey:ref.anchorKey},...every.slice(at+1)];
-      if(list.length>targets.length)throw Error('That is '+list.length+' lines of words but only '+targets.length+' lines to put them on from here. Trim the text or add rows first.');
+      if(list.length>targets.length){overflow+=list.length-targets.length;list.splice(targets.length-1,list.length,list.slice(targets.length-1).join(' '));}
       if(list.length>1)multiple=true;
       list.forEach((text,k)=>texts.set(targets[k].id,{target:targets[k],text,pasted:k>0}));
     }
@@ -780,7 +901,8 @@ export function mountChartPage(root,handlers={}){
     }
     if(content===data.content)return;
     const saved=await commitPlain(content,multiple?'Add lyrics':labels.size===1?[...labels][0]:'Edit lyrics');
-    if(saved&&lost)message.textContent=lost===1?'One pinned word no longer exists, so its pin was removed. Undo brings it back.':lost+' pinned words no longer exist, so their pins were removed. Undo brings them back.';
+    if(saved&&overflow)message.textContent=(overflow===1?'One pasted line':overflow+' pasted lines')+' had no line of its own left in the song, so '+(overflow===1?'it was':'they were')+' added to the end of the last line.';
+    else if(saved&&lost)message.textContent=lost===1?'One pinned word no longer exists, so its pin was removed. Undo brings it back.':lost+' pinned words no longer exist, so their pins were removed. Undo brings them back.';
   }
   async function placeFlowLine(g,lane){
     if(blocked())return;
@@ -836,7 +958,10 @@ export function mountChartPage(root,handlers={}){
     const which=total===2?(order>here?'the next ':'the previous '):'the '+ordinal(order+1)+' ';
     return which+target.name;
   }
+  // They sit at the end of the section's heading line and only show with the Edit tool or in time; they always keep their room (hidden),
+  // so nothing moves when they appear.
   function copyButtons(head,section){
+    const box=el('span','sec-copies');
     for(const target of copyTargets(data.content,section.id)){
       const label=copyName(section,target);
       const b=el('button','sec-copy','Copy lyrics to '+label+(String(target.lyrics||'').trim()?' (replaces)':''));b.type='button';
@@ -849,7 +974,7 @@ export function mountChartPage(root,handlers={}){
           if(dropped)message.textContent=dropped+(dropped===1?' timed word was':' timed words were')+' left unpinned: '+target.name+' has no matching place for '+(dropped===1?'it':'them')+'.';
         }catch(e){fail(e);}
       };
-      head.append(b);
+      box.append(b);
     }
     // and its chords (rests included), bar for bar and beat for beat, so a chorus fixed once can be fixed everywhere
     for(const target of chordCopyTargets(data.content,section.id)){
@@ -864,8 +989,9 @@ export function mountChartPage(root,handlers={}){
           if(dropped)message.textContent=dropped+(dropped===1?' chord was':' chords were')+' left out: '+target.name+' has no matching place for '+(dropped===1?'it':'them')+'.';
         }catch(e){fail(e);}
       };
-      head.append(b);
+      box.append(b);
     }
+    if(box.children.length)head.append(box);
   }
 
   // ======================= Ctrl: section names =======================
@@ -890,22 +1016,35 @@ export function mountChartPage(root,handlers={}){
   // ======================= public API =======================
   const api={
     getMode:()=>mode,getScope:()=>scope,getSnap:()=>snapping?autoSnap(zoom):'free',isSnapping:()=>snapping,
-    // kept for the toolbar, which shows the timing options while the chart is drawn in time
-    getTool:()=>mode==='timing'?'words':'navigate',
-    getKeys:()=>({...held,latched}),
+    getTool:()=>tool,isFolding:()=>folding||!!fixing.a,
+    getKeys:()=>({...held}),
+    // play, edit, timing or cue (the rail, V E T Q, Esc for play). Refused while a line is being typed or saved.
+    setTool(next){
+      if(!CHART_TOOLS.includes(next)||next===tool)return tool;
+      if(blocked())return tool;
+      tool=next;folding=false;fixing.a=fixing.b=null;
+      if((tool==='timing')===(mode==='timing'))keepPlace(paintActs);      // the same view: only the Edit tool's word lines come and go
+      refreshView();renderTools();handlers.onToolChange?.(tool);return tool;
+    },
+    // Fold a repeat (in time): the next bar numbers clicked pick the part. Again to stop.
+    toggleFolding(){
+      if(mode!=='timing')return false;
+      folding=!(folding||fixing.a);fixing.a=fixing.b=null;foldGroup=null;paintActs();keepPlace(render);handlers.onToolChange?.(tool);return folding;
+    },
     // The rail and its note are shared with the lead sheet: take them back when the chart is shown again.
     showTools(){if(data&&dock.dataset?.owner!=='chart')renderTools();},
-    // nav: the chart as written; timing: drawn true to time (as a tap of Shift does). Printing asks for the chart as written.
+    // nav: the chart as written; timing: drawn true to time (the Timing tool). Printing asks for the chart as written.
     setMode(next){
-      if(!['nav','timing'].includes(next)||next===mode&&latched===(next==='timing'))return mode;
-      if(blocked())return mode;
-      latched=next==='timing';refreshView();renderTools();return mode;
+      if(next==='timing')api.setTool('timing');else if(next==='nav'&&tool==='timing')api.setTool('play');
+      return mode;
     },
-    // Esc: drop a half-picked repeat, then leave the in-time view kept by a tap of Shift. Returns true when the key was used.
+    // V, E, T and Q pick a tool; Esc drops a half-picked repeat, then puts the tool down. Returns true when the key was used.
     handleKey(event){
+      const pick=!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey&&String(event.key).length===1&&CHART_FOR_KEY[String(event.key).toUpperCase()];
+      if(pick){api.setTool(pick);return true;}
       if(event.key!=='Escape')return false;
-      if(fixing.a||foldGroup){fixing.a=fixing.b=null;foldGroup=null;keepPlace(render);return true;}
-      if(latched){latched=false;refreshView();renderTools();return true;}
+      if(fixing.a||foldGroup||folding){fixing.a=fixing.b=null;foldGroup=null;folding=false;paintActs();keepPlace(render);handlers.onToolChange?.(tool);return true;}
+      if(tool!=='play'){api.setTool('play');return true;}
       return false;
     },
     setScope(next){if(['occurrence','all-matching'].includes(next))scope=next;handlers.onScopeChange?.(scope);},
@@ -930,7 +1069,7 @@ export function mountChartPage(root,handlers={}){
     dispose(){
       doc?.removeEventListener?.('keydown',keyDown,true);doc?.removeEventListener?.('keyup',keyUp,true);doc?.removeEventListener?.('pointerdown',onPointer,true);
       if(typeof window!=='undefined')window.removeEventListener?.('blur',allUp);
-      root.replaceChildren();handlers.legend?.classList?.remove('editing','timing');
+      root.replaceChildren();
     },
   };
   return api;

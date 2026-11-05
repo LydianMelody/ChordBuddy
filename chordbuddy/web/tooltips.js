@@ -39,12 +39,14 @@ export function installTooltips(root=document){
     }
     tip.classList.add('show');owner=node;
   }
-  const keysHeld=(node,e)=>{const keys=node.dataset.tipKeys;return !keys||keys.split(' ').every(k=>k==='ctrl'?e.ctrlKey:k==='shift'?e.shiftKey:true);};
+  // A place on the chart that only does something with a tool (data-tip-acts: edit, time, fold) shows its tip only while the chart does
+  // that (its data-acts, chart-page.js).
+  const acting=node=>{const need=node.dataset.tipActs;if(!need)return true;const now=(node.closest?.('[data-acts]')?.dataset.acts||'').split(' ');return need.split(' ').every(k=>now.includes(k));};
   root.addEventListener('pointerover',e=>{
     if(e.buttons)return;
     const node=e.target?.closest?.('[data-tip]');
     if(!node||node===owner)return;
-    if(!keysHeld(node,e)){hide();return;}
+    if(!acting(node)){hide();return;}
     hide();timer=setTimeout(()=>show(node),DELAY);
     owner=node;
   });
@@ -61,7 +63,7 @@ export function installTooltips(root=document){
   root.addEventListener('focusout',e=>e.target?.removeAttribute?.('aria-describedby'));
   for(const type of ['pointerdown','wheel','scroll','blur'])root.addEventListener(type,hide,true);
   root.addEventListener('keydown',e=>{if(!['Control','Shift','Alt','Meta'].includes(e.key))hide();},true);
-  // letting go of the key a tip belongs to puts the tip away
-  root.addEventListener('keyup',e=>{if(owner?.dataset?.tipKeys&&!keysHeld(owner,e))hide();},true);
+  // letting go of Ctrl (or picking another tool) puts away a tip that no longer applies
+  root.addEventListener('keyup',()=>setTimeout(()=>{if(owner?.dataset?.tipActs&&!acting(owner))hide();}),true);
   window.addEventListener('blur',hide);
 }

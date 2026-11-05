@@ -26,7 +26,8 @@ export function eventTimes(analysis,measures){
 }
 
 // The score with the chart's chords in place of its own, and the chart's section names by score bar.
-// chart: {chords:[{id,label,start,end}], sections:[{name,start}]}. spell: how a chord name is written for the key.
+// chart: {chords:[{id,label,start,end}], sections:[{name,start}], cues:[{id,text,start}]}. spell: how a chord name is written for the key.
+// A cue is written as an annotation above the note where it starts ("^pick scratch"), never as a chord symbol.
 // Returns {abc, chords:[{id,label,start,end,abc_index}], sections:[{name,measure}]}; abc_index is where the chord sits in the new abc.
 export function placeChartOnScore(abc,analysis,measures,chart,spell=label=>label){
   const times=eventTimes(analysis,measures),order=analysis.events.map((e,i)=>i).filter(i=>Number.isFinite(times[i]));
@@ -39,13 +40,19 @@ export function placeChartOnScore(abc,analysis,measures,chart,spell=label=>label
     const at=inside??sounding(chord.start);
     if(at!==null&&at!==undefined&&!taken.has(at))taken.set(at,chord);
   }
-  const inserts=[...taken].map(([i,chord])=>({at:analysis.events[i].startChar,chord})).sort((a,b)=>a.at-b.at);
+  const inserts=[...taken].map(([i,chord])=>({at:analysis.events[i].startChar,chord}));
+  for(const cue of chart.cues||[]){
+    const at=sounding(cue.start);              // on the note or rest sounding at its moment (a long rest included), as a chord starting then
+    if(at!==null&&at!==undefined)inserts.push({at:analysis.events[at].startChar,cue});
+  }
+  inserts.sort((a,b)=>a.at-b.at||(a.cue?0:1)-(b.cue?0:1));     // at one note, its cues before its chord
   const spans=chordSymbolSpans(abc);
   let out='',from=0,s=0,k=0;const chords=[];
   // walk the text once: drop the old symbols, write the new ones just before their note
   while(from<=abc.length){
     const nextSpan=spans[s]?.[0]??Infinity,nextInsert=inserts[k]?.at??Infinity,next=Math.min(nextSpan,nextInsert,abc.length);
     out+=abc.slice(from,next);from=next;
+    if(nextInsert===next&&inserts[k].cue){out+='"^'+inserts[k++].cue.text.replace(/["\\]/g,"'")+'"';continue;}
     if(nextInsert===next){const {chord}=inserts[k++];chords.push({id:chord.id,label:chord.label,start:chord.start,end:chord.end,abc_index:out.length});out+='"'+spell(chord.label)+'"';continue;}
     if(nextSpan===next){from=spans[s++][1];continue;}
     break;

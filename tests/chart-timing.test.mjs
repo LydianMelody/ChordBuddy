@@ -100,10 +100,9 @@ test('Timing: Esc during a drag drops it', async () => {
   two.onkeydown({key:'Escape'});await tick();assert.equal(s.commits.length,0);assert.equal(byClass(s.root,'ghost').length,0);
 });
 
-test('Timing: Shift+clicking a pin releases the word; the other pins stay', async () => {
+test('Timing: clicking a pin releases the word; the other pins stay', async () => {
   const s=setup();const one=chipOf(s,'one'),pin=one.children.find(c=>has(c,'pinb'));
-  pin.onclick({stopPropagation(){}});await tick();assert.equal(s.commits.length,0,'a plain click on a pin does not release it');
-  pin.onclick({shiftKey:true,stopPropagation(){}});await tick();await tick();
+  pin.onclick({stopPropagation(){}});await tick();await tick();
   assert.equal(s.commits.length,1);assert.equal(s.commits[0].label,'Release word');
   assert.deepEqual(wordsOf(s.commits[0].candidate),[[14,'m3',0]]);
   assert.match(s.root.textContent,/Released/);
@@ -264,4 +263,52 @@ test('the melody of every pass is drawn in its lane color, scaled to the row, an
   const pass2=view.getProjection?.()?.groups?.find(g=>g.passes?.length>1)?.passes?.[1];
   view.updatePlayback({seconds:(pass2?.start??0)+.1,ready:true,playing:true});
   assert.deepEqual(own.filter(l=>has(l,'cur')).map(l=>l.dataset.pass),['2'],'only the pass being played');
+});
+
+test('clicking a word lights up the melody of its own pass at once, whatever is playing, and it stays through playback', () => {
+  const f=fixture(),measures=f.music.measures;f.content.sections[0].lyrics='one two\nthree four';
+  f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[['m0',0],['m4',1]].map(([m,line])=>({section_id:'s',line,start_measure:m,end_measure:'m'+(Number(m.slice(1))+3),words:[{offset:0,measure_id:m,beat:0}]}))};
+  const melody=measures.map((m,i)=>({start:m.start,end:m.start+(m.end-m.start)/2,pitch:60+(i%4)*2}));
+  installDom();const root=new Node();
+  const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{},onError:e=>{throw e;}});
+  view.update({...f,melody,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});view.setMode('timing');
+  const row=byClass(root,'trow').find(r=>byClass(r,'tlane').some(l=>l.dataset.pass==='2'));
+  assert.ok(row,'a repeated row has words in a later pass');
+  const firstBar=byClass(row,'tbar')[0],own=()=>byClass(row,'tmelody').filter(l=>l.parent===firstBar);
+  const pass1=view.getProjection?.()?.groups?.find(g=>g.passes?.length>1)?.passes?.[0];
+  view.updatePlayback({seconds:(pass1?.start??0)+.1,ready:true,playing:true});
+  assert.deepEqual(own().filter(l=>has(l,'cur')).map(l=>l.dataset.pass),['1'],'pass 1 is playing');
+  const word=byClass(byClass(row,'tlane').find(l=>l.dataset.pass==='2'),'wchip')[0];
+  word.onpointerdown({button:0,pointerId:1,clientX:0,clientY:0,preventDefault(){}});
+  assert.deepEqual(own().filter(l=>has(l,'cur')).map(l=>l.dataset.pass),['2'],'the clicked word’s pass, straight away');
+  assert.ok(has(row,'positioning'));
+  view.updatePlayback({seconds:(pass1?.start??0)+.3,ready:true,playing:true});
+  assert.deepEqual(own().filter(l=>has(l,'cur')).map(l=>l.dataset.pass),['2'],'playback moving on does not take it back');
+  view.setMode('nav');view.setMode('timing');
+  assert.ok(!has(byClass(root,'trow').find(r=>byClass(r,'tlane').some(l=>l.dataset.pass==='2')),'positioning'),'leaving Timing lets it go');
+});
+
+test('Timing: on a zoomed page, a word dragged in a later pass lands on the grid line under the pointer, and the ghost stays with it', async () => {
+  // Melody's report: at 83% page zoom the drop marker sat a fifth of the way back towards the bar's start, so only the next bar's first
+  // beat could be reached. Here the bars are drawn at 83% of their laid-out width, and offsetWidth reports that zoomed width too (as her window did).
+  const f=fixture();f.content.sections[0].lyrics='one two\nthree four';
+  f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[['m0',0],['m4',1]].map(([m,line])=>({section_id:'s',line,start_measure:m,end_measure:'m'+(Number(m.slice(1))+3),words:[{offset:0,measure_id:m,beat:0}]}))};
+  installDom();const root=new Node(),commits=[];
+  const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async(c,l)=>{commits.push({candidate:c,label:l});},onError:e=>{throw e;}});
+  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});view.setMode('timing');view.setZoom(3);
+  assert.equal(view.getSnap(),'sixteenth','zoom 3 draws 1/16 lines');
+  const row=byClass(root,'trow').find(r=>byClass(r,'tlane').some(l=>l.dataset.pass==='2'));assert.ok(row,'a repeated row with words in pass 2');
+  const Z=.83,bars=byClass(row,'tbar');let x=40;
+  for(const b of bars){const w=parseFloat(b.style.width)*Z,left=x;b.getBoundingClientRect=()=>({left,right:left+w,top:0,bottom:100,width:w,height:100});b.offsetWidth=w;x+=w;}
+  const four=byClass(row,'wchip').find(c=>c.textContent.trim()==='four');assert.equal(four.parent.dataset.pass,'2');
+  const bar=bars[1],r=bar.getBoundingClientRect(),px=r.left+2.75/4*r.width;       // a 1/16 line in the middle of the second bar
+  down(four,10);move(four,px,30);
+  const mark=byClass(row,'drop-mark')[0];
+  assert.match(mark.dataset.t,/· beat 3\.75$/,'the marker names the line under the pointer');
+  assert.equal(mark.parent.parent,bar,'in the bar under the pointer');
+  assert.ok(Math.abs(parseFloat(mark.style.left)*Z+r.left-px)<1,'and is drawn under the pointer');
+  const ghost=byClass(row,'ghost')[0];assert.ok(Math.abs(parseFloat(ghost.style.left)*Z-(px+8))<1,'the ghost follows the pointer');
+  up(four,px);await tick();await tick();
+  const words=commits[0].candidate.layout.lines.find(l=>l.line===1).words;
+  assert.deepEqual(words.map(w=>[w.offset,w.measure_id,+w.beat.toFixed(6)]),[[0,'m4',0],[6,'m5',2.75]],'saved in pass 2, at that beat');
 });

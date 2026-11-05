@@ -14,6 +14,8 @@
 //   Other         -> steam from the mug.              Sections -> page turns, rain heavier in choruses, a new print registration.
 //   Loudness      -> scales the nod, leaf bounce and rain so a quiet bridge stays quiet.
 // Calm mode: smaller nod, steady lamp. Nothing here flashes.
+// Inputs (rewired in the patch bay; each default is what it always did): city windows, desk lamp, curtain, mug steam and the night train.
+// The rain, the nod and the fairy lights are planned from the song in time.
 import {chordColor} from '../visual-color.js';
 
 const TAU=Math.PI*2,FPS=12,VW=1600,VH=900,ROWS=5;
@@ -88,6 +90,13 @@ function buildBooks(){
 
 export default {
   id:'rainydesk',
+  inputs:{
+    windows:{label:'City windows',type:'trigger',default:'stem/piano/hit',help:'A window in the city switches on or off'},
+    lamp:{label:'Desk lamp',type:'amount',default:'stem/vocals/level',help:'How warm the desk lamp glows'},
+    curtain:{label:'Curtain sway',type:'amount',default:'stem/bass/level',help:'How much the curtain sways'},
+    steam:{label:'Mug steam',type:'amount',default:'stem/other/level',help:'How much steam rises from the mug'},
+    train:{label:'Night train',type:'amount',default:'stem/lead/level',help:'Above a little, a train crosses the city'},
+  },
   name:'Rainy Desk',
   order:55,
   hud:false,   // the desk clock shows the chord, the print's caption shows the lyrics
@@ -430,9 +439,11 @@ export default {
         eS+=(e-eS)*Math.min(1,dt*4);ePk=Math.max(eS,ePk*Math.exp(-dt/25),0.05);
         const ampI=clamp(eS/ePk,0,1),amp=any?0.15+0.85*ampI*ampI:0.6;
         const sm=(v,x,k)=>v+((x||0)-v)*Math.min(1,dt*k);
-        vocS=sm(vocS,tr.vocals?.level,5);bassS=sm(bassS,tr.bass?.level,4);othS=sm(othS,tr.other?.level,3);leadS=sm(leadS,tr.lead?.level,5);
+        const inp=env.inputs||{},has=k=>k in inp;
+        vocS=sm(vocS,has('lamp')?inp.lamp:tr.vocals?.level,5);bassS=sm(bassS,has('curtain')?inp.curtain:tr.bass?.level,4);
+        othS=sm(othS,has('steam')?inp.steam:tr.other?.level,3);leadS=sm(leadS,has('train')?inp.train:tr.lead?.level,5);
         if(lastT!=null&&(t<lastT-0.05||t-lastT>0.5)){train=null;lastTrainEnd=-9;}lastT=t;
-        for(const s of (env.events?.hits?.piano||[])){const W2=city.win,q=W2[Math.floor(hsh(toggles++,5)*W2.length)];if(q)q.lit=!q.lit;}
+        for(const s of (has('windows')?inp.windows:env.events?.hits?.piano||[])){const W2=city.win,q=W2[Math.floor(hsh(toggles++,5)*W2.length)];if(q)q.lit=!q.lit;}
         const sn=String(frame.section?.name||'').toLowerCase(),base=/chorus|hook|refrain|drop/.test(sn)?1:/bridge|solo|break/.test(sn)?0.75:/verse|pre/.test(sn)?0.6:0.4;
         rainS=sm(rainS,base*(0.4+0.6*amp),0.8);
         if(train){const x=trainX(train,t);if(x>GX1+60||x+380<GX0-60){train=null;lastTrainEnd=t;}}

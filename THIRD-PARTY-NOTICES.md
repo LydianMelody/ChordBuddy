@@ -8,6 +8,7 @@ Chord Buddy's own code is MIT licensed (see `LICENSE`). It uses the following. *
 | Component | Where | License |
 |---|---|---|
 | abcjs (music notation display) | `chordbuddy/web/vendor/` | MIT (`abcjs-LICENSE.md` next to it) |
+| Signalsmith Stretch 1.3.2 by Geraint Luff / Signalsmith Audio (practice speed: slows songs down or speeds them up without changing their pitch) | `chordbuddy/web/vendor/signalsmith-stretch.js`, the WebAssembly engine from the official npm release | MIT (`signalsmith-stretch-LICENSE.txt` next to it) |
 | Bricolage Grotesque, Courier Prime, Space Mono (fonts) | `chordbuddy/web/fonts/` | SIL Open Font License 1.1 (`LICENSES.txt` next to them) |
 
 ## Downloaded by the installer or the app (not included)

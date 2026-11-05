@@ -2,6 +2,7 @@
 // chord change arrives as a glowing hurdle (with the chord's name) that reaches the fox exactly as the chord changes: the fox clears it on
 // the change. Its stride follows the beat; kicks pulse the street (and shake the camera, unless calm), the bass lights the windows, the
 // vocals warm the sun, lead guitar draws speed streaks, and each section and chord shifts the sky.
+// Inputs (rewired in the patch bay; each default is what it always did): street pulse, sun, windows, dust and speed streaks.
 import {chordColor,chordHsl} from '../visual-color.js';
 
 const SPEED=0.5;                 // world speed: fractions of the screen's short side per second of song
@@ -71,6 +72,13 @@ function drawFox(g,x,y,s,step,air,scarfColor,wall){
 
 export default {
   id:'runner',order:20,name:'Runner',
+  inputs:{
+    pulse:{label:'Street pulse',type:'trigger',default:'stem/drums/hit',help:'Makes the street flash (and shakes the camera, unless calm)'},
+    sun:{label:'Sun warmth',type:'amount',default:'stem/vocals/level',help:'How warm and bright the sun glows'},
+    windows:{label:'Window lights',type:'amount',default:'stem/bass/level',help:'How brightly the city’s windows light up'},
+    dust:{label:'Dust kick',type:'trigger',default:'song/beat',help:'Kicks up dust behind the fox'},
+    streaks:{label:'Speed streaks',type:'amount',default:'stem/lead/level',help:'How many speed streaks fly past'},
+  },
   create(){
     let w=0,h=0,u=1,far=null,mid=null,skyHue=280,pulse=0,shake=0,lastBeat=null,stepBase=0,lastT=null;
     const dust=[],streaks=[],stars=[];
@@ -92,7 +100,8 @@ export default {
         const cc=chordColor(frame.chord.label),sectionHue=[285,255,320,230,300,200][(frame.section.index+6)%6];
         skyHue=lerpHue(skyHue,cc.root===null?sectionHue:lerpHue(sectionHue,cc.hue,0.25),Math.min(1,dt*1.2));
         // pulse and shake on kicks
-        for(const s of env.events.hits.drums||[]){pulse=Math.max(pulse,s);if(!calm)shake=Math.max(shake,s*0.5);}
+        const inp=env.inputs||{},has=k=>k in inp;
+        for(const s of has('pulse')?inp.pulse:env.events.hits.drums||[]){pulse=Math.max(pulse,s);if(!calm)shake=Math.max(shake,s*0.5);}
         pulse=Math.max(0,pulse-dt*3);shake=Math.max(0,shake-dt*4);
         const sx=calm?0:(Math.sin(wall*90)*shake*u*0.01),sy=calm?0:(Math.cos(wall*77)*shake*u*0.012);
         g.save();g.translate(sx,sy);
@@ -102,7 +111,7 @@ export default {
         sky.addColorStop(0,`hsl(${skyHue},45%,9%)`);sky.addColorStop(0.55,`hsl(${(skyHue+25)%360},55%,22%)`);sky.addColorStop(1,`hsl(${(skyHue+70)%360},75%,48%)`);
         g.fillStyle=sky;g.fillRect(-u*0.05,-u*0.05,w+u*0.1,h+u*0.1);
         for(const s of stars){g.fillStyle=`rgba(255,255,255,${0.25+0.35*Math.sin(wall*1.5+s.phase)**2})`;g.fillRect(s.x,s.y,s.r,s.r);}
-        const voice=frame.tracks.vocals?.level||0,sunR=u*0.2,sunX=w*0.66,sunY=ground-h*0.2;
+        const voice=(has('sun')?inp.sun:frame.tracks.vocals?.level)||0,sunR=u*0.2,sunX=w*0.66,sunY=ground-h*0.2;
         const sun=g.createLinearGradient(0,sunY-sunR,0,sunY+sunR);sun.addColorStop(0,`hsl(${(skyHue+90)%360},95%,${68+voice*14}%)`);sun.addColorStop(1,`hsl(${(skyHue+40)%360},90%,55%)`);
         const halo=g.createRadialGradient(sunX,sunY,sunR*0.8,sunX,sunY,sunR*(1.5+voice*0.6));                    // the glow (a gradient: blur is slow)
         halo.addColorStop(0,`hsla(${(skyHue+80)%360},100%,65%,${0.35+voice*0.45})`);halo.addColorStop(1,`hsla(${(skyHue+80)%360},100%,65%,0)`);
@@ -111,7 +120,7 @@ export default {
         g.fillStyle=sky;for(let i=0;i<6;i++){const y=sunY+sunR*(0.1+i*0.15);g.fillRect(sunX-sunR,y,sunR*2,sunR*0.02*(i+1));}   // synth stripes
 
         // ---- skylines: far and mid, tiled forever, moving with song time ----
-        const bass=frame.tracks.bass?.level||0;
+        const bass=(has('windows')?inp.windows:frame.tracks.bass?.level)||0;
         const tile=(layer,factor,y,windowsAlpha,signs)=>{
           const off=((t*speed*factor)%layer.width+layer.width)%layer.width;
           for(let x=-off;x<w;x+=layer.width){
@@ -159,10 +168,10 @@ export default {
         if(lastT!==null&&Math.abs(t-lastT)>0.5)stepBase=0;lastT=t;
         const step=frame.playing||airborne?beatPos/2:stepBase;
         if(frame.playing)stepBase=step;
-        if(env.events.beat&&!airborne&&frame.playing)for(let i=0;i<5;i++)dust.push({x:foxX-foxSize*0.2,y:ground,vx:-u*(0.1+rand()*0.2),vy:-u*(0.05+rand()*0.1),life:1});
+        if((has('dust')?inp.dust.length:env.events.beat)&&!airborne&&frame.playing)for(let i=0;i<5;i++)dust.push({x:foxX-foxSize*0.2,y:ground,vx:-u*(0.1+rand()*0.2),vy:-u*(0.05+rand()*0.1),life:1});
         const lift=air*u*0.16,scarf=chordHsl(frame.chord.label||'C',58,1);
         // speed streaks with the lead guitar
-        const lead=frame.tracks.lead?.level||0;
+        const lead=(has('streaks')?inp.streaks:frame.tracks.lead?.level)||0;
         if(frame.playing&&lead>0.3&&rand()<lead*0.9)streaks.push({x:foxX-foxSize*0.3,y:ground-lift-foxSize*(0.3+rand()*0.5),len:u*(0.1+rand()*0.2),life:1});
         g.strokeStyle='rgba(255,255,255,.5)';g.lineWidth=Math.max(1,u*0.003);
         for(let i=streaks.length-1;i>=0;i--){const s=streaks[i];s.life-=dt*3;s.x-=speed*dt*1.5;if(s.life<=0){streaks.splice(i,1);continue;}

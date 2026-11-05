@@ -175,6 +175,27 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 .more summary::-webkit-details-marker{display:none}
 .more-pop{position:absolute;right:0;top:46px;z-index:40;min-width:240px;display:flex;flex-direction:column;gap:4px;padding:8px;border:var(--bd) solid var(--ink);border-radius:12px;background:var(--page);box-shadow:var(--sh) var(--sh) 0 var(--ink)}
 .more-pop button{text-align:left}
+/* inside a menu: a quiet label, a rule before what is set apart (Delete song, last), and Delete in the warning color */
+/* History menu: recent changes by name, the newest nearest the "Now" line */
+.history-pop{min-width:280px;max-height:min(70vh,520px);overflow:auto}
+.history-pop .history-now{margin:2px 8px;padding-top:6px;border-top:var(--bd) solid var(--ink);font:800 10px/1 var(--g);letter-spacing:.12em;text-transform:uppercase}
+.history-pop small{margin-left:auto;padding-left:10px;color:var(--soft);font-weight:600;white-space:nowrap}
+.history-pop .text-button{display:flex;align-items:baseline}
+/* the note after an undo or redo: what changed, and the way back */
+.history-note{position:fixed;left:50%;top:72px;transform:translateX(-50%);z-index:39;display:flex;align-items:center;gap:12px;max-width:min(92vw,560px);padding:8px 8px 8px 14px;border:var(--bd) solid var(--ink);border-radius:12px;background:var(--page);color:var(--ink);font-size:13px;font-weight:600;box-shadow:3px 3px 0 var(--ink)}
+.more-label{margin:2px 8px 0;font:800 10px/1 var(--g);letter-spacing:.12em;text-transform:uppercase;color:var(--soft)}
+.more-sep{width:100%;margin:4px 0;border:0;border-top:2px dotted var(--faint)}
+.more-pop .text-button.danger{color:var(--a1t,var(--a1))}
+.more-pop .text-button.danger:hover{color:var(--a1t,var(--a1))}
+.more-pop :is(.text-button,.secondary):has(>.ic,>[data-icon]){display:flex;align-items:center;gap:8px}
+.more-pop .text-button .ic{width:16px;height:16px}
+.more-pop .text-button em{font-style:normal}
+/* Settings: the ink colors sit in the menu as a row of dots */
+.settings-pop{min-width:220px}
+.settings-pop .themes{align-self:flex-start;margin:0 6px 4px}
+/* Visualizer: a button with its name, like Export */
+#visual-menu>summary{display:inline-flex;align-items:center;gap:6px}
+#visual-menu>summary em{font-style:normal}
 
 /* ---------- Legacy controls get the Press Room look ---------- */
 .primary,.secondary,.text-button{font-family:var(--g)}

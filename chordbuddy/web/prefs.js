@@ -1,5 +1,5 @@
-// Small interface preferences (theme, folded panels, a song's key). The app opens on a different local port every launch, so the
-// browser's own storage cannot be trusted to remember anything: the library keeps the real copy (see /api/prefs) and
+// Small interface preferences (theme, folded panels, a song's key). The app can open on a different local port (when its usual one is taken),
+// so the browser's own storage cannot be trusted to remember anything: the library keeps the real copy (see /api/prefs) and
 // localStorage is only a fast first paint. Every access is guarded; a failure just means "use the default".
 const cache=new Map(),pending={},listeners=[];
 let send=null,timer=null;

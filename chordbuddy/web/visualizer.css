@@ -6,7 +6,7 @@
 /* the controls: scenes, lyrics, calm (and full screen or close); they fade when the mouse rests */
 /* a slim column at the top left, clear of the chord (top centre) and the lyrics (bottom), in the app's own look like the mixer */
 .visualizer-toolbar{position:absolute;top:12px;left:12px;z-index:2;display:flex;flex-direction:column;gap:4px;align-items:stretch;padding:6px;
-  border-radius:14px;background:var(--page);border:var(--bd) solid var(--ink);box-shadow:var(--sh) var(--sh) 0 var(--ink);color:var(--ink);transition:opacity .4s}
+  border-radius:var(--panel-radius,14px);background:var(--page);border:var(--bd) solid var(--ink);box-shadow:var(--sh) var(--sh) 0 var(--ink);color:var(--ink);transition:opacity .4s}
 .visualizer-toolbar.idle{opacity:0;pointer-events:none}
 .visualizer-toolbar button,.visualizer-scenes button{padding:5px 12px;border:2px solid transparent;border-radius:999px;background:transparent;color:var(--ink);font:700 12px var(--g);cursor:pointer;text-align:left}
 .visualizer-toolbar button:hover{border-color:var(--ink)}
@@ -14,15 +14,60 @@
 .visualizer-scenes{display:flex;flex-direction:column;gap:2px;padding-bottom:6px;margin-bottom:2px;border-bottom:2px solid var(--ink)}
 /* the main page's full-screen view */
 .visualizer-overlay{position:fixed;inset:0;z-index:1000;background:#0d0e14}
-/* the slide-out mixer: the main window's mixer rack (mixer-rack.css) on a darkened panel down the whole right side */
-.visualizer-mixer{position:absolute;top:0;right:0;bottom:0;z-index:3;width:min(420px,100%);display:flex;justify-content:center;align-items:flex-start;
-  padding:24px 24px;overflow:auto;cursor:auto;background:linear-gradient(90deg,rgba(6,6,10,0),rgba(6,6,10,.74) 40px);
-  transform:translateX(100%);transition:transform .25s ease}
-.visualizer-mixer.open{transform:none}
-.visualizer-mixer .rack{flex:none;width:372px;max-width:100%;max-height:none;font:15px/1.4 var(--g);color:var(--ink)}
+/* the mixer: the main window's mixer rack (mixer-rack.css) floating over the scene wherever it was dragged (by its title bar);
+   M or its chevron shows and hides it with a quick fade */
+.visualizer-mixer{position:absolute;top:12px;right:12px;z-index:3;width:372px;max-width:calc(100% - 24px);max-height:calc(100% - 24px);display:flex;
+  overflow:auto;cursor:auto;opacity:0;transform:translateY(-6px);pointer-events:none;transition:opacity .2s ease,transform .2s ease}
+.visualizer-mixer.open{opacity:1;transform:none;pointer-events:auto}
+.visualizer-mixer .rack{flex:none;width:100%;max-height:none;font:15px/1.4 var(--g);color:var(--ink);border-radius:var(--panel-radius,16px)}
+.visualizer-mixer .rack-head{cursor:grab;touch-action:none;user-select:none}
+.visualizer-mixer.dragging .rack-head,.visualizer-toolbar.dragging .visualizer-grip{cursor:grabbing}
+.visualizer-mixer.dragging .rack,.visualizer-toolbar.dragging{box-shadow:calc(var(--sh) + 3px) calc(var(--sh) + 3px) 0 var(--ink);transition:none}
+@media (prefers-reduced-motion:reduce){.visualizer-mixer{transition:none}}
+/* the picker's grip: drag it to move the controls (the ridges of a cassette's hinge, as on the set list spines) */
+.visualizer-grip{height:10px;margin:-2px 4px 4px;border-radius:4px;cursor:grab;touch-action:none;
+  background:repeating-linear-gradient(90deg,transparent 0 3px,color-mix(in srgb,var(--ink) 30%,transparent) 3px 4px);
+  border:1.5px solid color-mix(in srgb,var(--ink) 35%,transparent)}
+.visualizer-grip:hover{background-color:color-mix(in srgb,var(--hl) 50%,transparent)}
 .visualizer-mixer-note{margin:0;font:400 12px/1.5 var(--m);color:var(--soft)}
 .visualizer-mixer-note[hidden]{display:none}
 /* a visualization that threw while drawing, and a file that could not be loaded at all */
 .visualizer-scenes button.broken{color:var(--a1t)}
 .visualizer-scenes button.broken::after{content:' \26A0'}
 .visualizer-scenes .visualizer-failed{color:var(--a1t);opacity:.75;cursor:help}
+/* Pin: the look now showing comes back whenever this song opens. Pinned, it is the highlighter yellow of the open song elsewhere,
+   and the pinned look carries a small yellow dot in the list */
+.visualizer-toolbar .visualizer-pin[hidden]{display:none}
+.visualizer-toolbar .visualizer-pin[aria-pressed="true"]{background:var(--hl);color:#1A1C24;border-color:var(--ink)}
+/* ---- a visualization's skin (visual-skin.js): the same panels and controls, restyled to match the scene ----
+   Only while skinned, so the app's own look is untouched; each property falls back to today's look when the skin leaves it out. */
+:is(.visualizer-toolbar,.visualizer-mixer).skinned :is(.visualizer-pin[aria-pressed="true"],.rack .solo[aria-pressed="true"],.stem.soloed .solo){color:var(--on-hl,#1A1C24)}
+/* borders in the line colour */
+.visualizer-toolbar.skinned,.skinned :is(.rack,.stem,.stem-icon,.meter,.mute,.solo,.presets button,.master,.rack-head .fold,.visualizer-scenes,.visualizer-pin[aria-pressed="true"]){border-color:var(--line,var(--ink))}
+.visualizer-toolbar.skinned button:hover{border-color:var(--line,var(--ink))}
+.skinned .rack .fader::-webkit-slider-thumb{border-color:var(--line,var(--ink));box-shadow:2px 2px 0 var(--shadow-color,var(--line,var(--ink)))}
+/* the panel's shadow: hard, in its own colour, with an optional glow of the line colour around it; and its surface texture */
+.visualizer-toolbar.skinned,.visualizer-mixer.skinned .rack{
+  box-shadow:var(--sh) var(--sh) 0 var(--shadow-color,var(--line,var(--ink))),0 0 var(--panel-glow,0px) color-mix(in srgb,var(--line,var(--ink)) 70%,transparent);
+  background-image:var(--panel-texture,none);background-size:var(--panel-texture-size,auto)}
+.visualizer-mixer.skinned.dragging .rack,.visualizer-toolbar.skinned.dragging{
+  box-shadow:calc(var(--sh) + 3px) calc(var(--sh) + 3px) 0 var(--shadow-color,var(--line,var(--ink))),0 0 calc(var(--panel-glow,0px) * 1.5) color-mix(in srgb,var(--line,var(--ink)) 80%,transparent)}
+/* a glow lights the titles and the chosen look too */
+.skinned :is(.rack-head b,.visualizer-scenes button[aria-pressed="true"]){text-shadow:0 0 calc(var(--panel-glow,0px) * .6) color-mix(in srgb,currentColor 70%,transparent)}
+/* pressed buttons in the active colour */
+.visualizer-toolbar.skinned button[aria-pressed="true"]:not(.visualizer-pin),.skinned :is(.presets button.on,.rack .mute[aria-pressed="true"],.stem.muted .mute){
+  background:var(--active,var(--ink));color:var(--on-active,var(--page))}
+.visualizer-toolbar.skinned button[aria-pressed="true"]:not(.visualizer-pin){box-shadow:0 0 calc(var(--panel-glow,0px) * .7) color-mix(in srgb,var(--active,var(--ink)) 70%,transparent)}
+/* lettering: capitals and spacing */
+.skinned :is(.visualizer-toolbar button,.visualizer-scenes button,.presets button,.mute,.solo){text-transform:var(--panel-caps,none)}
+.visualizer-toolbar.skinned button{text-transform:var(--panel-caps,none);letter-spacing:inherit}
+.visualizer-toolbar.skinned,.skinned :is(.rack-head,.presets,.strip-label,.master,.rack-count){letter-spacing:var(--panel-tracking,normal)}
+.visualizer-scenes button.pinned::after{content:'';display:inline-block;width:7px;height:7px;margin-left:6px;border:1.5px solid currentColor;border-radius:50%;background:var(--hl);vertical-align:1px}
+/* an OBS Browser Source (?stream=): the picture only */
+.visualizer-stage.streaming{cursor:none}
+/* the stream with Chord Buddy closed: nothing at all (see visualizer-page.js) */
+body.streaming.offline{background:transparent!important}
+body.streaming.offline #visualizer{visibility:hidden}
+.visualizer-stage.streaming :is(.visualizer-toolbar,.visualizer-mixer){display:none!important}
+/* the preview in the Advanced Visuals Editor (visual-editor.css): the picture only; the editor around it has the controls */
+.visualizer-stage.in-editor :is(.visualizer-toolbar,.visualizer-mixer){display:none!important}

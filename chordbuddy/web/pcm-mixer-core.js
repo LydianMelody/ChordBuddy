@@ -1,8 +1,13 @@
 import {loopEngaged,validLoop} from './pcm-stream.js';
 // Pure common-cursor renderer. No network, DOM or wall-clock scheduling.
 export const RATE=44100,TRACK_COUNT=8,MAX_FRAMES=441000,RAMP=441;
+// Played audio kept for a loop change (HISTORY_FRAMES, about 85 MB), and how much of it a change may queue at once (MEMORY_FILL_FRAMES).
+// A new loop's start is almost always audio just heard, so it can play from here at once instead of waiting for the server: L pressed
+// on the last beat of its bars would otherwise run dry for the round trip (tens of milliseconds) and leave the music that much late.
+export const HISTORY_FRAMES=RATE*30,MEMORY_FILL_FRAMES=RATE*3;
 // The first count frames of a chunk from frame `from` on (chunks hold eight stereo tracks one after another).
 function sliceChunk(chunk,from,count){
+ if(from===0&&count===chunk.count)return chunk;              // chunks are never written after they arrive, so a whole one is shared
  const data=new Float32Array(count*16),span=chunk.count*2;
  for(let t=0;t<8;t++)data.set(chunk.data.subarray(t*span+from*2,t*span+(from+count)*2),t*count*2);
  return {data,count,start:chunk.start+from};
@@ -12,11 +17,18 @@ export class PcmMixer{
  constructor(){this.mix=defaultMix();this.weights=new Float64Array(7).fill(1);this.targets=new Float64Array(7).fill(1);this.mode='original';this.blend=0;this.master=1;this.last=[0,0];this.peaks=new Float32Array(7);this.reset({generation:0,runId:null,startFrame:0,totalFrames:0,commonGain:1});}
  reset({generation,runId,startFrame,totalFrames,commonGain,loop=null}){
   if(!Number.isSafeInteger(startFrame)||!Number.isSafeInteger(totalFrames)||startFrame<0||startFrame>totalFrames||!Number.isFinite(commonGain)||commonGain<0||commonGain>1||!validLoop(loop,totalFrames))throw Error('Invalid PCM timeline');
+  if(runId!==this.runId){this.history=[];this.historyFrames=0;}   // a seek in the same song keeps what was heard
   this.generation=generation;this.runId=runId;this.frame=startFrame;this.total=totalFrames;this.gain=commonGain;this.queue=[];this.end=startFrame;this.offset=0;this.loop=loop?{start:loop.start,end:loop.end}:null;this.engaged=loopEngaged(this.loop,startFrame);this.wrapNext=false;this.queued=0;this.played=0;this.playIntent=false;this.state='paused';this.envelope=0;this.last=[0,0];
  }
  get queuedFrames(){return this.queued;}
+ // A chunk finished playing: keep it for a later loop change, dropping the oldest beyond HISTORY_FRAMES.
+ remember(chunk){
+  this.history.push(chunk);this.historyFrames+=chunk.count;
+  while(this.historyFrames>HISTORY_FRAMES&&this.history.length>1)this.historyFrames-=this.history.shift().count;
+ }
  // Changes the loop without stopping: keeps the queued audio the new loop plays next (cut at its end, or where the old loop wrapped),
- // drops the rest and adopts a new generation. Returns where streaming resumes and the counts the fetch worker's credit needs.
+ // then queues what follows from audio already here (played, or queued past the cut) so nothing waits on the server, and drops the rest
+ // and adopts a new generation. Returns where streaming resumes and the counts the fetch worker's credit needs.
  splice({generation,loop=null}){
   if(!validLoop(loop,this.total))throw Error('Invalid PCM timeline');
   const next=this.queue.length?this.queue[0].start+this.offset:this.wrapNext?this.loop.start:this.end;
@@ -29,7 +41,15 @@ export class PcmMixer{
    if(engaged&&pos===loop.end)pos=loop.start;
    if(count<chunk.count-from)break;
   }
-  this.generation=generation;this.queue=kept;this.offset=kept.length?offset:0;this.queued=queued;this.end=pos;this.wrapNext=false;
+  const carried=kept.length,known=[...this.history,...this.queue].reverse();let filled=0;   // newest first
+  while(filled<MEMORY_FILL_FRAMES&&queued<MAX_FRAMES){
+   const chunk=known.find(c=>c.start<=pos&&pos<c.start+c.count);if(!chunk)break;
+   const limit=engaged&&pos<loop.end?loop.end:this.total,count=Math.min(chunk.start+chunk.count,limit,pos+MEMORY_FILL_FRAMES-filled,pos+MAX_FRAMES-queued)-pos;
+   if(count<1)break;
+   kept.push(sliceChunk(chunk,pos-chunk.start,count));queued+=count;filled+=count;pos+=count;
+   if(engaged&&pos===loop.end){pos=loop.start;break;}           // one pass from memory is plenty: the stream wraps on from here
+  }
+  this.generation=generation;this.queue=kept;this.offset=carried?offset:0;this.queued=queued;this.end=pos;this.wrapNext=false;
   this.loop=loop?{start:loop.start,end:loop.end}:null;this.engaged=engaged;
   return {startFrame:pos,sent:this.played+queued,consumed:this.played,engaged};
  }
@@ -79,7 +99,7 @@ export class PcmMixer{
     (channel===0?left:right)[i]=(chunk.data[at+channel]*(1-this.blend)+stems*this.blend)*this.gain*this.master*fade;
    }
    this.frame++;this.offset++;this.queued--;this.played++;
-   if(this.offset===chunk.count){this.queue.shift();this.offset=0;}
+   if(this.offset===chunk.count){this.remember(this.queue.shift());this.offset=0;}
   }
   return first===null?this.frame:first;
  }
@@ -109,7 +129,7 @@ export class PcmMixer{
     this.last[channel]=value;(channel===0?left:right)[i]=value*this.envelope;
    }
    this.frame++;this.offset++;this.queued--;this.played++;
-   if(this.offset===chunk.count){this.queue.shift();this.offset=0;}
+   if(this.offset===chunk.count){this.remember(this.queue.shift());this.offset=0;}
   }
  }
 }

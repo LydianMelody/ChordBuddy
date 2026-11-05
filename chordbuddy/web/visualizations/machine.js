@@ -10,6 +10,8 @@
 //   Bars / beats        -> the flywheel turns once per bar (crank at the top on the downbeat); its hub lamp blinks on each beat.
 //   Chords              -> the top CRT (current, next, time left); chest lamps take the chord color.
 //   Lyrics              -> the bottom CRT, with a wipe across the word being sung.
+//   Inputs (rewired in the patch bay; each default is what it always did): hammer and bell, ram jump, arc restart, chest lamps, felt
+//   hammers, hub lamp, steam burst, ram level, arc speed and steam wisps. The hammer's lift ahead of strong drum hits stays with the drums.
 import {chordColor} from '../visual-color.js';
 
 const TAU=Math.PI*2;
@@ -51,11 +53,127 @@ function analyze(song){
   return {tracks,lo,hi,n:hi-lo+1,strong,thr};
 }
 
+// The picker and the mixer as parts of the machine: riveted brushed-brass plates, a walnut-cheeked console with recessed channels,
+// ivory fader caps, amber lamp-ladder meters, round brass push buttons with red (mute) and green (solo) jewel lamps, engraved lettering.
+const PANELS=`
+  --engrave:#3a2408;--brass-text:#f3d58e;
+  --brass:repeating-linear-gradient(90deg,rgba(255,255,255,.07) 0 1px,transparent 1px 3px),
+          linear-gradient(180deg,#f2d488 0%,#cfa046 34%,#a87a24 58%,#c99a3c 78%,#e8c472 100%);
+  --rivet:radial-gradient(circle at 42% 38%,#fff3cc 0 1px,#d9ad52 2px,#8a6020 3.2px,#3b2508 4px,transparent 4.6px);
+  --walnut:repeating-linear-gradient(91deg,rgba(0,0,0,.16) 0 2px,transparent 2px 6px,rgba(255,220,170,.05) 6px 7px,transparent 7px 11px),
+           linear-gradient(90deg,#3e2414,#6b4023 45%,#4e2d18);
+  --slot:linear-gradient(180deg,#140c06,#2a1a0e);
+  --button:linear-gradient(180deg,#fbe8b4,#d8ae58 70%,#b98a35);
+  --lamp:radial-gradient(circle at 50% 30%,#fff6d2,#ffc163 40%,#e07a18 100%);
+  font-family:Georgia,'Times New Roman',serif;color:var(--engrave);
+
+  /* ---- the picker: a riveted brass plate on an iron frame ---- */
+  &.visualizer-toolbar{
+    padding:16px 10px 12px;border:3px solid #2b1a0c;border-radius:10px;
+    background:var(--rivet) 5px 5px/10px 10px no-repeat,var(--rivet) calc(100% - 5px) 5px/10px 10px no-repeat,
+      var(--rivet) 5px calc(100% - 5px)/10px 10px no-repeat,var(--rivet) calc(100% - 5px) calc(100% - 5px)/10px 10px no-repeat,var(--brass);
+    box-shadow:inset 0 1px 0 rgba(255,250,220,.75),inset 0 -2px 0 rgba(60,30,0,.35),0 0 0 3px #4a2f14,0 10px 22px rgba(0,0,0,.6);
+  }
+  /* the grip is a slot cut into the plate */
+  .visualizer-grip{height:9px;margin:-4px 14px 8px;border:0;border-radius:5px;background:var(--slot);
+    box-shadow:inset 0 2px 3px rgba(0,0,0,.8),0 1px 0 rgba(255,245,210,.7)}
+  .visualizer-grip:hover{background:var(--slot);box-shadow:inset 0 2px 3px rgba(0,0,0,.8),0 1px 0 rgba(255,245,210,.7),0 0 0 2px rgba(255,190,90,.6)}
+  .visualizer-scenes{border-bottom:0;padding-bottom:8px;margin-bottom:6px;
+    background:linear-gradient(#7a5418,#7a5418) bottom/100% 1px no-repeat,linear-gradient(#fff0c0,#fff0c0) 0 calc(100% - 1px)/100% 1px no-repeat}
+  /* every button is a brass push button with engraved small capitals */
+  &.visualizer-toolbar button{margin:1px 0;padding:5px 12px;border:1px solid rgba(58,36,8,.55);border-radius:5px;background:var(--button);
+    color:var(--engrave);font:700 12.5px/1.1 Georgia,serif;font-variant:small-caps;letter-spacing:.05em;text-shadow:0 1px 0 rgba(255,248,220,.7);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.75),0 2px 0 #6b4a14,0 3px 3px rgba(0,0,0,.35);transition:transform .06s,box-shadow .06s}
+  &.visualizer-toolbar button:hover{border-color:#3a2408;filter:brightness(1.07)}
+  &.visualizer-toolbar button:active{transform:translateY(2px);box-shadow:inset 0 1px 3px rgba(0,0,0,.35),0 0 0 #6b4a14}
+  /* on: the button is held down and lit from inside like an amber lamp */
+  &.visualizer-toolbar button[aria-pressed="true"]{background:var(--lamp);color:#3b1600;border-color:#7a3c06;transform:translateY(2px);
+    text-shadow:0 0 6px rgba(255,236,170,.9);box-shadow:inset 0 1px 4px rgba(120,40,0,.45),0 0 12px rgba(255,170,60,.75),0 0 0 #6b4a14}
+  &.visualizer-toolbar .visualizer-pin[aria-pressed="true"]{background:radial-gradient(circle at 50% 30%,#ffe2d8,#ff6a4a 45%,#a51d0a);color:#fff;
+    text-shadow:0 1px 1px rgba(0,0,0,.5);border-color:#5b0f05;box-shadow:inset 0 1px 4px rgba(80,0,0,.5),0 0 12px rgba(255,80,50,.7)}
+  .visualizer-scenes button.pinned::after{width:8px;height:8px;border:1px solid #4a0c04;background:radial-gradient(circle at 40% 35%,#ffd2c6,#e0412b 55%,#7a1508);
+    box-shadow:0 0 5px rgba(255,80,50,.8)}
+
+  /* ---- the mixer: a brass console with walnut cheeks ---- */
+  .rack{position:relative;overflow:visible;color:var(--engrave);padding:14px 30px 12px;border:0;border-radius:4px;
+    background:var(--rivet) 20px 4px/10px 10px no-repeat,var(--rivet) calc(100% - 20px) 4px/10px 10px no-repeat,
+      var(--rivet) 20px calc(100% - 4px)/10px 10px no-repeat,var(--rivet) calc(100% - 20px) calc(100% - 4px)/10px 10px no-repeat,var(--brass);
+    box-shadow:inset 0 1px 0 rgba(255,250,220,.7),inset 0 -2px 0 rgba(60,30,0,.35),0 0 0 2px #2b1a0c,0 12px 26px rgba(0,0,0,.65)}
+  /* walnut cheeks on both sides */
+  .rack::before,.rack::after{content:'';position:absolute;top:0;bottom:0;width:18px;background:var(--walnut);pointer-events:none;
+    box-shadow:inset 0 0 0 1px rgba(0,0,0,.5),inset 2px 0 2px rgba(255,220,170,.18),inset -3px 0 4px rgba(0,0,0,.45)}
+  .rack::before{left:0;border-radius:4px 0 0 4px}.rack::after{right:0;border-radius:0 4px 4px 0}
+  /* the title on a black enamel nameplate */
+  .rack-head b{padding:3px 12px;border-radius:3px;background:linear-gradient(#2b1a0c,#120a04);color:var(--brass-text);
+    font:700 16px Georgia,serif;font-variant:small-caps;text-transform:none;letter-spacing:.14em;
+    box-shadow:inset 0 1px 2px #000,0 1px 0 rgba(255,245,210,.7),0 0 0 1px #7a5418}
+  .rack-count{font:italic 12px Georgia,serif;color:var(--engrave);letter-spacing:.04em;text-shadow:0 1px 0 rgba(255,248,220,.6)}
+  .rack-head .fold{border-radius:50%;border:1px solid #3a2408;background:radial-gradient(circle at 40% 35%,#fff0c4,#c99a3c 55%,#6b4a14);
+    color:var(--engrave);box-shadow:0 2px 0 #4a3008,0 3px 4px rgba(0,0,0,.4)}
+  .presets{gap:4px;flex-wrap:nowrap}
+  .presets button{flex:1;padding:3px 0;border:1px solid rgba(58,36,8,.55);border-radius:5px;background:var(--button);color:var(--engrave);
+    font:700 11px Georgia,serif;white-space:nowrap;font-variant:small-caps;letter-spacing:.04em;text-shadow:0 1px 0 rgba(255,248,220,.7);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.75),0 2px 0 #6b4a14}
+  .presets button.on{background:var(--lamp);color:#3b1600;transform:translateY(2px);
+    box-shadow:inset 0 1px 4px rgba(120,40,0,.45),0 0 10px rgba(255,170,60,.7)}
+  /* each channel is recessed into the plate */
+  .stem{border:1px solid #0d0703;border-radius:6px;background:var(--slot);
+    box-shadow:inset 0 3px 8px rgba(0,0,0,.85),0 1px 0 rgba(255,245,210,.65)}
+  .stem[data-stem="vocals"]{--cap:#c0392b}.stem[data-stem="lead"]{--cap:#e0a030}.stem[data-stem="rhythm"]{--cap:#d07028}
+  .stem[data-stem="bass"]{--cap:#3f6fb0}.stem[data-stem="drums"]{--cap:#2f8f6a}.stem[data-stem="piano"]{--cap:#8a5cb8}.stem[data-stem="other"]{--cap:#7d8a96}
+  /* the stem's icon behind a domed glass jewel */
+  .stem-icon{border-bottom:1px solid #000;color:#fff8e6;
+    background:radial-gradient(ellipse at 50% 18%,rgba(255,255,255,.75),rgba(255,255,255,0) 55%),
+      radial-gradient(circle at 50% 60%,var(--cap),color-mix(in srgb,var(--cap) 45%,#000) 85%);
+    box-shadow:inset 0 -3px 6px rgba(0,0,0,.45)}
+  .stem-icon .ic{filter:drop-shadow(0 1px 1px rgba(0,0,0,.6))}
+  /* the level: a ladder of amber lamps in a black slot */
+  .meter{border:1px solid #000;border-radius:2px;background:#0b0603;box-shadow:inset 0 1px 3px #000}
+  .meter i{background-image:linear-gradient(0deg,#ffb347 0 62%,#ff8a2a 62% 84%,#ff3b1a 84%);filter:drop-shadow(0 0 3px rgba(255,150,50,.9))}
+  /* fader caps of old ivory with grip ridges */
+  .fader{border-color:transparent}
+  .fader::-webkit-slider-thumb{width:26px;height:18px;margin-left:-11px;border:1px solid #2a1a08;border-radius:3px;
+    background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(70,50,20,.35) 3px 4px),linear-gradient(180deg,#fffaf0,#e8dcc0 55%,#c8b48c);
+    box-shadow:0 3px 4px rgba(0,0,0,.75),inset 0 1px 0 #fff}
+  /* round brass push buttons; mute lights a red jewel, solo a green one */
+  .mute,.solo{width:24px;height:24px;flex:none;border-radius:50%;border:1px solid #2a1a08;color:var(--engrave);
+    font:700 10px Georgia,serif;background:radial-gradient(circle at 40% 32%,#fff0c4,#cfa046 50%,#6b4a14);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 2px 0 #2a1a08,0 3px 3px rgba(0,0,0,.5)}
+  .mute[aria-pressed="true"],.stem.muted .mute{background:radial-gradient(circle at 40% 32%,#ffd8cc,#e0412b 50%,#6a1206);color:#fff;
+    transform:translateY(1px);box-shadow:inset 0 1px 3px rgba(0,0,0,.4),0 0 10px rgba(255,70,40,.85),0 1px 0 #2a1a08}
+  .solo[aria-pressed="true"],.stem.soloed .solo{background:radial-gradient(circle at 40% 32%,#e6ffd8,#5fd068 50%,#1d5a1f);color:#0b2a0c;
+    transform:translateY(1px);box-shadow:inset 0 1px 3px rgba(0,0,0,.4),0 0 10px rgba(110,240,110,.85),0 1px 0 #2a1a08}
+  .stem.soloed{box-shadow:inset 0 3px 8px rgba(0,0,0,.85),0 0 0 2px #5fd068,0 0 10px rgba(110,240,110,.5)}
+  .strip-label{color:var(--brass-text);font:700 9px/1.1 Georgia,serif;font-variant:small-caps;text-transform:none;letter-spacing:0}
+  /* master: a brass slider in its own recess, with a dial-like readout */
+  .master{border:1px solid #0d0703;border-radius:6px;background:var(--slot);color:var(--brass-text);
+    box-shadow:inset 0 3px 8px rgba(0,0,0,.85),0 1px 0 rgba(255,245,210,.65)}
+  .master b{font:700 12px Georgia,serif;font-variant:small-caps;text-transform:none;letter-spacing:.08em;color:var(--brass-text)}
+  .master input{accent-color:#e8c472}
+  .master output{font:700 12px Georgia,serif;color:#ffc163;text-shadow:0 0 6px rgba(255,170,60,.8)}
+  .visualizer-mixer-note{font:italic 12px Georgia,serif;color:var(--engrave)}
+  /* keyboard focus: an amber ring, still plain to see */
+  :is(button,input):focus-visible{outline:2px solid #ffc163;outline-offset:2px}
+`;
+
 export default {
   id:'machine',
+  inputs:{
+    hammer:{label:'Hammer and bell',type:'trigger',default:'stem/drums/hit',help:'Strong moments drop the hammer; lighter ones ring the bell'},
+    ram:{label:'Ram jump',type:'trigger',default:'stem/bass/hit',help:'The weight in the glass ram jumps'},
+    arc:{label:'Arc restart',type:'trigger',default:'stem/lead/hit',help:'The climbing arc starts again from the bottom'},
+    lamps:{label:'Chest lamps',type:'trigger',default:'stem/rhythm/hit',help:'The lamps on the wind chest flare'},
+    felts:{label:'Felt hammers',type:'trigger',default:'stem/piano/hit',help:'The next little felt hammer strikes the brass bar'},
+    hub:{label:'Hub lamp',type:'trigger',default:'song/beat',help:'The lamp in the flywheel’s hub blinks'},
+    steam:{label:'Steam burst',type:'trigger',default:'song/chord',help:'Steam bursts from both ends of the wind chest'},
+    level:{label:'Ram level',type:'amount',default:'stem/bass/level',help:'How high the weight in the glass ram rises'},
+    climb:{label:'Arc speed',type:'amount',default:'stem/lead/level',help:'How fast the arc climbs'},
+    wisps:{label:'Steam wisps',type:'amount',default:'stem/other/level',help:'How much steam leaks along the back wall'},
+  },
   name:'Machine',
   order:40,
   hud:false,   // the machine's own CRTs show the chord and the lyrics
+  skin:{css:PANELS},
   create(){
     let w=0,h=0,k=1,L=null,layKey='',info=null,infoKey='',songRef=null;
     let bg=null,front=null,scan=null,vig=null,fly=null,head=null,weight=null,puff=null,glowFire=null,glowBell=null;
@@ -477,21 +595,22 @@ export default {
         const label=noChord(frame.chord?.label)?null:frame.chord.label;
         if(label){const th=chordColor(label).hue;hue=(hue+(((th-hue+540)%360)-180)*Math.min(1,dt*4)+360)%360;}
         if(label!==chordCur){chordPrev=chordCur===undefined?null:chordCur;chordCur=label;chordWall=(jumped||!playing)?wall-1:wall;}
-        bassS+=((tr.bass?.level??0)-bassS)*Math.min(1,dt*12);
+        const inp=env.inputs||{},has=k=>k in inp;
+        bassS+=(((has('level')?inp.level:tr.bass?.level)??0)-bassS)*Math.min(1,dt*12);
         vocS+=((tr.vocals?.level??0)-vocS)*Math.min(1,dt*10);
         const drumsOff=!!(tr.drums&&tr.drums.gain===0);
         // reactions
         const thr=info.strong.length?info.thr:-1;
-        for(const s of ev.hits?.drums||[]){if(thr<0||s>=thr)strike(s,calm);else{bellTap=Math.max(bellTap,0.6+s*0.4);if(rings.length<6)rings.push({age:0});}}
+        for(const s of has('hammer')?inp.hammer:ev.hits?.drums||[]){if(thr<0||s>=thr)strike(s,calm);else{bellTap=Math.max(bellTap,0.6+s*0.4);if(rings.length<6)rings.push({age:0});}}
         if(thr<0&&!drumsOff&&ev.beat)strike(ev.beat.downbeat?0.9:0.55,calm);
-        for(const s of ev.hits?.bass||[])ramVel+=s*(calm?1.0:2.6);
-        for(const s of ev.hits?.lead||[])if(s>0.35){if(arcH>0.35)arcH=0;arcHit=Math.max(arcHit,s);}
-        for(const s of ev.hits?.rhythm||[])rhyFlare=Math.max(rhyFlare,s);
-        for(const s of ev.hits?.piano||[]){pianoH[pianoIdx%5]=Math.max(0.5,s);pianoIdx++;}
+        for(const s of has('ram')?inp.ram:ev.hits?.bass||[])ramVel+=s*(calm?1.0:2.6);
+        for(const s of has('arc')?inp.arc:ev.hits?.lead||[])if(s>0.35){if(arcH>0.35)arcH=0;arcHit=Math.max(arcHit,s);}
+        for(const s of has('lamps')?inp.lamps:ev.hits?.rhythm||[])rhyFlare=Math.max(rhyFlare,s);
+        for(const s of has('felts')?inp.felts:ev.hits?.piano||[]){pianoH[pianoIdx%5]=Math.max(0.5,s);pianoIdx++;}
         const sm=(v,x,r)=>v+((x??0)-v)*Math.min(1,dt*r);
-        leadS=sm(leadS,tr.lead?.level,10);rhyS=sm(rhyS,tr.rhythm?.level,8);otherS=sm(otherS,tr.other?.level,4);
-        if(ev.beat)beatLamp=ev.beat.downbeat?1:0.55;
-        if(ev.chordChanged){chase=wall;const c0=L.cx0-u*0.025,c1=L.cx1+u*0.025,cy=L.chestY+L.chestH*0.5;
+        leadS=sm(leadS,has('climb')?inp.climb:tr.lead?.level,10);rhyS=sm(rhyS,tr.rhythm?.level,8);otherS=sm(otherS,has('wisps')?inp.wisps:tr.other?.level,4);
+        if(has('hub')){if(inp.hub.length)beatLamp=Math.max(...inp.hub);}else if(ev.beat)beatLamp=ev.beat.downbeat?1:0.55;
+        if(has('steam')?inp.steam.length:ev.chordChanged){chase=wall;const c0=L.cx0-u*0.025,c1=L.cx1+u*0.025,cy=L.chestY+L.chestH*0.5;
           for(let i=0;i<(calm?2:6);i++){puffAt(c0,cy,-u*(0.25+rnd()*0.25),-u*0.06*rnd(),u*0.03,0.9+rnd()*0.5);puffAt(c1,cy,u*(0.25+rnd()*0.25),-u*0.06*rnd(),u*0.03,0.9+rnd()*0.5);}}
         const dec=r=>Math.exp(-dt*r);
         anvilGlow*=dec(6);bellTap*=dec(9);arcHit*=dec(5);rhyFlare*=dec(7);for(let i=0;i<5;i++)pianoH[i]*=dec(11);

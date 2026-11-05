@@ -43,6 +43,15 @@
 .chunk.now .chord{background:linear-gradient(100deg,transparent 2%,var(--hl) 6%,var(--hl) 94%,transparent 98%)}
 .chunk.now .chord::after{content:'';position:absolute;left:0;right:0;bottom:-3px;height:3px;background:var(--ink);border-radius:2px}
 .w.wnow{background:var(--hl);box-shadow:0 0 0 2px var(--hl)}
+/* cues: short notes above the chords ("pick scratch"), in their own lane, lit while their moment plays (chart-cues.js) */
+.cue-lane{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:5px 0 3px -2px}
+.cue-lane:not(:has(.cue,.cue-type)){display:none}
+.cue{display:inline-flex;align-items:center;gap:4px;font:italic 600 13.5px/19px var(--type);color:var(--soft);background:none;border:0;border-left:2.5px solid var(--a2);border-radius:0 4px 4px 0;padding:0 6px 0 5px;white-space:nowrap;text-align:left;cursor:pointer}
+.cue:hover{color:var(--ink)}
+.cue.now{color:var(--ink);background:var(--hl)}
+.cue-pass{font:700 9.5px/14px var(--m);font-style:normal;color:var(--faint);border:1.5px solid var(--faint);border-radius:4px;padding:0 3px}
+.cue-add{display:none}
+.tchord .cue-lane{position:absolute;left:-2px;bottom:100%;display:flex;margin:0 0 1px}
 
 /* ---------- Navigate: everything is a jump target ---------- */
 [data-mode="nav"] .chord,[data-mode="nav"] .w,[data-mode="nav"] .sec-head,[data-mode="nav"] .bar-no{cursor:pointer}
@@ -171,8 +180,8 @@
 
 /* a break in the music: an empty, quiet space where a chord would be (still clickable, so a chord can be written there) */
 .chord.rest{min-width:30px;min-height:28px;background:none}
-[data-tool="write"] .chord.rest{border:2px dashed var(--line);border-radius:6px}
-[data-tool="write"] .chord.rest:hover{border-color:var(--ink)}
+[data-acts~="edit"] .chord.rest{border:2px dashed var(--line);border-radius:6px}
+[data-acts~="edit"] .chord.rest:hover{border-color:var(--ink)}
 @media print{.chord.rest{border:0!important}}
 
 /* ---------- Timing: cassette bars around the desk instead of the browser's scroll bars (desk-bars.js) ---------- */
@@ -196,8 +205,8 @@
 /* every pass's melody in its lane's color; in the row being played, the pass being played stands out and the others step back */
 .tmelody i{position:absolute;height:5px;margin-top:-2.5px;border-radius:3px;background:var(--pc,var(--a2));opacity:.3;transition:opacity .2s}
 .tmelody[data-slot="1"]{--pc:var(--a2)}.tmelody[data-slot="2"]{--pc:var(--a1)}.tmelody[data-slot="3"]{--pc:var(--a3)}.tmelody[data-slot="4"]{--pc:var(--hl)}
-.trow.now .tmelody i{opacity:.12}
-.trow.now .tmelody.cur i{opacity:.7}
+.trow:is(.now,.positioning) .tmelody i{opacity:.12}
+.trow:is(.now,.positioning) .tmelody.cur i{opacity:.7}
 /* the words of the passes not being played step back, until you reach for one */
 .tlane.dim .wchip{opacity:.4;transition:opacity .2s}
 .tlane.dim:hover .wchip,.tlane.dim .wchip:focus-visible{opacity:1}
@@ -216,9 +225,8 @@
 .row.slotted.natural .bar{flex:none}
 
 /* Copy a section's lyrics and timing onto its repeat */
-.sec-copy{margin-left:auto;padding:3px 10px;border:2px solid var(--ink);border-radius:999px;background:var(--page);color:var(--ink);font:700 11px var(--m);cursor:pointer}
+.sec-copy{flex:none;white-space:nowrap;padding:3px 10px;border:2px solid var(--ink);border-radius:999px;background:var(--page);color:var(--ink);font:700 11px var(--m);cursor:pointer}
 .sec-copy:hover{background:var(--hl);color:#1A1C24}
-.sec-copy+.sec-copy{margin-left:8px}
 
 /* while a repeated part plays, its count lights up and counts down the passes left (×1!! on the last), bumping on every beat */
 .repeat.live{margin:4px -4px 0 0;padding:3px 6px;border-radius:8px;background:var(--hl);color:#1A1C24;font-weight:800;box-shadow:0 0 0 2px var(--ink);transform-origin:50% 60%}
@@ -242,3 +250,13 @@
 .playmark{position:absolute;top:2px;bottom:2px;width:3px;margin-left:-1.5px;border-radius:2px;background:var(--a1);opacity:.45;pointer-events:none;z-index:0;transition:left .12s linear}
 @media (prefers-reduced-motion:reduce){.playmark{transition:none}}
 @media print{.playmark{display:none}}
+/* a wrapped line of a repeated row hides the lyric lanes it has no words in (row-layout.js) */
+.lane.lane-idle{display:none}
+/* On air: a light that shows when the chart's 1–9, Y and C keys drive the visualizer */
+.btn.on-air i{width:9px;height:9px;border-radius:50%;border:2px solid currentColor;box-sizing:border-box;flex:none}
+.btn.on-air[aria-pressed="true"]{background:#D7263D;color:#fff}
+.btn.on-air[aria-pressed="true"] i{background:#fff;border-color:#fff;box-shadow:0 0 6px 1px rgba(255,255,255,.8)}
+/* the frame around the whole window while On air is on (not drawn in print or in the visualizer) */
+body.on-air-live::after{content:'';position:fixed;inset:0;z-index:9999;border:4px solid #D7263D;pointer-events:none}
+@media print{body.on-air-live::after{display:none}}
+body.on-air-live:has(.visualizer-overlay)::after{display:none}

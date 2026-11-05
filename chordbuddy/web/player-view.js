@@ -24,11 +24,14 @@ export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},lo
  controls.append(loopButton,previous,play,next);left.append(nowBox,controls);
  const timelineRoot=el('div','practice-timeline');center.append(timelineRoot);
  const timeline=mountPracticeTimeline(timelineRoot,{transport,onViewportChange,onError});
- const clock=el('div','clock player-clock'),pass=el('div','pass'),speed=el('div','speed'),slower=el('button','','−'),faster=el('button','','+'),rate=el('span'),rateText=el('b','','100%');
- slower.type=faster.type='button';slower.title='Slower';faster.title='Faster';rate.innerHTML=icon('turtle');rate.append(rateText);speed.append(slower,rate,faster);
+ const clock=el('div','clock player-clock'),pass=el('div','pass'),speed=el('div','speed'),slower=el('button','','−'),faster=el('button','','+'),rate=el('span'),rateText=el('b','','1.0×');
+ slower.type=faster.type='button';// the playback speed, said as a speed (1.0×, 0.75×) and labeled, so it is never taken for the zoom beside the chart
+ slower.title='Play slower (to practice a fast part)';faster.title='Play faster, back up to full speed';slower.setAttribute('aria-label','Slower');faster.setAttribute('aria-label','Faster');
+ rate.title='Playback speed';rate.append(el('small','','Speed'),rateText);speed.append(slower,rate,faster);
  const status=el('span','player-buffering');status.setAttribute('role','status');
  right.append(clock,pass,speed);grid.append(left,center,right);audio.after(grid);footer.append(status);
 
+ const speedLabel=percent=>{const x=percent/100;return (Number.isInteger(x)?x.toFixed(1):String(+x.toFixed(2)))+'×';};
  const sections=()=>practice?.projection?.sections||[];
  function jump(direction){const s=transport.getSnapshot(),list=sections();let index=list.findIndex(v=>s.seconds>=v.start&&s.seconds<v.end);if(index<0)index=s.seconds<(list[0]?.start??0)?-1:list.length;const target=direction<0?(index>=0&&index<list.length&&s.seconds>list[index].start+.5?list[index]:list[Math.max(0,index-1)]):list[index+1];if(target)transport.seek(target.start).catch(onError);}
  previous.onclick=()=>jump(-1);next.onclick=()=>jump(1);
@@ -68,7 +71,7 @@ export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},lo
   const section=sectionAtSeconds(list,s.seconds),where=practice?.projection?.occurrences&&practice.projection.groups?actualPracticePosition(practice.projection,s.seconds):null;
   nowSection.textContent=section?.name||'';nowNext.textContent=now.next?'next '+now.next:'';nowChord.textContent=now.chord||'—';
   pass.textContent=where&&where.passCount>1?'pass '+where.passNumber+' of '+where.passCount:'';
-  const rateValue=s.rate??100;rateText.textContent=rateValue+'%';speed.classList.toggle('slowed',rateValue<100);
+  const rateValue=s.rate??100;rateText.textContent=speedLabel(rateValue);speed.classList.toggle('slowed',rateValue<100);
   slower.disabled=!s.ready||!canSpeed()||rateValue<=SPEED_MIN;faster.disabled=!s.ready||!canSpeed()||rateValue>=SPEED_MAX;
   speed.title=canSpeed()?'Practice speed':'Speed control is coming soon';
   status.textContent=!s.ready?s.readiness:s.buffering?'Buffering…':s.error?s.error:'';

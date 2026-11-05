@@ -159,7 +159,9 @@ class DocumentStore:
                 'run_id':row['run_id'],'song_id':row['song_id'],'kept':kept,'user_modified':json.loads(payload['content'])!=json.loads(baseline['content']),
                 'revision':row['revision'],'can_undo':row['cursor']>0,'can_redo':row['cursor']<len(edits)-1,
                 'undo_label':edits[row['cursor']]['label'] if row['cursor'] else '',
-                'redo_label':edits[row['cursor']+1]['label'] if row['cursor']<len(edits)-1 else ''}
+                'redo_label':edits[row['cursor']+1]['label'] if row['cursor']<len(edits)-1 else '',
+                # every step's name, oldest first (step 0 is the analysis itself), and where the document is now: for the History menu
+                'history':[edit['label'] for edit in edits],'cursor':row['cursor']}
 
         if row['kind']=='chart':
             result['timing_binding']=self.timing.binding(document_id,row['cursor'])
@@ -575,7 +577,7 @@ class DocumentStore:
             saved['engraving_warning']='Melody changed; manual syllable anchors were cleared. Place them again.'
         return saved
 
-    def history(self,document_id,action,revision):
+    def history(self,document_id,action,revision,position=None):
         with self.library.transaction() as db:
             row=self._row(document_id)
             if type(revision) is not int or revision!=row['revision']:
@@ -594,6 +596,11 @@ class DocumentStore:
                 cursor=row['cursor']+(-1 if action=='undo' else 1)
                 if not db.execute('SELECT 1 FROM edits WHERE document_id=? AND position=?',(document_id,cursor)).fetchone():
                     raise ValueError(f'Nothing to {action}')
+            elif action=='goto':
+                # several undos or redos at once (the History menu): only moves the cursor, so every step stays to come back to
+                if type(position) is not int or not db.execute('SELECT 1 FROM edits WHERE document_id=? AND position=?',(document_id,position)).fetchone():
+                    raise ValueError('That step is not in this history')
+                cursor=position
             else:
                 raise ValueError('Unknown history action')
             db.execute('UPDATE documents SET cursor=?,revision=revision+1 WHERE id=?',(cursor,document_id))

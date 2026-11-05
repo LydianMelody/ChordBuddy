@@ -31,8 +31,11 @@ import {setKeySpelling,spellChord,spellAbc} from './spelling.js';
 import {onsetsFromNotes} from './word-layout.js';
 import {mountModelsPanel,mountChordModelPanel} from './models-view.js';
 import {mountDeskBars,combinedZoom} from './desk-bars.js';
-import {createVisualPublisher,desktopWindow} from './visual-bridge.js';
-import {mountVisualizer} from './visualizer-view.js';
+import {createVisualPublisher,desktopWindow,joinChannels,playerRelay,CHANNEL} from './visual-bridge.js';
+import {mountVisualizer,loadVisualizations} from './visualizer-view.js';
+import {readSetup,readUsual,writeSetup,writeUsual} from './visual-setup.js';
+import {createMidiImport} from './midi-import.js';
+import {buildScene} from './visual-scene.js';
 
 const $ = id => document.getElementById(id);
 document.querySelector('.chart-intro h2')?.remove();
@@ -100,9 +103,9 @@ const practiceView=mountChartPage($('chart-sections'),{
  onDraftChange:info=>{const r=currentRecord();if(r&&!info.failed&&!info.saving)r.practiceSaveError=null;renderDocument();},
  onModeChange:()=>syncModeUi(),onToolChange:()=>syncModeUi(),onScopeChange:()=>syncModeUi(),onTimingChange:()=>syncModeUi(),
  isActive:()=>currentRecord()?.doc.kind==='chart'&&!$('chart-editor').classList.contains('hidden'),onZoomWheel:event=>zoomChartAt(event.deltaY<0?1.15:1/1.15,event.clientX),
- dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),legend:$('key-legend'),
+ dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),
 });
-// The chart has no tools: a click plays from there, Ctrl edits what is written and Shift draws it in time (chart-page.js).
+// The chart's tools (Play, Edit, Timing) sit in the rail beside it, with Ctrl and Shift as quick shortcuts on top (chart-page.js).
 // In time, the chart is drawn on a beat grid wider than the desk: it gets cassette bars (scroll and zoom) instead of scroll bars.
 // The bottom bar's grips and Ctrl+wheel share one zoom: the beat grid's own, and past either end of it the page shrinking (to 50%) or
 // growing (to the page zoom's largest), so both reach exactly as far.
@@ -122,13 +125,15 @@ function syncModeUi(){
  workspace.dataset.mode=mode;workspace.dataset.tool=practiceView.getTool();workspace.dataset.kind=currentRecord()?.doc.kind||'';
  workspace.dataset.repeats=practiceView.hasRepeats?.()?'1':'';           // "Apply to this pass / all matching" matters only with repeats
  for(const button of document.querySelectorAll('#scope button'))button.classList.toggle('on',button.dataset.scope===practiceView.getScope());
+ const folding=practiceView.isFolding();$('fold-repeat').classList.toggle('on',folding);$('fold-repeat').setAttribute('aria-pressed',String(folding));
  const snapping=practiceView.isSnapping();$('snap-toggle').classList.toggle('on',snapping);$('snap-toggle').setAttribute('aria-pressed',String(snapping));
  deskBars.show(mode==='timing'&&workspace.dataset.kind==='chart');deskBars.refresh();
- const kind=currentRecord()?.doc.kind;$('song-timing').classList.toggle('hidden',kind!=='chart');
+ const kind=currentRecord()?.doc.kind;$('song-timing').classList.toggle('hidden',kind!=='chart');$('lead-external').classList.toggle('hidden',kind!=='abc');
  $('restore').textContent='Restore model-predicted '+(kind==='abc'?'lead sheet':kind==='midi'?'MIDI':'chart')+'…';
  if(typeof rhythmButton!=='undefined')rhythmButton.hidden=kind!=='chart';
 }
 $('suggest').onchange=()=>{prefs.set('cb-suggest',$('suggest').checked?'1':'0');renderChart();};
+$('fold-repeat').onclick=()=>practiceView.toggleFolding();
 $('snap-toggle').onclick=()=>{practiceView.setSnapping(!practiceView.isSnapping());prefs.set('cb-snap',practiceView.isSnapping()?'1':'0');};
 installTooltips();
 // Middle-button drag pans, Ctrl+wheel zooms the page (page-nav.js).
@@ -232,17 +237,134 @@ async function reloadPracticeChart(){
 
 transport.subscribe(()=>{if(model.detail)updatePlayback();renderLock();});
 // ---- Visualizer: a pop-out window or this page in full screen, following the player over the visual bridge (visual-bridge.js). ----
-const visuals=createVisualPublisher({onListen:()=>publishVisualScene(),onCommand:action=>runPlaybackAction(action),
-  onMix:mix=>{try{transport.setMix(mix);}catch(error){showError(error);}}});        // a visualizer's mixer drawer (the transport checks it)
+// visualizers in this browser hear it on the BroadcastChannel; one in OBS (a Browser Source at the "Stream to OBS" address) through the server
+const visuals=createVisualPublisher({open:()=>joinChannels(new BroadcastChannel(CHANNEL),playerRelay(token)),onListen:()=>publishVisualScene(),onCommand:action=>runPlaybackAction(action),
+  onMix:mix=>{try{transport.setMix(mix);}catch(error){showError(error);}},        // a visualizer's mixer drawer (the transport checks it)
+  onPin:(songId,setup)=>{
+    // unpinning keeps the look on screen for now; pinning makes the pinned look the one showing
+    const before=readSetup(prefs.get('cb-visual:'+songId,''));visualShowing=setup?null:{songId,scene:before?.scene||null};
+    prefs.set('cb-visual:'+songId,writeSetup(setup));publishVisualSetup();},
+  onUsual:usual=>{if(usual.scene&&usual.scene!==readUsual(prefs.get('cb-visual-usual','')).scene)visualShowing=null;
+    prefs.set('cb-visual-usual',writeUsual(usual));publishVisualSetup();},
+  onShow:(songId,scene)=>{visualShowing={songId,scene};publishVisualSetup();},
+  onEditor:()=>{openVisualEditor();window.focus();},     // a visualizer's Edit visuals button
+  // the patch bay saved a patch: the usual one for a visualization, or the open song's own (visual_patches.py keeps them with the library)
+  // Saves go one at a time, in order, and visualizers are told only once the last is in, so a quick run of changes (or of Undos) never
+  // briefly shows, or ends on, an older one.
+  onPatch:(songId,visual,patch)=>{
+    patchesSaving++;
+    patchSaves=patchSaves.then(()=>api('/api/visual-patches',{visual,patch,song_id:songId})).then(saved=>{
+      visualPatches={...visualPatches,usual:saved.usual||{}};
+      if(songId&&songId===visualPatches.songId)visualPatches.song=saved.song||{};
+    },showError).finally(()=>{if(--patchesSaving===0)publishVisualSetup();});}});
+// the patch bay's saved patches for the open song (its own) and every song (usual), loaded when the song changes
+let visualPatches={songId:undefined,usual:{},song:{}},patchesLoading=null,patchSaves=Promise.resolve(),patchesSaving=0;
+function loadVisualPatches(songId){
+  if(patchesLoading===songId)return;patchesLoading=songId;
+  api('/api/visual-patches'+(songId?'/'+encodeURIComponent(songId):'')).then(saved=>{
+    if(patchesLoading!==songId)return;visualPatches={songId,usual:saved.usual||{},song:saved.song||{}};publishVisualSetup();
+  }).catch(()=>{if(patchesLoading===songId)patchesLoading=null;});
+}
+// a look chosen for now over the open song's pinned one ({songId, scene}), shown by every visualizer until the song changes
+let visualShowing=null;
+// How the open song is shown (visual-setup.js): its pinned look, and the usual one. Kept with the library, so they last between launches.
+function publishVisualSetup(){
+  const song=model.detail?currentSong():null;
+  if(visualShowing&&visualShowing.songId!==song?.id)visualShowing=null;
+  if(visualPatches.songId!==(song?.id||null))loadVisualPatches(song?.id||null);   // it publishes again once they are here
+  const patches=visualPatches.songId===(song?.id||null)?{usual:visualPatches.usual,song:visualPatches.song}:{usual:visualPatches.usual,song:{}};
+  visuals.setup({songId:song?.id||null,pinned:song?readSetup(prefs.get('cb-visual:'+song.id,'')):null,usual:readUsual(prefs.get('cb-visual-usual','')),
+    showing:visualShowing?.scene||null,patches});
+}
+// ---- On air: for streaming the visualizer (an OBS Browser Source, or a visualizer window you capture). While it is on, 1–9, Y and C in
+// the chart and MIDI views choose the look and switch the lyrics and calm mode for every visualizer, OBS included, as they do in a
+// visualizer window. The lead sheet keeps its own keys (C picks its Chords tool). Off, these keys do nothing here. ----
+const onAirButton=$('on-air'),onAirLabel=onAirButton.querySelector('em');
+// On air lasts only while this tab is open (a reload keeps it): a new launch always starts with it off, so these keys never surprise.
+const onAirStore={get:()=>{try{return sessionStorage.getItem('cb-on-air')==='1';}catch{return false;}},set:on=>{try{sessionStorage.setItem('cb-on-air',on?'1':'0');}catch{/* blocked storage: it lasts until the page is left */}}};
+let onAirOn=onAirStore.get();
+const onAir=()=>onAirOn;
+let onAirScenes=null,onAirNote=0;
+// while On air is on, the whole window gets a red frame: 1-9, Y and C then change the stream, so it must be impossible to miss
+function paintOnAir(){onAirButton.setAttribute('aria-pressed',String(onAir()));document.body.classList.toggle('on-air-live',onAir());}
+// says briefly on the button what a key just did, since the visualizer may only be showing in OBS
+function onAirSay(text){clearTimeout(onAirNote);onAirLabel.textContent=text;onAirNote=setTimeout(()=>{onAirLabel.textContent='On air';},2200);}
+onAirButton.onclick=()=>{onAirOn=!onAirOn;onAirStore.set(onAirOn);paintOnAir();if(onAir())loadVisualizations().then(r=>{onAirScenes=r.scenes;}).catch(()=>{});};
+paintOnAir();
+async function onAirKey(key){
+  const usual=readUsual(prefs.get('cb-visual-usual','')),song=model.detail?currentSong():null;
+  const setUsual=change=>{prefs.set('cb-visual-usual',writeUsual({...usual,...change}));publishVisualSetup();};
+  if(key==='y'){const on=!(usual.lyrics??true);setUsual({lyrics:on});onAirSay(on?'Lyrics on':'Lyrics off');return;}
+  if(key==='c'){const on=!(usual.calm??false);setUsual({calm:on});onAirSay(on?'Calm on':'Calm off');return;}
+  try{onAirScenes=(await loadVisualizations()).scenes;}catch{if(!onAirScenes)return;}
+  const scene=onAirScenes[Number(key)-1];if(!scene){onAirSay(`No look ${key}`);return;}
+  // like a click in a visualizer's picker: over a pinned look it shows for now; otherwise it becomes the usual look
+  if(song&&readSetup(prefs.get('cb-visual:'+song.id,''))){visualShowing={songId:song.id,scene:scene.id};publishVisualSetup();}
+  else{visualShowing=null;setUsual({scene:scene.id});}
+  onAirSay(scene.name);
+}
+document.addEventListener('keydown',event=>{
+  if(!onAir()||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||event.defaultPrevented||event.repeat)return;
+  const key=String(event.key).toLowerCase();if(!/^[1-9yc]$/.test(key))return;
+  if(typingTarget(event.target)||document.querySelector('dialog[open]')||midiImport.isOpen)return;
+  if(currentRecord()?.doc.kind==='abc')return;          // the lead sheet's own keys
+  event.preventDefault();onAirKey(key);
+});
 function publishVisualScene(){
   const song=currentSong(),record=chartRecord();
+  publishVisualSetup();
   if(!song||!model.detail){visuals.scene(null);return;}
   const playing=transport.getSnapshot();                          // without split stems, the recording it plays (orig-…) gives the sound data
   visuals.scene({songId:song.id,title:song.title,key:songKey().label,runId:separationDetail?.active?.run_id||(playing.ready&&playing.sourceRunId)||null,token,
     lyricGuess:prefs.get('cb-suggest','1')!=='0',                  // the chart's "guess from melody" setting, so words land where the chart puts them
     revision:record?`${record.doc.revision}:${record.version}`:null,content:record?.draft||record?.doc.content||null,music:record?.doc.music||null,
-    midiDocs:(model.detail.documents||[]).filter(doc=>doc.kind==='midi').map(doc=>({id:doc.id,name:doc.name}))});
+    midiDocs:(model.detail.documents||[]).filter(doc=>doc.kind==='midi').map(doc=>({id:doc.id,name:doc.name})),
+    userMidi:model.userMidi?.song===song.id?model.userMidi.files.map(f=>({id:f.id,name:f.name,mtime:f.mtime,settings:f.settings})):[]});
 }
+// ---- your own MIDI files (midi-import.js): dropped anywhere, lined up with the recording, used by the visualizer ----
+// The list is read again when a song opens, after a change, and every few seconds while a visualizer is open, so a file exported back
+// over from the DAW is picked up.
+async function refreshUserMidi(songId=model.song){
+  if(!songId)return;
+  try{
+    const files=(await api('/api/user-midi/'+encodeURIComponent(songId))).files;if(model.song!==songId)return;
+    const stamp=JSON.stringify(files.map(f=>[f.id,f.mtime,f.settings]));
+    if(model.userMidi?.song===songId&&model.userMidi.stamp===stamp)return;
+    model.userMidi={song:songId,files,stamp};publishVisualScene();
+  }catch{/* the visualizer keeps the model's MIDI */}
+}
+setInterval(()=>{if(visuals.listening&&model.song&&!document.hidden)refreshUserMidi();},4000);
+// What the import screen needs from the open song: its bars, chords, the model's melodies and the moments something starts.
+const songContexts=new Map();
+async function midiSongContext(songId){
+  if(model.song!==songId)throw Error('Open the song first.');
+  await loadChartRecord();
+  const record=chartRecord(),content=record?.draft||record?.doc.content||{},music=record?.doc.music||{};
+  const key=JSON.stringify([songId,record?.doc.revision,record?.version,separationDetail?.active?.run_id||null]);
+  if(songContexts.get(songId)?.key===key)return songContexts.get(songId).value;
+  const measures=music.measures?.length?effectiveMeasures(music,content.layout||{}):[];
+  const scene=buildScene({content,music}),one=scene.bars.find(b=>b.number===1);
+  const firstBar=Math.max(0,one?measures.findIndex(m=>Math.abs(m.start-one.start)<1e-6):0);
+  const docs=model.detail?.documents||[],notesOf=async pattern=>{const doc=docs.find(d=>d.kind==='midi'&&pattern.test(d.name));if(!doc)return [];
+    try{return ((await api('/api/document/'+encodeURIComponent(doc.id))).content?.notes||[]).filter(n=>Number.isFinite(n.start)&&n.end>n.start);}catch{return [];}};
+  const [vocal,instrumental]=await Promise.all([notesOf(/(^|\/)melody_vocal\.mid$/),notesOf(/(^|\/)melody_instrumental\.mid$/)]);
+  const onsets=[],drumHits=[];
+  const runId=separationDetail?.active?.run_id||transport.getSnapshot().sourceRunId;
+  if(runId)try{const f=await api('/api/visual-features/'+encodeURIComponent(runId));
+    for(const [role,track] of Object.entries(f.tracks||{}))for(const [t,s] of track.hits||[])if(s>=0.25)(role==='drums'?drumHits:onsets).push(t);}catch{/* the melodies and chords are enough to guess with */}
+  const value={title:currentSong()?.title||'',duration:currentSong()?.duration||content.duration||music.duration||0,measures,firstBar,
+    chords:(content.chords||[]).filter(c=>Number.isFinite(c.start)&&c.end>c.start&&!isNoChordLabel(c.label)).map(c=>({start:c.start,end:c.end,label:spellChord(displayChordLabel(c.label))})),
+    model:{vocal,instrumental},onsets,drumHits};
+  songContexts.set(songId,{key,value});return value;
+}
+const midiImport=createMidiImport({
+  api,bytes:async path=>{const r=await fetch(path,{headers:{'X-ChordBuddy-Token':token}});if(!r.ok)throw Error(`Could not read the MIDI file (${r.status}).`);return r.arrayBuffer();},
+  songs:()=>(model.state?.songs||[]).map(s=>({id:s.id,title:s.title,artist:s.artist,duration:s.duration})),
+  currentSongId:()=>model.detail?model.song:null,playhead:()=>transport.getSnapshot().seconds,
+  openSong:async id=>{await selectSong(id);if(model.song!==id)throw Error('Could not open that song.');await loadChartRecord();},
+  songContext:midiSongContext,transport,showError,
+  onChanged:songId=>{if(model.userMidi?.song===songId)model.userMidi.stamp='';refreshUserMidi(songId);},
+});
 transport.subscribe(snapshot=>{visuals.clock(snapshot);if(visuals.listening)publishVisualScene();});
 // Opening must happen straight from the click (browsers only allow pop-ups and full screen then); the song follows a moment later.
 // In the desktop app the page cannot open windows or go full screen itself (WebView2), so it asks the app (desktopWindow()).
@@ -252,15 +374,15 @@ function openVisualizer(fullScreen){
   if(fullScreen){
     const overlay=document.createElement('div');overlay.className='visualizer-overlay';document.body.append(overlay);
     const view=mountVisualizer(overlay),button=document.createElement('button');
-    button.type='button';button.textContent='Close';button.title='Close the visualizer (Esc)';view.toolbar.append(button);
+    button.type='button';button.dataset.control='close';button.textContent='Close';button.title='Close the visualizer (Esc)';view.toolbar.append(button);
     let entered=false,closed=false;
     // Esc leaves full screen first (the browser does that); leaving it, Esc or Close removes the view
-    const close=()=>{if(closed)return;closed=true;document.removeEventListener('fullscreenchange',changed);document.removeEventListener('keydown',key);view.dispose();overlay.remove();
+    const close=()=>{if(closed)return;closed=true;if(closeVisualOverlay===close)closeVisualOverlay=null;document.removeEventListener('fullscreenchange',changed);document.removeEventListener('keydown',key);view.dispose();overlay.remove();
       if(document.fullscreenElement===overlay)document.exitFullscreen().catch(()=>{});
       if(desktop)desktop.is_fullscreen().then(on=>{if(on)desktop.toggle_fullscreen();}).catch(()=>{});};
     const changed=()=>{if(document.fullscreenElement===overlay)entered=true;else if(entered)close();};
     const key=event=>{if(event.key==='Escape'&&document.fullscreenElement!==overlay){event.preventDefault();close();}};
-    document.addEventListener('fullscreenchange',changed);document.addEventListener('keydown',key);button.onclick=close;
+    document.addEventListener('fullscreenchange',changed);document.addEventListener('keydown',key);button.onclick=close;closeVisualOverlay=close;
     if(desktop)desktop.is_fullscreen().then(on=>{if(!on&&!closed)desktop.toggle_fullscreen();}).catch(()=>{});   // the whole window, edge to edge
     else overlay.requestFullscreen().catch(()=>{});      // without full screen it still fills the window, with Close and Esc
   }else if(desktop)desktop.open_visualizer().catch(showError);
@@ -269,6 +391,58 @@ function openVisualizer(fullScreen){
 }
 $('visualizer-window').onclick=()=>openVisualizer(false);
 $('visualizer-full').onclick=()=>openVisualizer(true);
+let closeVisualOverlay=null;                     // closes the full-screen visualizer on this page, while it is open
+// ---- The Advanced Visuals Editor (visual-patchbay.js): the patch bay as a whole page in place of the chart, with a live preview in its
+// corner (a visualizer of its own, so it shows the look being edited). The sidebar and the player stay, to play the song while patching.
+let visualEditor=null;
+function openVisualEditor(){
+  $('visual-menu').open=false;closeVisualOverlay?.();
+  if(visualEditor)return;
+  const root=$('visual-editor');root.classList.remove('hidden');document.body.classList.add('editing-visuals');
+  visualEditor=mountVisualizer(root,{editor:{root,onPopOut:()=>openVisualizer(false),onClose:closeVisualEditor}});
+  loadChartRecord().then(publishVisualScene).catch(showError);
+}
+function closeVisualEditor(){
+  if(!visualEditor)return;
+  visualEditor.dispose();visualEditor=null;$('visual-editor').classList.add('hidden');document.body.classList.remove('editing-visuals');
+}
+$('visual-editor-open').onclick=openVisualEditor;
+$('all-songs').addEventListener('click',closeVisualEditor);     // All songs takes the same place
+// The visualizer as an OBS Browser Source: OBS draws it off screen at the size set there, so it never pauses while you use this window,
+// and it shows no controls. Its address stays the same between launches (unless that port was taken).
+$('visualizer-obs').onclick=async()=>{
+  $('more-menu').open=false;
+  let url;try{({url}=await api('/api/visual-relay/address'));}catch(error){showError(error);return;}
+  const copy=async()=>{try{await navigator.clipboard.writeText(url);return true;}catch{return false;}};
+  const copied=await copy();
+  await askChoice({title:'Stream the visualizer to OBS',
+    message:[`${copied?'Copied this address':'This is the address'} for an OBS Browser Source:`,url,
+      'In OBS, add a Browser Source, paste it as the URL, and set the width and height you stream at (for example 1920 × 1080). Tick “Use custom frame rate” and choose 60 for smooth motion.',
+      'It follows this window: the song, playback and the look you choose in the visualizer here. For the sound, add an Application Audio Capture source and pick this browser.',
+      'Keep the address private: while Chord Buddy is running, it can read your songs.'],
+    cancel:'Done',choices:[{id:'copy',label:copied?'Copy again':'Copy',keepOpen:true}],onPick:()=>{copy();}});
+};
+// The song's own visualization: chosen here, or pinned from the visualizer's toolbar (Pin). "My usual look" unpins it.
+$('song-visual').onclick=async()=>{
+  $('more-menu').open=false;
+  const song=currentSong();if(!song)return;
+  let scenes=[];try{({scenes}=await loadVisualizations());}catch(error){showError(error);return;}
+  const pinned=readSetup(prefs.get('cb-visual:'+song.id,'')),usual=readUsual(prefs.get('cb-visual-usual','')).scene;
+  const options=[{id:'',label:'My usual look',hint:scenes.find(s=>s.id===usual)?.name||'Whatever the visualizer last showed'},
+    ...scenes.map(s=>({id:s.id,label:s.name,hint:s.mine?'From My Visuals':''}))];
+  if(pinned&&!scenes.some(s=>s.id===pinned.scene))options.push({id:pinned.scene,label:pinned.scene,hint:'This file is missing, so the song shows your usual look'});
+  let picked=pinned?.scene||'';
+  const choice=await askChoice({title:'Visualization for this song',message:`Shown whenever “${song.title}” is open. You can also pin the look that’s showing with Pin on the visualizer’s toolbar.`,
+    radios:{label:'',value:picked,options,onChange:id=>{picked=id;}},choices:[{id:'save',label:'Save',kind:'primary'}]});
+  if(choice!=='save')return;
+  prefs.set('cb-visual:'+song.id,picked?writeSetup({...pinned,scene:picked}):'');publishVisualSetup();   // a pinned layout stays
+};
+// The menus at the top (Export, More, Visualizer, Settings): picking something closes its menu. Settings stays open, to try the colors.
+// (A click anywhere else closes them: shell.js.)
+document.addEventListener('click',event=>{
+  const menu=event.target.closest?.('details.more');
+  if(menu&&event.target.closest('.more-pop:not(.settings-pop) :is(button,a)'))menu.open=false;
+});
 // Keyboard shortcuts: from More options, or ? anywhere you are not typing.
 const showShortcuts=()=>{$('more-menu').open=false;openShortcuts({groups:SHORTCUTS});};
 $('shortcuts-open').onclick=showShortcuts;
@@ -373,7 +547,7 @@ async function moveSongBefore(id,target){try{const list=model.state.setlists.fin
 const TITLE_NODES=['page-song','score-title','midi-title'];
 function renderControls(){
   const song=currentSong();$('empty-state').classList.toggle('hidden',!!song);$('song-controls').classList.toggle('hidden',!song);$('workspace').classList.toggle('hidden',!song);
-  $('song-actions').classList.toggle('hidden',!song);
+  $('song-actions').classList.toggle('hidden',!song);$('song-visual').classList.toggle('hidden',!song);
   renderSections();if(!song)return;   // (set lists are arranged on All songs, never from a song's page)
   if(!TITLE_NODES.some(id=>document.activeElement===$(id))&&!model.pendingTitle&&!model.titleSave){$('song-title').value=song.title;for(const id of TITLE_NODES)$(id).textContent=song.title;}
 
@@ -381,7 +555,7 @@ function renderControls(){
   $('transcribe').disabled=!!busy || !model.state.engine.ready || model.importing;
   $('transcribe').querySelector('em').textContent=analysisUiState(song,model.state.job).label;renderChips();
   if(typeof rhythmButton!=='undefined'){const job=model.state.job;rhythmButton.textContent=job?.kind==='rhythm'&&job.document_id===model.document&&job.status==='completed'?'Review rhythm proposal':'Attempt timing correction w/drum track';rhythmButton.disabled=isJobActive(job)||!separationDetail?.active;rhythmButton.title=separationDetail?.active?'':'Split the stems first: this listens to the drums.';}
-  $('transcribe').title=!model.state.engine.ready?model.state.engine.message || 'Set up the transcription engine first.':'';
+  $('transcribe').title=!model.state.engine.ready?model.state.engine.message || 'Set up the transcription engine first.':'Work out the chords, melody and sections again from the recording. You choose whether your edits stay.';
 }
 // ---- Locked state: a song is unusable until analysis finishes (readiness is decided by PlaybackGate/transport). ----
 function lockMode(){const song=currentSong();if(!song)return 'none';if(!song.active_run)return 'full';return model.readinessChecked&&!transport.getSnapshot().ready?'banner':'none';}
@@ -556,7 +730,7 @@ async function selectSong(id){
   playbackGate.block('Checking analysis.');player.setWaveformRun(null);practiceViewport=null;practiceData=null;player.setPractice({music:{measures:[]},projection:null,viewport:null});separationDetail=null;model.readinessChecked=false;model.song=id;model.detail=null;model.document=null;
   clearError();renderLibrary();renderControls();renderDocument();renderLock();
   await transport.loadSong({songId:id,originalUrl:mediaUrl('/api/audio/'+encodeURIComponent(id)),separation:null});player.setNow({chord:'—',next:''});await refreshSeparation();if(request!==model.loadingSong)return;
-  try{const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(request!==model.loadingSong)return;model.detail=detail;renderTabs();loadMelody(detail,id);loadModelKey(detail,id);if(shownDocs(detail).length)await selectDocument(shownDocs(detail)[0].id);else renderDocument();showSongError(detail.song,true);}catch(error){if(request===model.loadingSong)showError(error);}
+  try{const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(request!==model.loadingSong)return;model.detail=detail;renderTabs();loadMelody(detail,id);refreshUserMidi(id);loadModelKey(detail,id);if(shownDocs(detail).length)await selectDocument(shownDocs(detail)[0].id);else renderDocument();showSongError(detail.song,true);}catch(error){if(request===model.loadingSong)showError(error);}
 }
 // The vocal melody (a MIDI output of the analysis): its notes are drawn faintly behind the Time tool's bars, and their starts are
 // the first guess for where words fall.
@@ -591,6 +765,10 @@ async function refreshSongDetail(id,force=false){
 // Chart, Lead sheet and MIDI are the three views. Everything else the model writes (beats, chords, tokens...) is not shown: it comes in a zip.
 const TAB_KINDS=[['chart','Chart'],['abc','Lead sheet'],['midi','MIDI']];
 const shownDocs=detail=>detail.documents.filter(doc=>TAB_KINDS.some(([kind])=>kind===doc.kind)).sort((a,b)=>(b.kept?1:0)-(a.kept?1:0));
+// What each view is for (the tab tooltips), instead of the file behind it
+const TAB_TIPS={chart:'The chord chart: chords, sections and lyrics as you play them, with every repeat. Click to play from anywhere, or edit it.',
+ abc:'The lead sheet: the melody in notation, with the chart’s chords and words. Export it as a PDF, or open it in MuseScore.',
+ midi:'The MIDI: every part as notes on a piano roll, to play along with, or to open in a program made for editing MIDI.'};
 function renderTabs(){
   const tabs=$('document-tabs');tabs.replaceChildren();
   $('transcription-history').disabled=isJobActive(model.state?.job)||!model.detail?.runs.some(r=>r.id!==currentSong()?.active_run&&r.has_documents);
@@ -600,7 +778,7 @@ function renderTabs(){
     const list=docs.filter(doc=>doc.kind===kind);if(!list.length)continue;
     const target=selected?.kind===kind?selected:list.find(doc=>doc.kept)||list.find(doc=>doc.name==='transcription.mid')||list.find(doc=>/melody\.mid$/.test(doc.name))||list[0];
     const button=element('button',`document-tab${selected?.kind===kind?' selected':''}`,label+(kind==='chart'&&target.kept?' · kept edits':''));
-    button.role='tab';button.setAttribute('aria-selected',selected?.kind===kind?'true':'false');button.title=target.name;button.onclick=()=>selectDocument(target.id);tabs.append(button);
+    button.role='tab';button.setAttribute('aria-selected',selected?.kind===kind?'true':'false');button.title=TAB_TIPS[kind]||target.name;button.onclick=()=>selectDocument(target.id);tabs.append(button);
   }
 }
 async function selectDocument(id){
@@ -608,15 +786,25 @@ async function selectDocument(id){
   if(!practiceView.canNavigate())return;
   if(id!==model.document){try{const saved=await window.chordBuddyFlush();if(!saved.ok)throw Error('Finish saving before changing the selected song or document.');}catch(error){showError(error);return;}}
   model.document=id;model.chartSection=null;model.chartChord=null;renderTabs();renderDocument();
-  if(!model.documents.has(id)){try{const doc=await api(`/api/document/${encodeURIComponent(id)}`);model.documents.set(id,{doc,draft:clone(doc.content),dirty:false,saving:false,error:null,version:0,timer:null});}catch(error){showError(error);}}
+  if(!model.documents.has(id)){try{const doc=await api(`/api/document/${encodeURIComponent(id)}`);model.documents.set(id,{doc,draft:clone(doc.content),dirty:false,saving:false,error:null,version:0,timer:null});if(model.loadError?.id===id)model.loadError=null;}catch(error){model.loadError={id,error};showError(error);}}
   if(model.document===id){renderDocument();if(currentRecord()?.doc.kind==='chart')renderChart();}
 }
 function renderSaveStatus(){const record=currentRecord();const status=$('save-status');const warning=record?.doc.export_warning;status.classList.toggle('error',!!record?.practiceSaveError || !!record?.error || !!warning);status.textContent=record?.practiceSaveError?'Chart Save failed — use Retry Save':record?.doc.kind==='chart'&&practiceView.hasDraft()&&!record.saving?'Line draft — Save or Cancel':record?.error?'Save failed · click to retry':model.pendingChord||model.pendingChart?'Unsaved fields':record?.saving?'Saving…':record?.dirty?'Unsaved changes':record?.exporting?'Saved - retrying export...':warning?'Saved - click to retry export':'Saved';status.classList.toggle('quiet',['Saved','Saving…'].includes(status.textContent));status.title=record?.error?.message || warning || '';status.tabIndex=(record?.error||warning)&&!record?.exporting?0:-1;}
 function markRawDraft(key,value=true){model[key]=value;renderSaveStatus();$('undo').disabled=true;$('redo').disabled=true;$('restore').disabled=true;$('download').classList.add('disabled');}
+// The desk with nothing on it: before there is anything to show, what comes next; when a view could not be loaded, why, and Try again.
+function paintEmptyDesk(){
+  const box=$('document-empty'),failed=model.document&&model.loadError?.id===model.document?model.loadError.error:null;
+  box.querySelector('h2').textContent=failed?'This view didn’t load.':'Your transcription will live here.';
+  box.querySelector('p').textContent=failed?(failed.message||String(failed))+' Try again, or restart Chord Buddy if it keeps happening.':'Check the song title, then choose Analyze song. The first time, setting up the models takes a little longer.';
+  let retry=box.querySelector('button');
+  if(failed&&!retry){retry=document.createElement('button');retry.type='button';retry.className='btn';retry.textContent='Try again';
+    retry.onclick=()=>{model.loadError=null;paintEmptyDesk();selectDocument(model.document);};box.append(retry);}
+  if(retry)retry.hidden=!failed;
+}
 function renderDocument(){
   // only the editors not being shown are hidden: hiding the one on screen, even for a moment, empties the desk and scrolls it to the top
   const record=currentRecord(),showing={chart:'chart-editor',abc:'abc-editor',midi:'midi-editor'}[record?.doc.kind];
-  for(const id of ['abc-editor','midi-editor','chart-editor'])if(id!==showing)$(id).classList.add('hidden');$('document-empty').classList.toggle('hidden',!!record);
+  for(const id of ['abc-editor','midi-editor','chart-editor'])if(id!==showing)$(id).classList.add('hidden');$('document-empty').classList.toggle('hidden',!!record);if(!record)paintEmptyDesk();
   const rawPending=!!model.pendingChart||(record?.doc.kind==='chart'&&practiceView.hasDraft());
   $('undo').disabled=!record?.doc.can_undo||!!record?.dirty||!!record?.saving||rawPending;$('redo').disabled=!record?.doc.can_redo||!!record?.dirty||!!record?.saving||rawPending;$('restore').disabled=!record||!!record?.dirty||!!record?.saving||rawPending;
   $('undo').dataset.tip=record?.doc.undo_label?'Undo: '+record.doc.undo_label+'.':'Undo the last change.';$('redo').dataset.tip=record?.doc.redo_label?'Redo: '+record.doc.redo_label+'.':'Put back what you just undid.';
@@ -707,7 +895,8 @@ function renderMidi(){
   if(document.activeElement!==$('midi-title'))$('midi-title').textContent=song?.title||'';
   renderKeyBoxes();
   midiRoll=renderMidiRoll($('roll'),midiView,{songId:song?.id,content,bars,sections:chart?.doc.content?.sections||[],seconds:transport.getSnapshot().seconds,dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),
-    onSeek:seconds=>transport.seek(seconds),onExternal:()=>api('/api/midi/external',{song_id:model.song,document_id:record.doc.id}),onError:showError});
+    onSeek:seconds=>transport.seek(seconds),onExternal:()=>api('/api/midi/external',{song_id:model.song,document_id:record.doc.id}),onError:showError,
+    onYourMidi:()=>midiImport.openManager(model.song)});
   setSub($('midi-sub'),[]);
   updatePlayback();
 }
@@ -748,13 +937,48 @@ function updatePlayback(){
   else if(currentRecord()?.doc.kind==='abc'){updateLeadSheetPlayback($('score'),$('score').querySelector('.lead-notation')?$('score').querySelector('.lead-notation')._scoreTiming:$('score')._scoreTiming,time);}
   if(practiceData&&practiceViewport?.follow)updatePracticeViewport({type:'tick'});
 }
-async function historyAction(action){
+// Undo, Redo and the History menu ('goto' a step: several undos or redos at once). Each says what it did in a short note with the way
+// back, since the change it reverses may not be on screen (or may not be what you meant to undo).
+async function historyAction(action,position){
   const record=currentRecord();if(!record||record.dirty||record.saving||model.pendingChart||practiceView.hasDraft())return;
-  const id=record.doc.id,version=record.version;record.saving=true;record.historyPending=true;$('workspace').inert=true;renderDocument();
-  try{const doc=await api(`/api/document/${encodeURIComponent(id)}/${action}`,{revision:record.doc.revision});settleHistoryResult(record,doc,version);if(model.document===id&&!record.dirty){model.chartSection=null;model.chartChord=null;}}
+  const id=record.doc.id,version=record.version,before=record.doc;record.saving=true;record.historyPending=true;$('workspace').inert=true;renderDocument();
+  try{const doc=await api(`/api/document/${encodeURIComponent(id)}/${action}`,{revision:record.doc.revision,...(action==='goto'?{position}:{})});settleHistoryResult(record,doc,version);if(model.document===id&&!record.dirty){model.chartSection=null;model.chartChord=null;}
+    if(action!=='restore')noteHistory(before,doc);}
   catch(error){showError(error);}
   finally{record.saving=false;record.historyPending=false;$('workspace').inert=false;if(model.document===id){renderSaveStatus();if(!record.dirty)renderDocument();}if(record.dirty&&!record.error)setTimeout(()=>saveDocument(id),0);}
 }
+let historyNoteTimer=0;
+function noteHistory(before,after){
+  const from=before.cursor,to=after.cursor,labels=before.history;
+  if(typeof from!=='number'||typeof to!=='number'||from===to||!labels)return;
+  const n=Math.abs(to-from),name=currentSong()?.title,where=name?` in ${name}`:'';
+  const text=to<from?(n===1?`Undid “${labels[from]}”${where}.`:`Undid ${n} changes${where}, back to before “${labels[to+1]}”.`)
+    :(n===1?`Redid “${labels[to]}”${where}.`:`Redid ${n} changes${where}, up to “${labels[to]}”.`);
+  $('history-note-text').textContent=text;
+  const back=$('history-note-back');back.textContent=to<from?'Redo':'Undo';
+  back.title=to<from?'Put back what was just undone':'Undo what was just redone';
+  back.onclick=()=>{hideHistoryNote();historyAction('goto',from);};
+  $('history-note').classList.remove('hidden');clearTimeout(historyNoteTimer);historyNoteTimer=setTimeout(hideHistoryNote,8000);
+}
+function hideHistoryNote(){clearTimeout(historyNoteTimer);$('history-note').classList.add('hidden');}
+// The History menu: the changes after "Now" (to redo) above it, the ones before it (to undo) below, newest nearest; a step goes there at once.
+function renderHistoryMenu(){
+  const pop=$('history-pop'),record=currentRecord(),doc=record?.doc,labels=doc?.history||[],at=doc?.cursor??0;
+  const item=(text,steps,title,go)=>{const b=document.createElement('button');b.type='button';b.className='text-button';b.title=title;
+    b.append(document.createTextNode(text));const s=document.createElement('small');s.textContent=steps===1?'1 step':`${steps} steps`;b.append(s);
+    b.onclick=()=>historyAction('goto',go);pop.append(b);};
+  const line=(className,text)=>{const p=document.createElement('p');p.className=className;p.textContent=text;pop.append(p);};
+  pop.replaceChildren();
+  if(!doc||labels.length<2){line('more-label','No changes yet. Your edits show up here by name.');return;}
+  if(record.dirty||record.saving||model.pendingChart||practiceView.hasDraft()){line('more-label','Finish or save the edit you’re making first.');return;}
+  for(let p=Math.min(labels.length-1,at+10);p>at;p--)item(`Redo up to “${labels[p]}”`,p-at,`Put back ${p-at===1?'this change':`the ${p-at} changes up to and including this one`}`,p);
+  line('history-now',at===0?'Now · as Chord Buddy made it':'Now');
+  const last=Math.max(1,at-19);
+  for(let p=at;p>=last;p--)item(p===at?`Undo “${labels[p]}”`:`Undo back through “${labels[p]}”`,at-p+1,
+    `Undo ${p===at?'this change':`this change and the ${at-p} after it`}. Redo, or this menu, can put ${p===at?'it':'them'} back`,p-1);
+  if(last>1)line('more-label',`${last-1} older change${last-1===1?'':'s'}: undo back to the last one here, then open History again.`);
+}
+$('history-menu').addEventListener('toggle',()=>{if($('history-menu').open)renderHistoryMenu();});
 async function updateTitle(){
   if(model.titleSave){await model.titleSave;if(!model.pendingTitle)return;}
   const song=currentSong();if(!song)return;const title=$('song-title').value.trim();if(!title)throw new Error('Give your song a title before continuing.');
@@ -777,6 +1001,7 @@ async function setupImportedSong(song){
 }
 async function importFile(file){
   if(!file)return;if(/\.zip$/i.test(file.name))return importSongZip(file);
+  if(/\.midi?$/i.test(file.name))return midiImport.importFile(file);
   if(!/\.mp3$/i.test(file.name)){showError('Choose an MP3 recording, or a song zip exported from Chord Buddy.');return;}if(file.size>250*1024*1024){showError('This recording is larger than the 250 MB import limit.');return;}
   if(model.importing)return;model.importing=true;$('import-button').disabled=true;$('import-button').querySelector('em').textContent='Importing…';clearError();
   let added=null;
@@ -848,6 +1073,17 @@ async function runExport(kind){
   if(kind==='midi'||kind==='midi-tracks'){if(!midi)throw new Error('This song has no MIDI yet.');return downloadUrl(mediaUrl('/api/export-midi/'+encodeURIComponent(midi.id))+'&mode='+(kind==='midi'?'single':'tracks'));}
   if(kind==='outputs')return downloadUrl(mediaUrl('/api/export-outputs/'+encodeURIComponent(song.id)));
   if(kind==='song')return exportSong(song);
+  if(kind==='lead-external')return openLeadElsewhere();
+}
+// Sending the lead sheet to MuseScore freezes it: Chord Buddy cannot read the changes back, so from then on it shows the copy that was
+// sent instead of following the chord chart. Say so first. ("Follow the chord chart again", above the lead sheet, undoes it.)
+async function openLeadElsewhere(){
+  if(currentRecord()?.doc.kind!=='abc'||!leadView)throw new Error('Open the Lead sheet tab first.');
+  const answer=await askChoice({title:'Open the lead sheet in MuseScore?',
+    message:['Chord Buddy saves the lead sheet as a MusicXML file and opens it in MuseScore, or whichever program opens those files.',
+      'Chord Buddy can’t read your changes back. From then on, this lead sheet stays as it was sent and stops following the chord chart. “Follow the chord chart again”, above the lead sheet, undoes that.'],
+    choices:[{id:'open',label:'Open in MuseScore',kind:'primary'}]});
+  if(answer==='open')await leadView.openExternal();
 }
 const sizeLabel=bytes=>bytes>=1e9?(bytes/1e9).toFixed(1)+' GB':Math.max(1,Math.round(bytes/1e6))+' MB';
 // The whole song in one zip named after it (recording, analysis, every edit), for Import on another computer. Stems are most of the
@@ -986,7 +1222,7 @@ export {transport};
 const proposalGuard=new ProposalGuard(()=>model.document);
 const rhythmButton=element('button','text-button','Attempt timing correction w/drum track');rhythmButton.type='button';
 const cleanupButton=element('button','secondary','Check empty end artifact');
-rhythmButton.hidden=true;cleanupButton.hidden=true;$('song-timing').after(rhythmButton);$('more-tools').append(cleanupButton);
+rhythmButton.hidden=true;cleanupButton.hidden=true;$('song-timing').after(rhythmButton);$('more-tools').querySelector('.more-sep').before(cleanupButton);   // Delete song stays last, on its own
 rhythmButton.addEventListener('click',()=>{$('more-menu').open=false;});
 rhythmButton.onclick=async()=>{try{
  const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving edits first.');const doc=currentRecord()?.doc;if(doc?.kind!=='chart')throw new Error('Choose a Song chart.');const ticket=proposalGuard.begin();const job=model.state?.job;

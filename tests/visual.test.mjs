@@ -184,6 +184,30 @@ test('frame events report new hits and beats while playing, and nothing across a
   assert.deepEqual(frameEvents(at(2),at(2),song).hits,{});                // paused
 });
 
+test('the loop reaches a visual: its kind, progress, bars and which time around, with events when it starts, wraps and ends', () => {
+  const song=buildScene({content,music}),[b1,b2,b3]=song.bars,loop={start:b2.start,end:b3.end,kind:'bars'};
+  const at=(t,l=loop,playing=true)=>sampleFrame(song,t,{playing,loop:l});
+  const first=at(b2.start+.1);
+  assert.equal(first.loop.kind,'bars');assert.equal(first.loop.bars,2);assert.equal(first.loop.bar,1);assert.ok(first.loop.inside);
+  assert.equal(at(b3.start+.1).loop.bar,2);assert.ok(Math.abs(at((b2.start+b3.end)/2).loop.progress-.5)<1e-9);
+  assert.equal(at(b1.start+.1).loop.bar,null,'before the loop: no bar of it');assert.equal(sampleFrame(song,1).loop,null);
+  const started=frameEvents(at(b2.start,null),first,song);assert.deepEqual(started.loop,{started:true,ended:false,wrapped:false});
+  const end=at(b3.end-.02);frameEvents(first,end,song);
+  const back=at(b2.start+.01),wrap=frameEvents(end,back,song);
+  assert.ok(wrap.loop.wrapped);assert.equal(back.loop.pass,2,'second time around');assert.equal(wrap.beat,null,'a wrap is still a jump for beats and hits');
+  const on=at(b2.start+.05);frameEvents(back,on,song);assert.equal(on.loop.pass,2,'the pass carries on');
+  const seek=at(b2.start+.02);assert.ok(!frameEvents(at(b3.start,loop),seek,song).loop.wrapped,'a jump back from the middle is a seek, not a wrap');
+  const slow=at(b2.start+.5);assert.ok(frameEvents(at(b3.end-.6),slow,song).loop.wrapped,'a slow window (a second between frames) still sees the wrap');
+  assert.deepEqual(frameEvents(on,at(b2.start+.1,null),song).loop,{started:false,ended:true,wrapped:false});
+});
+
+test('the clock keeps the loop\'s kind: R and L by name, a loop placed with the handles as custom', () => {
+  const {clock}=clockAt();
+  clock.report({seconds:1,playing:true,duration:100,loop:{enabled:true,start:0,end:4,implicit:true,kind:'section'}},0);assert.equal(clock.loop.kind,'section');
+  clock.report({seconds:1,playing:true,duration:100,loop:{enabled:true,start:0,end:4,implicit:false}},0);assert.equal(clock.loop.kind,'custom');
+  clock.report({seconds:1,playing:true,duration:100,loop:{enabled:false,start:0,end:4}},0);assert.equal(clock.loop,null);
+});
+
 test('a visualizer\'s mixer drawer changes the player\'s mix over the bridge', () => {
   const open=fakeChannels(),mixes=[];
   createVisualPublisher({open,onMix:mix=>mixes.push(mix)});
@@ -217,6 +241,16 @@ test('a changed file is loaded at a new address, so the browser does not hand ba
   const {scenes}=await loadVisualizations({list:async()=>[{file:'a.js',version:'17-2f'}],
     load:async(file,version)=>{asked.push([file,version]);return {default:{id:'a',name:'Ay',create(){}}};}});
   assert.deepEqual(asked,[['a.js','17-2f']]);assert.equal(scenes[0].version,'17-2f');
+});
+
+test('My Visuals load from their own folder, and one with a built-in id takes its place', async () => {
+  const asked=[],modules={'abstract.js':{default:{id:'abstract',name:'Abstract',create(){}}},'mine.js':{default:{id:'abstract',name:'My Abstract',create(){}}},
+    'glow.js':{default:{id:'glow',name:'Glow',create(){}}},'twin.js':{default:{id:'glow',name:'Glow again',create(){}}}};
+  const {scenes,failed}=await loadVisualizations({list:async()=>[{file:'mine.js',mine:true},{file:'glow.js',mine:true},{file:'twin.js',mine:true},{file:'abstract.js',mine:false}],
+    load:async(file,version,mine)=>{asked.push([file,mine]);return modules[file];}});
+  assert.deepEqual(scenes.map(s=>[s.name,s.mine]),[['Glow',true],['My Abstract',true]],'the built-in Abstract is left out, quietly');
+  assert.deepEqual(failed.map(f=>f.file),['twin.js'],'two of your own with one id: the second is reported');
+  assert.deepEqual(asked.find(a=>a[0]==='abstract.js'),['abstract.js',false]);
 });
 
 test('every file in the visualizations folder is a valid visualization (templates included)', async () => {
@@ -282,4 +316,228 @@ test('a playback key pressed in a pop-out visualizer reaches the player', () => 
   const receiver=createVisualReceiver({open,onScene(){},onClock(){}});
   receiver.command({type:'bar',direction:-1});receiver.command({type:'toggle'});
   assert.deepEqual(actions,[{type:'bar',direction:-1},{type:'toggle'}]);
+});
+
+// ---- a song's own look, and the usual one ----
+import {readSetup,readUsual,writeSetup,writeUsual,pickScene} from '../chordbuddy/web/visual-setup.js';
+
+test('a song\'s pinned look and the usual one are read back safely, and anything odd is ignored', () => {
+  assert.deepEqual(readSetup(writeSetup({scene:'starlane'})),{scene:'starlane'});
+  for(const bad of ['','{','null','[1]','{"scene":""}','{"scene":"../x"}','{"scene":42}'])assert.equal(readSetup(bad),null,bad);
+  assert.equal(writeSetup(null),'');assert.equal(writeSetup({scene:'<b>'}),'');
+  assert.deepEqual(readUsual(writeUsual({scene:'machine',lyrics:false,calm:true,extra:1})),{scene:'machine',lyrics:false,calm:true});
+  assert.deepEqual(readUsual('{"lyrics":"yes"}'),{},'only real switches');
+  assert.ok(writeSetup({scene:'x'.repeat(60)}).length<=200,'fits a saved preference');
+});
+
+test('the look shown: picked now, else the song\'s own, else the usual, else the default, skipping any that is not there', () => {
+  const scenes=['abstract','machine','starlane'].map(id=>({id}));
+  const pick=o=>pickScene(scenes,o)?.id;
+  assert.equal(pick({showing:'machine',pinned:{scene:'starlane'},usual:{scene:'abstract'}}),'machine');
+  assert.equal(pick({pinned:{scene:'starlane'},usual:{scene:'machine'}}),'starlane');
+  assert.equal(pick({pinned:{scene:'deleted'},usual:{scene:'machine'}}),'machine','a pinned file that is gone falls back');
+  assert.equal(pick({usual:{scene:'gone'}}),'abstract','then the default');
+  assert.equal(pickScene([{id:'only'}],{})?.id,'only');assert.equal(pickScene([],{}),null);
+});
+
+test('pins and the usual look travel over the bridge, and a late window is told the song\'s setup', () => {
+  const open=fakeChannels(),pins=[],usuals=[];
+  const publisher=createVisualPublisher({open,onPin:(id,setup)=>pins.push([id,setup]),onUsual:u=>usuals.push(u)});
+  publisher.setup({songId:'s',pinned:{scene:'machine'},usual:{scene:'abstract'}});
+  const setups=[];const receiver=createVisualReceiver({open,onScene:()=>{},onClock:()=>{},onSetup:m=>setups.push(m)});
+  assert.deepEqual([setups.length,setups[0].pinned,setups[0].usual],[1,{scene:'machine'},{scene:'abstract'}]);
+  publisher.setup({songId:'s',pinned:{scene:'machine'},usual:{scene:'abstract'}});assert.equal(setups.length,1,'unchanged: not sent again');
+  receiver.pin('s',{scene:'starlane'});receiver.pin('s',null);receiver.usual({scene:'runner',lyrics:true});
+  assert.deepEqual(pins,[['s',{scene:'starlane'}],['s',null]]);assert.deepEqual(usuals,[{scene:'runner',lyrics:true}]);
+});
+
+test('patches travel over the bridge: a visualizer saves one, and every visualizer is sent the ones in use', () => {
+  const open=fakeChannels(),saved=[];
+  const publisher=createVisualPublisher({open,onPatch:(songId,visual,patch)=>saved.push([songId,visual,patch])});
+  const setups=[];const receiver=createVisualReceiver({open,onScene:()=>{},onClock:()=>{},onSetup:m=>setups.push(m)});
+  const patch={cables:[{from:'stem/bass/hit',to:'shockwave'}]};
+  receiver.patch(null,'abstract',patch);receiver.patch('s','abstract',null);
+  assert.deepEqual(saved,[[null,'abstract',patch],['s','abstract',null]]);
+  publisher.setup({songId:'s',patches:{usual:{abstract:patch},song:{}}});
+  assert.deepEqual(setups.at(-1).patches,{usual:{abstract:patch},song:{}});
+  publisher.setup({songId:'s',patches:{usual:{abstract:patch},song:{abstract:{cables:[]}}}});
+  assert.equal(setups.length,2,'a changed patch is sent again');
+  publisher.setup({songId:'s'});assert.deepEqual(setups.at(-1).patches,{usual:{},song:{}},'none: an empty set, never missing');
+});
+
+// ---- where the picker and the mixer float ----
+import {readPlace,placeToPixels,pixelsToPlace,MARGIN} from '../chordbuddy/web/visual-layout.js';
+import {panelPlace} from '../chordbuddy/web/visual-setup.js';
+
+test('a panel\'s place is a fraction of its room, so a corner stays a corner at any window size', () => {
+  const panel={w:200,h:100};
+  assert.deepEqual(placeToPixels({x:0,y:0},{w:1920,h:1080},panel),{left:MARGIN,top:MARGIN});
+  assert.deepEqual(placeToPixels({x:1,y:1},{w:1920,h:1080},panel),{left:1920-200-MARGIN,top:1080-100-MARGIN});
+  assert.deepEqual(placeToPixels({x:1,y:1},{w:1280,h:720},panel),{left:1280-200-MARGIN,top:720-100-MARGIN},'bottom right at 720p too');
+  const back=pixelsToPlace(500,300,{w:1920,h:1080},panel),again=placeToPixels(back,{w:1920,h:1080},panel);
+  assert.ok(Math.abs(again.left-500)<2&&Math.abs(again.top-300)<2,'there and back');
+  assert.deepEqual(placeToPixels({x:.5,y:.5},{w:150,h:80},panel),{left:MARGIN,top:MARGIN},'a panel bigger than the window sits at the margin');
+  assert.deepEqual(readPlace({x:1.7,y:-2}),{x:1,y:0});assert.equal(readPlace({x:'1',y:0}),null);assert.equal(readPlace(null),null);
+});
+
+test('setups keep where the panels sit: the song\'s own places, else the usual ones', () => {
+  const pinned=readSetup(writeSetup({scene:'machine',picker:{x:1,y:1},mixer:{x:.25,y:0},junk:{x:1,y:1}}));
+  assert.deepEqual(pinned,{scene:'machine',picker:{x:1,y:1},mixer:{x:.25,y:0}});
+  const usual=readUsual(writeUsual({scene:'abstract',lyrics:true,calm:false,picker:{x:0,y:1},mixer:{x:1,y:0}}));
+  assert.deepEqual(panelPlace('picker',{pinned,usual}),{x:1,y:1});
+  assert.deepEqual(panelPlace('picker',{pinned:{scene:'x'},usual}),{x:0,y:1},'a pin without places uses the usual ones');
+  assert.equal(panelPlace('mixer',{}),null,'nothing saved: the built-in spot');
+  assert.ok(writeUsual({scene:'x'.repeat(40),lyrics:false,calm:false,picker:{x:.123,y:.456},mixer:{x:.789,y:.012}}).length<=200,'fits a saved preference');
+  assert.equal(readSetup(writeSetup({scene:'x'.repeat(41)})),null,'ids are at most 40 long');
+});
+
+// ---- a visualization's skin on the picker and the mixer ----
+import {readSkin,contrast} from '../chordbuddy/web/visual-skin.js';
+const HEX={'#f4ecdd':[244,236,221],'#2b1e3f':[43,30,63],'#ff9ec4':[255,158,196],'#1a1c24':[26,28,36],'#ffffff':[255,255,255],'#e9e4d6':[233,228,214],
+  '#1e1630':[30,22,48],'#3a3a3a':[58,58,58],'#2d4fd8':[45,79,216],'rgba(244,236,221,.5)':[244,236,221,.5]};
+const check={isColor:t=>t.toLowerCase() in HEX,isFont:t=>!t.includes('!'),toRGB:t=>HEX[t.toLowerCase()]||null};
+const theme={'--page':'#F4ECDD','--ink':'#1A1C24'};
+
+test('a skin restyles the panels through the theme\'s own tokens, within bounds', () => {
+  const vars=readSkin({paper:'#F4ECDD',ink:'#2B1E3F',highlight:'#FF9EC4',font:'"Courier Prime", monospace',border:9,shadow:-2,corners:4.3,
+    layout:'grid',ink2:'#fff',paper2:'red'},{theme,check});
+  assert.deepEqual(vars,{'--page':'#F4ECDD','--ink':'#2B1E3F','--hl':'#FF9EC4','--g':'"Courier Prime", monospace','--bd':'6px','--sh':'0px',
+    '--panel-radius':'4.5px','--on-hl':'#1A1C24'},'unknown keys are ignored; sizes are clamped');
+  assert.deepEqual(readSkin(null,{theme,check}),{});assert.deepEqual(readSkin('pink',{theme,check}),{});
+  assert.deepEqual(readSkin({font:'x;}body{display:none',paper:'nonsense'},{theme,check}),{},'no way out of the property');
+});
+
+test('a skin whose words would be hard to read is left out, and words on its highlight stay readable', () => {
+  assert.ok(contrast([0,0,0],[255,255,255])>20);
+  assert.deepEqual(readSkin({paper:'#3A3A3A',ink:'#1A1C24',border:4},{theme,check}),{},'dark ink on dark paper: the whole skin goes');
+  assert.deepEqual(readSkin({paper:'#1E1630'},{theme,check}),{},'checked against the theme\'s ink when only the paper changes');
+  assert.deepEqual(readSkin({paper:'rgba(244,236,221,.5)'},{theme,check}),{},'see-through paper: the scene would decide');
+  assert.equal(readSkin({highlight:'#2D4FD8'},{theme,check})['--on-hl'],'#FFFFFF','white words on a dark highlight');
+});
+
+test('a skin\'s dark part is laid over it in the app\'s dark scheme', () => {
+  const skin={paper:'#F4ECDD',ink:'#2B1E3F',border:3,dark:{paper:'#1E1630',ink:'#F4ECDD'}};
+  assert.equal(readSkin(skin,{theme,check})['--page'],'#F4ECDD');
+  const dark=readSkin(skin,{dark:true,theme:{'--page':'#1E1630','--ink':'#E9E4D6'},check});
+  assert.deepEqual(dark,{'--page':'#1E1630','--ink':'#F4ECDD','--bd':'3px'});
+});
+
+test('a skin can set itself apart: neon edges, a coloured shadow, a glow, a texture and spaced capitals, from fixed choices only', () => {
+  const vars=readSkin({paper:'#1E1630',ink:'#F4ECDD',line:'#FF9EC4',shadowColor:'#2D4FD8',active:'#2D4FD8',glow:40,texture:'scanlines',caps:true,tracking:.5},{theme,check});
+  assert.equal(vars['--line'],'#FF9EC4');assert.equal(vars['--shadow-color'],'#2D4FD8');assert.equal(vars['--panel-glow'],'24px');
+  assert.equal(vars['--on-active'],'#FFFFFF','white words on a dark pressed button');
+  assert.match(vars['--panel-texture'],/^repeating-linear-gradient/);assert.equal(vars['--panel-caps'],'uppercase');assert.equal(vars['--panel-tracking'],'0.3em');
+  assert.equal(readSkin({texture:'url(https://example.com/x.png)'},{theme,check})['--panel-texture'],undefined,'only the listed textures');
+  assert.equal(readSkin({caps:'yes',tracking:'wide'},{theme,check})['--panel-caps'],undefined);
+});
+
+test('a skin\'s own stylesheet is scoped to the panels, and its images come from the visualization\'s folder', async () => {
+  const {skinStylesheet,SKIN_SCOPE}=await import('../chordbuddy/web/visual-skin.js');
+  const text=skinStylesheet(`.rack{background:url(wood.png),url("./img/brass.webp"),url('/fonts/x.woff2'),url(data:image/png;base64,AA)}`,{base:'/my-visuals/'});
+  assert.ok(text.startsWith(SKIN_SCOPE+'{')&&text.trimEnd().endsWith('}'));
+  assert.match(text,/url\(\/my-visuals\/wood\.png\)/);assert.match(text,/url\("\/my-visuals\/\.\/img\/brass\.webp"\)/);
+  assert.match(text,/url\('\/fonts\/x\.woff2'\)/,'a path from the app root is left alone');assert.match(text,/url\(data:image/);
+  assert.equal(skinStylesheet('',{base:'/'}),null);assert.equal(skinStylesheet(42,{base:'/'}),null);
+});
+
+import {playerRelay,viewerRelay,joinChannels} from '../chordbuddy/web/visual-bridge.js';
+// a stand-in EventSource and fetch for the relay (visual_relay.py on the server)
+function fakeRelay(viewers=1){
+  const sources=[],posts=[];let release=null;
+  class FakeSource{constructor(url){this.url=url;sources.push(this);}close(){this.closed=true;}}
+  const fetch=async(url,options)=>{posts.push({url,...options,body:JSON.parse(options.body)});if(release)await new Promise(r=>{release=r;});return {ok:true,json:async()=>({viewers})};};
+  return {sources,posts,EventSource:FakeSource,fetch,hold(){release=true;},let(){const r=release;release=null;r?.();}};
+}
+const tick=()=>new Promise(r=>setTimeout(r,0));
+
+test('the player relays only after a hello from the server, and only the visualizer messages', async()=>{
+  const fake=fakeRelay(),channel=playerRelay('tok',fake),heard=[];
+  channel.onmessage=e=>heard.push(e.data);
+  assert.equal(fake.sources[0].url,'/api/visual-relay/player?token=tok');
+  channel.postMessage({type:'clock',seconds:1});await tick();
+  assert.equal(fake.posts.length,0,'nobody is listening yet');
+  fake.sources[0].onmessage({data:'{"type":"hello"}'});
+  assert.deepEqual(heard,[{type:'hello'}]);
+  channel.postMessage({type:'scene',songId:'a'});channel.postMessage({type:'mix'});await tick();
+  assert.equal(fake.posts[0].url,'/api/visual-relay/send');assert.equal(fake.posts[0].headers['X-ChordBuddy-Token'],'tok');
+  assert.deepEqual(fake.posts[0].body.messages,[{type:'scene',songId:'a'}]);
+});
+
+test('while one request is out, a newer clock replaces the waiting one; scenes are kept', async()=>{
+  const fake=fakeRelay(),channel=playerRelay('tok',fake);
+  fake.sources[0].onmessage({data:'{"type":"hello"}'});
+  fake.hold();channel.postMessage({type:'clock',seconds:1});await tick();
+  channel.postMessage({type:'clock',seconds:2});channel.postMessage({type:'scene',songId:'b'});channel.postMessage({type:'clock',seconds:3});
+  fake.let();await tick();await tick();await tick();
+  assert.deepEqual(fake.posts.map(p=>p.body.messages),[[{type:'clock',seconds:1}],[{type:'scene',songId:'b'},{type:'clock',seconds:3}]]);
+});
+
+test('the player goes quiet when the server says nobody is watching', async()=>{
+  const fake=fakeRelay(0),channel=playerRelay('tok',fake);
+  fake.sources[0].onmessage({data:'{"type":"hello"}'});
+  channel.postMessage({type:'clock',seconds:1});await tick();await tick();
+  channel.postMessage({type:'clock',seconds:2});await tick();
+  assert.equal(fake.posts.length,1);
+});
+
+test('an OBS viewer says when its link to the app comes up and when it is lost', ()=>{
+  const fake=fakeRelay(),links=[];viewerRelay('k',{...fake,onLink:up=>links.push(up)});
+  fake.sources[0].onopen();fake.sources[0].onerror();fake.sources[0].onopen();
+  assert.deepEqual(links,[true,false,true]);
+});
+
+test('an OBS viewer only listens, and a publisher reaches both channels', ()=>{
+  const fake=fakeRelay(),viewer=viewerRelay('k e y',fake),got=[];
+  assert.equal(fake.sources[0].url,'/visual-stream?key=k%20e%20y');
+  const scenes=[],clocks=[];
+  createVisualReceiver({open:()=>viewer,onScene:m=>scenes.push(m),onClock:m=>clocks.push(m)});   // its hello goes nowhere
+  fake.sources[0].onmessage({data:JSON.stringify({type:'scene',songId:'x'})});fake.sources[0].onmessage({data:'not json'});
+  assert.deepEqual(scenes,[{type:'scene',songId:'x'}]);
+  const a={postMessage:m=>got.push(['a',m]),close(){}},b={postMessage:m=>got.push(['b',m]),close(){}};
+  const joined=joinChannels(a,b),heard=[];joined.onmessage=e=>heard.push(e.data);
+  joined.postMessage(1);b.onmessage({data:'hi'});
+  assert.deepEqual(got,[['a',1],['b',1]]);assert.deepEqual(heard,['hi']);
+});
+
+test('a look chosen for now travels to the player, and back out to every visualizer in the setup', ()=>{
+  const sent=[];let player=null;
+  const channel={postMessage:m=>sent.push(m),close(){}};
+  const shown=[];
+  const publisher=createVisualPublisher({open:()=>{player=channel;return channel;},onShow:(songId,scene)=>shown.push([songId,scene])});
+  channel.onmessage({data:{type:'show',songId:'s1',scene:'starlane'}});
+  channel.onmessage({data:{type:'show',songId:'s1'}});                       // incomplete: ignored
+  assert.deepEqual(shown,[['s1','starlane']]);
+  channel.onmessage({data:{type:'hello'}});
+  publisher.setup({songId:'s1',pinned:{scene:'machine'},usual:null,showing:'starlane'});
+  publisher.setup({songId:'s1',pinned:{scene:'machine'},usual:null,showing:'starlane'});   // unchanged: not sent again
+  publisher.setup({songId:'s1',pinned:{scene:'machine'},usual:null,showing:null});
+  assert.deepEqual(sent.filter(m=>m.type==='setup').map(m=>m.showing),['starlane',null]);
+  const out=[];const receiver=createVisualReceiver({open:()=>({postMessage:m=>out.push(m),close(){}}),onScene(){},onClock(){}});
+  receiver.show('s1','rainydesk');
+  assert.deepEqual(out.at(-1),{type:'show',songId:'s1',scene:'rainydesk'});
+});
+
+import {clockNews} from '../chordbuddy/web/visual-bridge.js';
+test('the relay sends a clock when something changes, and otherwise twice a second', ()=>{
+  const base={type:'clock',songId:'s',seconds:10,playing:true,rate:1,duration:200,loop:null,mix:null,ready:true,at:1000};
+  assert.equal(clockNews(null,base),true);
+  assert.equal(clockNews(base,{...base,seconds:10.1,at:1100}),false,'running on as expected');
+  assert.equal(clockNews(base,{...base,seconds:10.5,at:1500}),true,'half a second later');
+  assert.equal(clockNews(base,{...base,seconds:42,at:1100}),true,'a seek');
+  assert.equal(clockNews(base,{...base,seconds:10.1,playing:false,at:1100}),true,'paused');
+  assert.equal(clockNews(base,{...base,seconds:10.1,rate:0.75,at:1100}),true,'slowed down');
+  assert.equal(clockNews(base,{...base,seconds:10.1,loop:{enabled:true,start:4,end:8},at:1100}),true,'a loop');
+  assert.equal(clockNews(base,{...base,seconds:10.1,mix:{master:0.5},at:1100}),true,'the mix');
+  const paused={...base,playing:false};
+  assert.equal(clockNews(paused,{...paused,at:1200}),false,'paused and still');
+});
+
+test('a cue from the chart reaches visuals as frame.cue, held for the chord it falls on, and never as a chord', () => {
+  const scene=buildScene({content:{...content,cues:[{id:'q',text:'pick scratch',start:5.5},{id:'r',text:'count-in',start:.2}]},music});
+  const f=sampleFrame(scene,6);
+  assert.equal(f.chord.label,'Am','the chord is still the chord');
+  assert.deepEqual([f.cue.text,f.cue.start,f.cue.end],['pick scratch',5.5,9]);assert.ok(f.cue.progress>0&&f.cue.progress<1);
+  assert.equal(sampleFrame(scene,9.5).cue,null,'gone when the next chord starts');
+  assert.deepEqual([sampleFrame(scene,1).cue.text,sampleFrame(scene,1).cue.end],['count-in',2.2],'in silence it shows for 2 s');
+  assert.equal(sampleFrame(buildScene({content,music}),6).cue,null,'a chart without cues');
 });

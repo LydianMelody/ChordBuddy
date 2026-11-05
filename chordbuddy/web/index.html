@@ -19,6 +19,8 @@
   <link rel="stylesheet" href="/song-setup.css">
   <link rel="stylesheet" href="/midi-view.css">
   <link rel="stylesheet" href="/visualizer.css">
+  <link rel="stylesheet" href="/visual-editor.css">
+  <link rel="stylesheet" href="/midi-import.css">
   <script defer src="/vendor/abcjs-basic-min.js"></script>
   <script type="module" src="/shell.js"></script>
   <script type="module" src="/app.js"></script>
@@ -54,37 +56,59 @@
         <div id="song-actions" class="actions hidden">
           <button id="undo" class="btn sq" type="button" disabled aria-label="Undo" data-tip-title="Undo" data-tip="Undo the last change."><span data-icon="undo"></span></button>
           <button id="redo" class="btn sq" type="button" disabled aria-label="Redo" data-tip-title="Redo" data-tip="Put back what you just undid."><span data-icon="redo"></span></button>
-          <details class="more" id="more-menu"><summary class="btn sq" title="More options…" aria-label="More options"><span data-icon="more"></span></summary><div class="more-pop" id="more-tools"><button id="restore" class="text-button" type="button" disabled>Restore model-predicted chart…</button><button id="song-timing" class="text-button hidden" type="button" title="Tempo and beat grid for this song">Timing options…</button><button id="transcription-history" class="text-button" disabled>Previous transcriptions</button><button id="visualizer-window" class="text-button" type="button" title="Open the visualizer in its own window (it can go full screen on any monitor)">Visualizer window</button><button id="visualizer-full" class="text-button" type="button" title="Show the visualizer full screen on this monitor (Esc to leave)">Visualizer full screen</button><button id="shortcuts-open" class="text-button" type="button" title="Every keyboard shortcut (?)">Keyboard shortcuts</button><button id="delete-song" class="text-button" type="button">Delete song…</button></div></details>
-          <button id="song-folder" class="btn sq" title="Open song folder" aria-label="Open song folder"><span data-icon="folder"></span></button>
-          <button id="transcribe" class="btn" title="Analyze this song"><span data-icon="sparkle"></span><em>Analyze song</em></button>
+          <details class="more" id="history-menu"><summary class="btn sq" title="History: your recent changes by name. Pick one to undo back to it, or to redo up to it, in one go" aria-label="History"><span data-icon="clock"></span></summary><div class="more-pop history-pop" id="history-pop"></div></details>
           <details class="more export-menu" id="export-menu"><summary class="btn blue" id="export-button" title="Save or export this song" aria-label="Export"><span data-icon="download"></span>Export</summary><div class="more-pop" id="export-pop">
             <button type="button" class="text-button" data-export="pdf-chart">Chord chart · PDF</button>
             <button type="button" class="text-button" data-export="pdf-lead">Lead sheet · PDF</button>
+            <button type="button" class="text-button hidden" id="lead-external" data-export="lead-external" title="Save the lead sheet as MusicXML and open it in MuseScore (or whichever program opens .musicxml files)">Lead sheet · open in MuseScore…</button>
             <button type="button" class="text-button" data-export="midi">MIDI · one file, all tracks</button>
             <button type="button" class="text-button" data-export="midi-tracks">MIDI · one file per track (zip)</button>
             <button type="button" class="text-button" data-export="outputs" title="Everything SheetSage wrote for this song: beats, chords, melody, tokens and more">All SheetSage outputs (zip)</button>
             <button type="button" class="text-button" data-export="song" title="The recording, analysis and every edit in one zip, to import on another computer (or keep as a backup)">Whole song · zip</button>
             <a id="download" class="text-button disabled" title="This view's own file, as Chord Buddy saves it">This view's file</a>
           </div></details>
+          <details class="more" id="more-menu"><summary class="btn sq" title="More for this song: restore, earlier analyses, timing, shortcuts, delete" aria-label="More options"><span data-icon="more"></span></summary><div class="more-pop" id="more-tools">
+            <button id="restore" class="text-button" type="button" disabled>Restore model-predicted chart…</button>
+            <button id="transcription-history" class="text-button" disabled>Previous transcriptions</button>
+            <button id="transcribe" class="text-button" type="button"><em>Analyze again</em>…</button>
+            <button id="song-timing" class="text-button hidden" type="button" title="Tempo and beat grid for this song">Timing options…</button>
+            <button id="song-folder" class="text-button" type="button" title="Open this song's folder (the recording, its stems and your own MIDI files) on your computer">Open song folder</button>
+            <button id="shortcuts-open" class="text-button" type="button" title="Every keyboard shortcut (?)">Keyboard shortcuts</button>
+            <hr class="more-sep">
+            <button id="delete-song" class="text-button danger" type="button">Delete song…</button>
+          </div></details>
         </div>
         <div class="actions actions-global">
-          <div class="themes" id="themes" title="Ink colors">
+          <details class="more" id="visual-menu"><summary class="btn" title="Show the visualizer, stream it, or edit how it reacts" aria-label="Visualizer"><span data-icon="eye"></span><em>Visualizer</em></summary><div class="more-pop">
+            <button id="visual-editor-open" class="text-button" type="button" title="Choose which sounds and signals move each part of a visualization, with a live preview. It takes the place of the chart until you close it.">Advanced Visuals Editor</button>
+            <button id="visualizer-window" class="text-button" type="button" title="Open the visualizer in its own window (it can go full screen on any monitor)">In its own window</button>
+            <button id="visualizer-full" class="text-button" type="button" title="Show the visualizer full screen on this monitor (Esc to leave)">Full screen here</button>
+            <button id="visualizer-obs" class="text-button" type="button" title="Stream the visualizer: an address for an OBS Browser Source, with no controls on screen">Stream to OBS…</button>
+            <button id="song-visual" class="text-button" type="button" title="Choose the visualization that shows whenever this song is open">Visualization for this song…</button>
+          </div></details>
+          <button id="on-air" class="btn on-air" type="button" aria-pressed="false" data-tip-title="On air" data-tip="For streaming the visualizer. While this is on, 1–9 choose the look, Y shows or hides the lyrics and C turns calm mode on or off, from the chart and MIDI views, for every visualizer, OBS included."><i aria-hidden="true"></i><em>On air</em></button>
+          <details class="more" id="settings-menu"><summary class="btn sq" title="Settings: colors, light or dark, and the models' credits" aria-label="Settings"><span data-icon="gear"></span></summary><div class="more-pop settings-pop">
+            <p class="more-label">Ink colors</p>
+            <div class="themes" id="themes" title="Ink colors">
             <button data-theme-pick="tomato" style="--c1:#EE5530;--c2:#2D4FD8" title="Tomato &amp; Cobalt" aria-label="Tomato and Cobalt"></button>
             <button data-theme-pick="forest" style="--c1:#E8743B;--c2:#1F5C46" title="Persimmon &amp; Forest" aria-label="Persimmon and Forest"></button>
             <button data-theme-pick="plum" style="--c1:#E2466B;--c2:#4A2F86" title="Rose &amp; Plum" aria-label="Rose and Plum"></button>
           </div>
-          <button id="scheme-toggle" class="btn sq" type="button" aria-label="Switch between light and dark" data-tip-title="Light or dark" data-tip="Switch between the light and the dark look."><span data-icon="moon"></span></button>
-          <button id="model-attribution" class="btn sq" title="Model &amp; attribution" aria-label="Model and attribution"><span data-icon="note"></span></button>
+            <button id="scheme-toggle" class="text-button" type="button" aria-pressed="false"><span data-icon="moon"></span><em>Dark mode</em></button>
+            <button id="model-attribution" class="text-button" type="button" title="Which models Chord Buddy uses, and who made them">Models &amp; credits</button>
+          </div></details>
           <button id="import-button" class="btn hot" title="Import an MP3, or a song zip exported from Chord Buddy"><span data-icon="plus"></span><em>Import</em></button>
         </div>
         </div>
         <input id="file-input" type="file" accept=".mp3,audio/mpeg,.zip,application/zip" hidden>
       </header>
       <div id="alert" role="alert" class="alert hidden"></div>
+      <div id="history-note" role="status" class="history-note hidden"><span id="history-note-text"></span><button id="history-note-back" class="btn" type="button"></button></div>
       <section id="job-panel" class="job-panel hidden" aria-live="polite"><div class="job-icon">♫</div><div class="job-copy"><strong id="job-title">Preparing transcription</strong><span id="job-message"></span><div class="progress-track"><div id="job-progress"></div></div></div><button id="cancel-job" class="secondary">Cancel</button></section>
       <section id="chord-model-panel" class="models-panel hidden" aria-live="polite"></section>
       <section id="models-panel" class="models-panel hidden" aria-live="polite"></section>
       <section id="library-page" class="library-page" aria-label="All songs"></section>
+      <section id="visual-editor" class="visual-editor hidden" aria-label="Advanced Visuals Editor"></section>
       <section id="empty-state" class="empty-state">
         <div class="big"><span data-icon="note"></span></div><h2>Import a recording</h2><p>Choose an MP3 to create a chord chart, processed stems, a lead sheet and editable MIDI.</p><button id="empty-import" class="btn hot"><span data-icon="upload"></span>Import MP3</button><small>Or drop a file anywhere in this window</small>
       </section>
@@ -102,9 +126,8 @@
           <div id="document-tabs" class="document-tabs tabs" role="tablist" aria-label="Transcription outputs"></div>
             <div class="tool-options" id="tool-options">
             <div class="tool-note" id="tool-note" role="status"></div>
-            <div class="opt opt-timing"><button type="button" id="snap-toggle" class="btn sq magnet on" aria-pressed="true" aria-label="Snap to the grid" data-tip-title="Snap" data-tip="On: words snap to the beat grid, which gets finer as you zoom in. Off: words land exactly where you drop them."><span data-icon="magnet"></span></button> <label class="suggest-toggle" id="suggest-wrap"><input type="checkbox" id="suggest" checked> Overlay melody</label></div>
+            <div class="opt opt-timing"><button type="button" id="snap-toggle" class="btn sq magnet on" aria-pressed="true" aria-label="Snap to the grid" data-tip-title="Snap" data-tip="On: words snap to the beat grid, which gets finer as you zoom in. Off: words land exactly where you drop them."><span data-icon="magnet"></span></button> <label class="suggest-toggle" id="suggest-wrap" data-tip-title="Overlay melody" data-tip="Draws the sung notes faintly behind each bar (high notes higher), so you can drop each word on its note. It also lets words snap to where the notes start."><input type="checkbox" id="suggest" checked> Overlay melody</label> <button type="button" id="fold-repeat" class="secondary fold-repeat" aria-pressed="false" data-tip-title="Fold a repeat" data-tip="Pick the first and last bar number of a part that repeats, then choose how it folds: 2 bars ×4, 4 bars ×2, or written out. Shift+click on bar numbers does the same.">Fold a repeat</button></div>
             <div class="opt opt-edit">Apply to <div class="seg" id="scope"><button type="button" class="on" data-scope="occurrence">This pass</button><button type="button" data-scope="all-matching">All matching</button></div></div>
-            <p class="key-legend" id="key-legend">Hold <kbd>Ctrl</kbd> for content <mark class="k-edit">editing</mark> tools and <kbd>Shift</kbd> for <mark class="k-time">timing</mark> tools</p>
           </div>
           <div class="hist history-actions"><span id="save-status" class="saved quiet" role="status"></span></div>
         </div>
@@ -115,7 +138,7 @@
           <div id="document-empty" class="document-empty"><span>♩</span><h2>Your transcription will live here.</h2><p>Review the song title and press Analyze.<br>First-time model setup may take a little longer.</p></div>
           <div id="chart-editor" class="hidden">
             <article class="page" id="page">
-              <div class="jhead"><div class="spine" id="page-spine">Chart</div><div class="jt"><h2 id="page-song" class="jtitle" contenteditable="plaintext-only" spellcheck="false" role="textbox" aria-label="Song title" data-placeholder="Song title" data-tip-title="Rename the song" data-tip="Click the title to rename the song."></h2><input id="song-title" maxlength="200" hidden tabindex="-1"><p id="page-sub"></p></div><button type="button" class="meter-box" id="meter-box" hidden></button></div>
+              <div class="jhead"><div class="spine" id="page-spine">Chart</div><div class="jt"><h2 id="page-song" class="jtitle" contenteditable="plaintext-only" spellcheck="false" role="textbox" aria-label="Song title" data-placeholder="Song title" data-tip-title="Rename the song" data-tip="Click the title to type a new name. Enter keeps it, Esc puts the old one back."></h2><input id="song-title" maxlength="200" hidden tabindex="-1"><p id="page-sub"></p></div><button type="button" class="meter-box" id="meter-box" hidden></button></div>
               <div class="chartbody"><div id="chart-sections" class="practice-chart"></div></div>
             </article>
           </div>
@@ -152,6 +175,6 @@
   </div>
   <div id="info-pop" class="info-pop hidden" role="note"></div>
   <div id="key-pop" class="info-pop key-pop hidden"></div>
-  <div id="drop-overlay" class="drop-overlay hidden"><div>↓<h2>Drop your MP3 here</h2><p>Or a song zip exported from Chord Buddy. It goes in your selected set list.</p></div></div>
+  <div id="drop-overlay" class="drop-overlay hidden"><div>↓<h2>Drop your MP3 here</h2><p>Or a song zip exported from Chord Buddy. It goes in your selected set list. A MIDI file is lined up with a song for the visualizer.</p></div></div>
 </body>
 </html>

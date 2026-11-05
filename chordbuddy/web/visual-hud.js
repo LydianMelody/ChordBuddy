@@ -48,6 +48,8 @@ export function drawChordHud(g,frame,w,h,{calm=false}={}){
     shaded(g,()=>{g.font=`800 ${size*(1+0.06*fresh)}px system-ui,sans-serif`;g.fillStyle='#fff';halo(g,label,cx,y);});
     g.fillStyle=chordHsl(label,62,0.9);g.fillRect(cx-u*0.06,y+size*0.58,u*0.12,Math.max(3,u*0.006));
   }
+  // a cue from the chart ("pick scratch") sits over the chord in plain words, in no chord's colour
+  if(frame.cue)shaded(g,()=>{fitFont(g,frame.cue.text,size*0.3,w*0.6,size*0.18,600);g.fillStyle='rgba(235,232,222,.85)';halo(g,frame.cue.text,cx,y-size*0.78);});
   if(chord.next){
     g.font=`800 ${size}px system-ui,sans-serif`;
     const right=cx+Math.max(g.measureText(label||'—').width/2,u*0.08)+u*0.09,r=u*0.042;

@@ -321,7 +321,26 @@ test('several pasted lines flow into the following lines, one per pass', async (
   assert.equal(m.commits[0].candidate.sections[0].lyrics,'first pass words\nsecond pass\nthird pass\nfourth pass');
   const toomany=mount(f);const l2=openWords(toomany);
   l2[2].textContent='a\nb\nc';l2[2].oninput();await leave(l2[2]);
-  assert.equal(toomany.commits.length,0);assert.match(toomany.root.textContent,/only 2 lines/);
+  assert.equal(toomany.commits.length,1,'more lines than the song has left: nothing is refused');
+  assert.match(toomany.commits[0].candidate.sections[0].lyrics,/\nb c$/,'the extra lines join the last line');
+  assert.match(toomany.root.textContent,/added to the end of the last line/);
+});
+
+test('pasting several lines fills this pass and the next ones at once; the rest waits on the last line', async () => {
+  const m=mount(withWords('first pass words',[{offset:0,measure_id:'m0',beat:0}]));const lines=openWords(m);
+  let prevented=false;const paste=text=>({clipboardData:{getData:()=>text},preventDefault(){prevented=true;}});
+  lines[1].onpaste(paste('one line'));assert.equal(prevented,false,'a single line is pasted by the browser as usual');
+  lines[1].onpaste(paste('second pass\r\n\r\nthird pass\nfourth pass\nfifth pass'));
+  assert.equal(prevented,true);
+  assert.equal(lines[1].textContent,'second pass');
+  assert.equal(lines.length,4,'the fixture row has four passes, the only lines in the song');
+  assert.equal(lines[2].textContent,'third pass');
+  assert.equal(lines[3].textContent,'fourth pass\nfifth pass','lines past the row wait on its last line');
+  await leave(lines.at(-1));
+  assert.equal(m.commits.length,1);
+  assert.equal(m.commits[0].candidate.sections[0].lyrics,'first pass words\nsecond pass\nthird pass\nfourth pass fifth pass','this song has four lines: the fifth joins the last');
+  const last=mount(withWords('first pass words',[{offset:0,measure_id:'m0',beat:0}]));const l3=openWords(last);
+  l3[3].onpaste(paste('x\ny'));assert.equal(l3[3].textContent,'x\ny','on the row’s last line, every pasted line waits there');
 });
 
 test('Enter on a line moves to the next line of the row', async () => {
@@ -425,14 +444,15 @@ test('Ctrl: a barline joins two bars and a beat splits a bar (the first barline 
   assert.equal(byClass(mount(fixture()).root,'zone-beat').length,0,'without a barline handler there is nothing to click');
 });
 
-test('every place Ctrl or Shift adds has a tooltip with a picture, and none names a key', () => {
-  const m=mount(repeated());
+test('every place the Edit and Timing tools add has a tooltip with a picture, and none names a key', () => {
+  const m=mount(repeated());m.view.setTool('edit');
   const places=[...chordButtons(m.root),...byClass(m.root,'lyr'),...byClass(m.root,'sec-name'),...byClass(m.root,'zone-join'),...byClass(m.root,'zone-split'),...byClass(m.root,'lane-add')];
   assert.ok(places.length>5);
   for(const node of places){assert.ok(node.dataset.tipTitle&&node.dataset.tip.length>20&&node.dataset.tipArt.includes('<svg'),node.className);assert.equal(node.dataset.tipKey,undefined);}
-  assert.equal(chordButtons(m.root)[0].dataset.tipKeys,'ctrl','on the chart itself, the tip waits for Ctrl');
-  m.view.setMode('timing');
-  for(const node of [...byClass(m.root,'wchip'),...byClass(m.root,'tno')])assert.equal(node.dataset.tipKeys,'shift');
+  assert.equal(chordButtons(m.root)[0].dataset.tipActs,'edit','on the chart itself, the tip waits for the chart to edit');
+  m.view.setTool('timing');
+  for(const node of byClass(m.root,'wchip'))assert.equal(node.dataset.tipActs,'time');
+  for(const node of byClass(m.root,'tno'))assert.equal(node.dataset.tipActs,'fold','a bar number only folds while folding');
 });
 
 // ===================== the keys you hold =====================
@@ -445,28 +465,42 @@ function withKeys(f=fixture(),extra={}){
   return {root,view,fire};
 }
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
-test('the note on the keys lights up "editing" while Ctrl is held and "timing" while the chart is in time', () => {
-  const legend=new Node(),k=withKeys(fixture(),{legend}),lit=()=>legend.className.split(' ').filter(Boolean).sort().join(' ');
-  assert.equal(lit(),'');
-  k.fire('keydown','Control');assert.equal(lit(),'editing');
-  k.fire('keyup','Control');assert.equal(lit(),'');
-  k.view.setMode('timing');assert.equal(lit(),'timing');
-  k.view.setMode('nav');assert.equal(lit(),'');
+test('V, E and T pick the tools; Esc puts the tool down; the chart says what it does now', () => {
+  const k=withKeys();assert.equal(k.view.getTool(),'play');assert.equal(k.root.dataset.acts,'');assert.equal(k.root.dataset.tool,'play');
+  assert.equal(k.view.handleKey({key:'e'}),true);assert.equal(k.view.getTool(),'edit');assert.equal(k.root.dataset.acts,'edit');
+  assert.equal(k.view.handleKey({key:'T'}),true);assert.equal(k.view.getMode(),'timing');assert.equal(k.root.dataset.acts,'time');
+  assert.equal(k.view.handleKey({key:'v'}),true);assert.equal(k.view.getMode(),'nav');assert.equal(k.view.getTool(),'play');
+  assert.equal(k.view.handleKey({key:'e',ctrlKey:true}),false,'Ctrl+E is not the Edit tool');
+  k.view.setTool('timing');assert.equal(k.view.handleKey({key:'Escape'}),true);assert.equal(k.view.getTool(),'play');assert.equal(k.view.getMode(),'nav');
+  assert.equal(k.view.handleKey({key:'Escape'}),false,'with Play in hand, Esc is left for others');
 });
-test('holding Ctrl marks the chart so its places show; letting go hides them', () => {
-  const k=withKeys();assert.equal(k.root.dataset.keys,'');
-  k.fire('keydown','Control');assert.equal(k.root.dataset.keys,'ctrl');
-  k.fire('keyup','Control');assert.equal(k.root.dataset.keys,'');
+test('the rail shows the four tools with the one in use lit, and picking one there switches to it', () => {
+  const f=fixture();installDom();const root=new Node(),dock=new Node(),note=new Node(),status=new Node();
+  const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{},onError:()=>{},dock,note,status});
+  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});
+  const tools=()=>byClass(dock,'tool-btn');
+  assert.deepEqual(tools().map(b=>b.dataset.tool),['play','edit','timing','cue']);
+  assert.deepEqual(tools().map(b=>b.getAttribute('aria-pressed')),['true','false','false','false']);
+  tools()[2].onclick();assert.equal(view.getMode(),'timing');assert.deepEqual(tools().map(b=>b.getAttribute('aria-pressed')),['false','false','true','false']);
+});
+test('Ctrl swaps Play and Edit while it is held: it marks the chart, and a click with it does the other thing', () => {
+  const k=withKeys();
+  k.fire('keydown','Control');assert.equal(k.root.dataset.acts,'edit');
+  k.fire('keyup','Control');assert.equal(k.root.dataset.acts,'');
+  k.view.setTool('edit');assert.equal(k.root.dataset.acts,'edit');
+  k.fire('keydown','Control');assert.equal(k.root.dataset.acts,'','Ctrl over Edit plays from a click');
+  k.fire('keyup','Control');
+  const m=mount(fixture());m.view.setTool('edit');
+  chordButtons(m.root)[1].onclick({ctrlKey:true});assert.equal(m.seeks.length,1,'Ctrl+click plays from there, even with Edit in hand');
+  chordButtons(m.root)[1].onclick({});assert.equal(m.seeks.length,1);assert.ok(byClass(m.root,'chord-type').length||byClass(m.root,'editing').length,'a plain click edits');
 });
 
-test('holding Shift draws the chart in time until it is let go; a quick tap keeps it there, Esc or another tap puts it back', async () => {
+test('holding Shift draws the chart in time until it is let go, and a quick tap does nothing lasting', async () => {
   const k=withKeys();
-  k.fire('keydown','Shift');await wait(200);assert.equal(k.view.getMode(),'timing');assert.equal(k.root.dataset.keys,'shift');
+  k.fire('keydown','Shift');await wait(200);assert.equal(k.view.getMode(),'timing');assert.equal(k.root.dataset.acts,'time');
   await wait(150);k.fire('keyup','Shift');assert.equal(k.view.getMode(),'nav');
-  k.fire('keydown','Shift');await wait(40);k.fire('keyup','Shift');await wait(200);assert.equal(k.view.getMode(),'timing','a tap keeps it');
-  assert.equal(k.view.handleKey({key:'Escape'}),true);assert.equal(k.view.getMode(),'nav');assert.equal(k.view.handleKey({key:'Escape'}),false);
-  k.fire('keydown','Shift');await wait(40);k.fire('keyup','Shift');assert.equal(k.view.getMode(),'timing');
-  k.fire('keydown','Shift');await wait(40);k.fire('keyup','Shift');assert.equal(k.view.getMode(),'nav','another tap puts it back');
+  k.fire('keydown','Shift');await wait(40);k.fire('keyup','Shift');await wait(200);assert.equal(k.view.getMode(),'nav','no tap to keep it: the Timing tool does that');
+  k.view.setTool('timing');k.fire('keydown','Shift');await wait(200);k.fire('keyup','Shift');assert.equal(k.view.getMode(),'timing','letting go of Shift keeps the Timing tool');
 });
 
 test('Shift as part of a shortcut (Ctrl+Shift+Z) or while typing never switches the view', async () => {
@@ -495,14 +529,14 @@ test('view and zoom changes are reported so the toolbar can follow', () => {
   assert.equal(view.getZoom(),1);
 });
 
-test('the chart has no tools: the rail is left empty and the line under the page is quiet until there is something to say', () => {
+test('the rail holds the chart\'s tools, and the line under the page is quiet until there is something to say', () => {
   const f=fixture();installDom();const root=new Node(),dock=new Node(),note=new Node(),status=new Node();
   dock.append(new Node());                                            // whatever the lead sheet left there
   const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{},onError:()=>{},dock,note,status});
   view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});
-  assert.equal(dock.children.length,0);assert.equal(byClass(root,'tool-status').length,0,'nothing of the line sits on the chart');
-  assert.equal(status.textContent,'','the note on the keys sits in the toolbar now');assert.equal(byClass(status,'tool-put-down').length,0);
-  view.setMode('timing');assert.equal(byClass(status,'tool-put-down').length,1,'Esc leaves the kept in-time view');
+  assert.equal(byClass(dock,'tool-btn').length,4,'whatever the lead sheet left there is replaced');assert.equal(byClass(root,'tool-status').length,0,'nothing of the line sits on the chart');
+  assert.equal(status.textContent,'');assert.equal(byClass(status,'tool-put-down').length,0);
+  view.setMode('timing');assert.equal(byClass(status,'tool-put-down').length,1,'Esc puts the Timing tool down');
 });
 
 // ===================== Shift: fold repeats =====================
@@ -514,6 +548,15 @@ test('Shift+click two bar numbers to fold a part that repeats; Esc drops the pic
   assert.ok(byClass(m.root,'fix-choice').length>=1);
   assert.equal(m.view.handleKey({key:'Escape'}),true);assert.equal(byClass(m.root,'fix-choice').length,0);
   byClass(m.root,'tno')[2].onclick({});assert.equal(m.seeks.at(-1),4,'a plain click plays from the bar');
+});
+
+test('Fold a repeat: bar numbers pick without Shift until a choice is made, and Esc stops it', () => {
+  const m=mount(fixture());m.view.setMode('timing');
+  assert.equal(m.view.toggleFolding(),true);assert.match(m.root.dataset.acts,/fold/);
+  byClass(m.root,'tno')[0].onclick({});assert.match(m.root.textContent,/Bar 1 picked/);assert.equal(m.seeks.length,0);
+  byClass(m.root,'tno')[1].onclick({});assert.ok(byClass(m.root,'fix-choice').length>=1);
+  assert.equal(m.view.handleKey({key:'Escape'}),true);assert.equal(m.view.isFolding(),false);
+  byClass(m.root,'tno')[2].onclick({});assert.equal(m.seeks.length,1,'after Esc a bar number plays from there again');
 });
 
 test('Shift+click a repeat count to regroup it, and an unsupported saved grouping can be reset', async () => {
@@ -563,6 +606,21 @@ test('a thin playhead line sits in the bar being played, in reading and in timin
   m.view.updatePlayback({seconds:-5,ready:true,playing:true});assert.equal(mark().length,0,'before the music: no line');
 });
 
+test('the playhead line stays in the bar being played when silence before the music hides the first bar', () => {
+  // bar 1 is a leading placeholder, hidden but still part of the first row; no chords repeat, so nothing folds
+  const f=fixture(),names=['A','Bm','C#m','D','E','F#m','G'];
+  f.content.chords.sort((a,b)=>a.start-b.start).forEach((c,i)=>c.label=i?names[i%7]+(i>6?'7':''):'N');
+  const m=mount(f),mark=()=>byClass(m.root,'playmark');
+  for(const mode of ['reading','timing']){
+    m.view.setMode(mode);
+    for(const id of ['m1','m2','m4','m6']){
+      const bar=f.music.measures.find(x=>x.id===id);
+      m.view.updatePlayback({seconds:bar.start+.1,ready:true,playing:true});
+      assert.equal(mark()[0]?.parent?.dataset?.bar,id,mode+': not a bar ahead');
+    }
+  }
+});
+
 test('passes are listed in pass order, not in the order their lines were typed', async () => {
   const f=fixture();f.content.sections[0].lyrics='three four\none two';            // pass 2's line was typed first
   f.content.layout={bars_per_line:4,breaks:[],bar_overrides:[],lines:[['m4',0],['m0',1]].map(([m,line])=>({section_id:'s',line,start_measure:m,end_measure:'m'+(Number(m.slice(1))+3),words:[{offset:0,measure_id:m,beat:0}]}))};
@@ -589,4 +647,63 @@ test('timing: the words of the passes not being played step back', () => {
   const lanes=byClass(m.root,'tlane').filter(l=>l.dataset.pass);
   assert.ok(lanes.some(l=>has(l,'dim')),'other passes dim');
   assert.ok(lanes.filter(l=>l.dataset.pass==='2').every(l=>!has(l,'dim')),'the pass being played does not');
+});
+
+// ===================== Cue (Q): short notes above the chords =====================
+const cueLines=root=>byClass(root,'cue-type');
+const cueChips=root=>byClass(root,'cue').filter(n=>n.tagName==='button');
+test('Q picks the Cue tool; a click on a chord types a cue right above it, and Enter adds it at that chord without touching the chords', async () => {
+  const m=mount(fixture());assert.equal(m.view.handleKey({key:'q'}),true);assert.equal(m.view.getTool(),'cue');assert.equal(m.root.dataset.acts,'cue');
+  chordButtons(m.root)[1].onclick({});
+  const line=cueLines(m.root)[0];assert.ok(line,'a line to type on, in the lane above the chord');assert.equal(line.parent.parent.dataset.chunk,chordButtons(m.root)[1].parent.parent.dataset.chunk);
+  assert.deepEqual(m.seeks,[],'the click wrote, it did not play');
+  typeLine(line,'  pick   scratch ');press(line,'Enter');await tick();
+  assert.equal(m.commits.length,1);assert.equal(m.commits[0].label,'Add cue');
+  const c=m.commits[0].candidate;assert.deepEqual(c.cues.map(q=>[q.text,q.start]),[['pick scratch',2]]);
+  assert.deepEqual(c.chords,fixture().content.chords,'the chords are as they were');
+});
+
+test('a new cue goes on the pass picked; "All matching" puts one on every matching pass', async () => {
+  const all=mount(fixture());all.view.setTool('cue');all.view.setScope('all-matching');chordButtons(all.root)[0].onclick({});
+  typeLine(cueLines(all.root)[0],'feedback');press(cueLines(all.root)[0],'Enter');await tick();
+  assert.deepEqual(all.commits[0].candidate.cues.map(q=>q.start),[0,8,20,24]);
+});
+
+test('a cue is drawn above its chord, plays from its moment, is lit only in its own pass, and is retyped or removed with the Cue tool', async () => {
+  const f=fixture();f.content.cues=[{id:'q',text:'feedback',start:8.5}];
+  const m=mount(f),chip=()=>cueChips(m.root)[0];
+  assert.equal(cueChips(m.root).length,1);assert.equal(chip().textContent,'2feedback','tagged with its pass on a repeated row');
+  chip().onclick({});assert.equal(m.seeks.at(-1),8.5);
+  m.view.updatePlayback({seconds:1,ready:true,playing:true});assert.ok(!has(chip(),'now'),'pass 1 of the same chord is not its moment');
+  m.view.updatePlayback({seconds:9,ready:true,playing:true});assert.ok(has(chip(),'now'));
+  m.view.setTool('cue');chip().onclick({});
+  const line=cueLines(m.root)[0];assert.equal(line.textContent,'feedback');
+  typeLine(line,'big feedback');press(line,'Enter');await tick();
+  assert.equal(m.commits[0].label,'Edit cue');assert.deepEqual(m.commits[0].candidate.cues,[{id:'q',text:'big feedback',start:8.5}]);
+  const gone=mount(f);gone.view.setTool('cue');cueChips(gone.root)[0].onclick({});typeLine(cueLines(gone.root)[0],'');press(cueLines(gone.root)[0],'Enter');await tick();
+  assert.equal(gone.commits[0].label,'Remove cue');assert.deepEqual(gone.commits[0].candidate.cues,[]);
+});
+
+test('a cue line: Esc or no change writes nothing, and a cue too long to read at a glance is refused while you keep typing', async () => {
+  const m=mount(fixture());m.view.setTool('cue');chordButtons(m.root)[0].onclick({});
+  typeLine(cueLines(m.root)[0],'count-in');press(cueLines(m.root)[0],'Escape');await tick();
+  assert.equal(m.commits.length,0);assert.equal(cueLines(m.root).length,0);
+  chordButtons(m.root)[0].onclick({});cueLines(m.root)[0].onblur();await tick();assert.equal(m.commits.length,0,'nothing typed');
+  chordButtons(m.root)[0].onclick({});typeLine(cueLines(m.root)[0],'x'.repeat(41));press(cueLines(m.root)[0],'Enter');await tick();
+  assert.equal(m.commits.length,0);assert.match(m.root.textContent,/Keep a cue short/);assert.equal(cueLines(m.root).length,1,'still typing');
+});
+
+test('every chord shows where a cue would go only while the Cue tool is in hand, and Ctrl over it still edits the chords', () => {
+  const m=mount(fixture());
+  assert.ok(byClass(m.root,'cue-add').length>0);assert.ok(byClass(m.root,'cue-add').every(b=>b.dataset.tipActs==='cue'),'shown and explained only with the Cue tool');
+  m.view.setTool('cue');chordButtons(m.root)[0].onclick(ctrl);assert.ok(chordLine(m.root),'Ctrl+click opens the chord row');assert.equal(cueLines(m.root).length,0);
+});
+
+test('typing a row’s chords happens in the row itself: the line lies over its chords, which keep their room but step aside', () => {
+  const m=mount(fixture());
+  const line=openChords(m,1);assert.equal(line.textContent,'G C D C');
+  const row=byClass(m.root,'row').find(r=>has(r,'editing'));
+  assert.ok(byClass(row,'chord-line').every(n=>has(n,'held')),'every chord of the row is held under the line');
+  assert.ok(byClass(m.root,'row').filter(r=>r!==row).every(r=>byClass(r,'chord-line').every(n=>!has(n,'held'))),'other rows are as they were');
+  assert.equal(line.parent.parent,row,'the line is the row’s own, not a box above the chart');
 });

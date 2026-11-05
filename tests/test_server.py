@@ -235,3 +235,12 @@ def test_bundled_woff2_fonts_have_a_font_mime_type():
     import mimetypes
     import chordbuddy.server  # noqa: F401  registers the type
     assert mimetypes.guess_type('BricolageGrotesque.woff2')[0]=='font/woff2'
+
+
+def test_page_may_compile_webassembly_but_never_eval(service):
+    # Signalsmith Stretch (practice speed) is WebAssembly; 'wasm-unsafe-eval' allows compiling it and nothing more.
+    with request(service,'/vendor/signalsmith-stretch.js') as response:
+        policy=response.headers['Content-Security-Policy']
+        assert response.headers['Content-Type'].split(';')[0] in ('text/javascript','application/javascript')
+    script=next(part.split()[1:] for part in policy.split(';') if part.split()[0]=='script-src')
+    assert script==["'self'","'wasm-unsafe-eval'"]

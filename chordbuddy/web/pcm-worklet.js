@@ -1,4 +1,6 @@
 import {StemPlayer} from './pcm-player.js';
+import {loadStretchEngine} from './time-stretch.js';
+loadStretchEngine(sampleRate);   // Signalsmith Stretch for practice speeds; it takes a moment, and the simpler stretcher covers until then
 class StemProcessor extends AudioWorkletProcessor{
  constructor(){super();this.player=new StemPlayer();this.mixer=this.player.mixer;this.tick=0;this.stream=null;this.ready=false;this.port.onmessage=e=>this.command(e.data);}
  command(m){
@@ -26,7 +28,7 @@ class StemProcessor extends AudioWorkletProcessor{
  process(inputs,outputs){
   const out=outputs[0];if(!out?.length)return true;
   this.player.render(out[0],out[1]||out[0]);this.tick+=out[0].length;
-  if(this.tick>=2048){this.tick=0;const m={type:'position',generation:this.mixer.generation,runId:this.mixer.runId,sourceFrame:this.player.sourceFrame,played:this.mixer.played,levels:this.mixer.takeLevels(),contextFrame:currentFrame,state:this.player.state,queuedFrames:this.mixer.queuedFrames};this.port.postMessage(m);this.stream?.postMessage(m);}
+  if(this.tick>=2048){this.tick=0;const m={type:'position',generation:this.mixer.generation,runId:this.mixer.runId,sourceFrame:this.player.sourceFrame,played:this.mixer.played,levels:this.mixer.takeLevels(),contextFrame:currentFrame,state:this.player.state,stretcher:this.player.stretcher,queuedFrames:this.mixer.queuedFrames};this.port.postMessage(m);this.stream?.postMessage(m);}
   return true;
  }
 }

@@ -1,12 +1,96 @@
-// Pitch-preserving time stretch (WSOLA: waveform-similarity overlap-add) for the mixed stereo stream.
-// Pure code with no Web Audio dependency, so it runs in the AudioWorklet and in Node tests.
+// Pitch-preserving time stretch for the mixed stereo stream. Pure code with no Web Audio dependency, so it runs in the AudioWorklet
+// and in Node tests.
 //
 // rate = input frames consumed per output frame: 0.5 is half speed, 1 is unchanged, 1.25 is 25% faster.
+// Two stretchers with the same shape (step() fills readyL/readyR with Hs frames; currentSourceFrame() is the frame being heard):
+// - SignalsmithStretcher: Signalsmith Stretch (vendor/signalsmith-stretch.js, MIT), a spectral stretcher made for whole mixes.
+//   It is what plays once loadStretchEngine() has finished; the worklet starts loading it as soon as it starts.
+// - WsolaStretcher: Chord Buddy's own simpler stretcher, the fallback if the engine has not loaded (or cannot load).
+import SignalsmithStretch from './vendor/signalsmith-stretch.js';
+
+export const MIN_RATE=.5,MAX_RATE=1.25;
+export function checkRate(rate){
+  if(!Number.isFinite(rate)||rate<MIN_RATE||rate>MAX_RATE)throw Error('Speed must be between 50% and 125%');
+}
+
+// ----- Signalsmith Stretch -----
+// One engine holds one stream, which is all the player needs: a new stretcher (after a seek or a loop change) takes it over.
+let engine=null,loading=null;
+export function loadStretchEngine(sampleRate=44100){
+  return loading??=SignalsmithStretch().then(module=>{
+    module._main?.();
+    module._presetDefault(2,sampleRate);
+    // the default settings, with the heavy work spread evenly over time so no single audio block runs long (a dropout risk)
+    module._configure(2,module._blockSamples(),module._intervalSamples(),1);
+    engine=module;return module;
+  },()=>null);
+}
+export const stretchEngine=()=>engine;
+// The best stretcher available right now.
+export function createStretcher({pull}){return engine?new SignalsmithStretcher({pull,engine}):new WsolaStretcher({pull});}
+
+export class SignalsmithStretcher{
+  // pull(left,right,count) fills count mixed frames (the arrays are count long) and returns the source frame number of the first one.
+  constructor({pull,engine,hop=512}){
+    this.pull=pull;this.engine=engine;this.Hs=hop;this.piece=128;
+    this.inLat=engine._inputLatency();this.outLat=engine._outputLatency();
+    this.len=Math.ceil(this.inLat+this.outLat*MAX_RATE)+2*hop;
+    this.ptr=engine._setBuffers(2,this.len);this.heap=null;
+    this.readyL=new Float32Array(hop);this.readyR=new Float32Array(hop);
+    this.rate=1;this.reset();
+  }
+  setRate(rate){checkRate(rate);this.rate=rate;}
+  reset(){this.engine._reset();this.inEnd=0;this.map=[];this.carry=0;this.primed=false;this.readyPos=this.Hs;this.heard=0;}
+  // Views of the engine's input and output buffers (made again if its memory ever grows).
+  views(){
+    const buffer=this.engine.HEAP8.buffer;if(buffer===this.heap)return;
+    const bytes=this.len*4;this.heap=buffer;
+    this.inL=new Float32Array(buffer,this.ptr,this.len);this.inR=new Float32Array(buffer,this.ptr+bytes,this.len);
+    this.outL=new Float32Array(buffer,this.ptr+2*bytes,this.Hs);this.outR=new Float32Array(buffer,this.ptr+3*bytes,this.Hs);
+  }
+  // Pulls count frames into the input buffers from index at, in small pieces so a loop wrapping is placed precisely.
+  feed(at,count){
+    for(let done=0;done<count;){
+      const n=Math.min(this.piece,count-done),from=at+done;
+      const first=this.pull(this.inL.subarray(from,from+n),this.inR.subarray(from,from+n),n);
+      this.map.push([this.inEnd,first]);if(this.map.length>256)this.map.shift();
+      this.inEnd+=n;done+=n;this.views();
+    }
+  }
+  sourceAt(abs){
+    const map=this.map;if(!map.length)return 0;
+    let entry=map[0];for(let i=map.length-1;i>=0;i--)if(map[i][0]<=abs){entry=map[i];break;}
+    return entry[1]+(abs-entry[0]);
+  }
+  // The sound coming out now is the input fed so far, less the engine's input latency and its output latency (in input frames).
+  currentSourceFrame(){return this.sourceAt(this.heard+this.readyPos*this.rate);}
+  step(){
+    this.views();
+    if(!this.primed){
+      // Start on the spot: hand the engine enough audio that its very first output frame is the first frame pulled.
+      const ahead=Math.round(this.inLat+this.outLat*this.rate);
+      this.inL.fill(0);this.inR.fill(0);this.feed(this.len-ahead,ahead);
+      this.engine._seek(this.len,this.rate);this.primed=true;
+    }
+    this.heard=this.inEnd-this.inLat-this.outLat*this.rate;
+    this.carry+=this.Hs*this.rate;const count=Math.floor(this.carry);this.carry-=count;
+    this.feed(0,count);
+    this.engine._process(count,this.Hs);
+    this.views();this.readyL.set(this.outL);this.readyR.set(this.outR);this.readyPos=0;
+  }
+  get readyRemaining(){return this.Hs-this.readyPos;}
+  render(left,right){
+    for(let i=0;i<left.length;i++){
+      if(this.readyPos>=this.Hs)this.step();
+      left[i]=this.readyL[this.readyPos];right[i]=this.readyR[this.readyPos];this.readyPos++;
+    }
+  }
+}
+
+// ----- WSOLA (waveform-similarity overlap-add), the fallback -----
 // Windows of N frames are laid down every Hs output frames. Each window's source position is chosen within +-tolerance
 // of its nominal spot to best continue the previous window, which keeps the waveform coherent and the pitch unchanged.
 // At rate 1 every window lands exactly on its nominal spot, so the output is the input, unchanged and undelayed.
-
-export const MIN_RATE=.5,MAX_RATE=1.25;
 
 export class WsolaStretcher{
   // pull(left,right,count) must fill count mixed frames and return the source frame number of the first one.
@@ -21,10 +105,7 @@ export class WsolaStretcher{
     this.template=new Float32Array(Math.floor(this.M/decimate));
     this.rate=1;this.reset();
   }
-  setRate(rate){
-    if(!Number.isFinite(rate)||rate<MIN_RATE||rate>MAX_RATE)throw Error('Speed must be between 50% and 125%');
-    this.rate=rate;
-  }
+  setRate(rate){checkRate(rate);this.rate=rate;}
   reset(){
     // Absolute input index 0 is the first frame pulled after a reset; earlier indexes read as silence.
     this.base=-(this.N+2*this.tol+this.Hs+this.dec);

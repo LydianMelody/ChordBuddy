@@ -18,12 +18,14 @@ export class SceneClock{
     if(playing&&loop&&t>=loop.end&&seconds<loop.end+1e-3)t=loop.start+(t-loop.start)%(loop.end-loop.start);
     return Math.max(0,Math.min(this.duration,t));
   }
-  // A position from the player. state: {seconds, playing, rate (1 = normal), duration, loop: {enabled,start,end}}; at: when it was true.
+  // A position from the player. state: {seconds, playing, rate (1 = normal), duration, loop: {enabled,start,end,implicit,kind}}; at: when it
+  // was true. The loop keeps its kind: 'section' (R), 'bars' (L) or 'custom' (placed with the handles).
   report(state,at=this.now()){
     const expected=this.time(at);
     const playing=!!state.playing,rate=Number.isFinite(state.rate)&&state.rate>0?state.rate:1;
     this.duration=Number.isFinite(state.duration)&&state.duration>0?state.duration:Infinity;
-    this.loop=state.loop?.enabled&&state.loop.end>state.loop.start?{start:state.loop.start,end:state.loop.end}:null;
+    const loop=state.loop;
+    this.loop=loop?.enabled&&loop.end>loop.start?{start:loop.start,end:loop.end,kind:loop.implicit&&['section','bars'].includes(loop.kind)?loop.kind:'custom'}:null;
     const smooth=playing&&this.base.playing&&rate===this.base.rate&&Math.abs(expected-state.seconds)<SNAP;
     this.base={seconds:state.seconds,at,playing,rate};
     this.offset=smooth?expected-this.raw(at):0;this.offsetAt=at;
