@@ -419,17 +419,36 @@ $('all-songs').addEventListener('click',()=>performanceApp.closePage());
 $('all-songs').addEventListener('click',closeVisualEditor);     // All songs takes the same place
 // The visualizer as an OBS Browser Source: OBS draws it off screen at the size set there, so it never pauses while you use this window,
 // and it shows no controls. Its address stays the same between launches (unless that port was taken).
+// The sound for OBS, in the desktop app: OBS hears nothing from the main window, because Python owns it. This small window belongs to the
+// program that plays the sound, so picking it works (obs-sound.html, and allow_sound_window in __main__.py). It comes back with each launch
+// until it is closed. A browser needs none of this: OBS can pick the browser itself.
+let soundWindow=null,soundWatch=0;
+function openSoundWindow(){
+  soundWindow=window.open('/obs-sound.html','cb-obs-sound','popup,width=460,height=190');
+  if(!soundWindow)return;
+  prefs.set('cb-obs-sound','1');
+  clearInterval(soundWatch);
+  soundWatch=setInterval(()=>{if(soundWindow.closed){clearInterval(soundWatch);prefs.set('cb-obs-sound','0');}},1000);
+}
+function restoreSoundWindow(){
+  const reopen=()=>{if(prefs.get('cb-obs-sound','0')==='1')openSoundWindow();};
+  if(desktopWindow())reopen();else window.addEventListener('pywebviewready',reopen,{once:true});   // the desktop app says so a moment after the page loads
+}
 $('visualizer-obs').onclick=async()=>{
   $('more-menu').open=false;
   let url;try{({url}=await api('/api/visual-relay/address'));}catch(error){showError(error);return;}
+  const desktop=!!desktopWindow();
   const copy=async()=>{try{await navigator.clipboard.writeText(url);return true;}catch{return false;}};
   const copied=await copy();
   await askChoice({title:'Stream the visualizer to OBS',
     message:[`${copied?'Copied this address':'This is the address'} for an OBS Browser Source:`,url,
       'In OBS, add a Browser Source, paste it as the URL, and set the width and height you stream at (for example 1920 × 1080). Tick “Use custom frame rate” and choose 60 for smooth motion.',
-      'It follows this window: the song, playback and the look you choose in the visualizer here. For the sound, add an Application Audio Capture source and pick this browser.',
+      'It follows this window: the song, playback and the look you choose in the visualizer here.',
+      desktop?'For the sound, click Open sound window, then add an Application Audio Capture source in OBS and pick the window named “Chord Buddy sound for OBS”. OBS hears nothing from this main window. The sound window opens by itself each time Chord Buddy starts, until you close it.'
+        :'For the sound, add an Application Audio Capture source and pick this browser.',
       'Keep the address private: while Chord Buddy is running, it can read your songs.'],
-    cancel:'Done',choices:[{id:'copy',label:copied?'Copy again':'Copy',keepOpen:true}],onPick:()=>{copy();}});
+    cancel:'Done',choices:[{id:'copy',label:copied?'Copy again':'Copy',keepOpen:true},...(desktop?[{id:'sound',label:'Open sound window',keepOpen:true}]:[])],
+    onPick:id=>{if(id==='sound')openSoundWindow();else copy();}});
 };
 // The song's own visualization: chosen here, or pinned from the visualizer's toolbar (Pin). "My usual look" unpins it.
 $('song-visual').onclick=async()=>{
@@ -1237,7 +1256,7 @@ window.chordBuddyFlush=async()=>{
   }
   return {ok:false,pending:[...model.documents.values()].filter(record=>record.dirty||record.saving||record.practiceSaveError).map(record=>({id:record.doc.id,error:record.practiceSaveError?.message || record.error?.message || 'An edit is still being saved.'}))};
 };
-async function boot(){try{await prefs.connect(values=>api('/api/prefs',values),()=>api('/api/prefs'));practiceView.setSnapping(prefs.get('cb-snap','1')!=='0');await refreshState();const last=prefs.get('cb-last-song',''),song=model.state.songs.find(s=>s.id===last)||model.state.songs[0];if(song)await selectSong(song.id);else showAllSongs();}catch(error){showError(error);$('engine-status').textContent='Could not connect to the local app';}}
+async function boot(){try{await prefs.connect(values=>api('/api/prefs',values),()=>api('/api/prefs'));practiceView.setSnapping(prefs.get('cb-snap','1')!=='0');restoreSoundWindow();await refreshState();const last=prefs.get('cb-last-song',''),song=model.state.songs.find(s=>s.id===last)||model.state.songs[0];if(song)await selectSong(song.id);else showAllSongs();}catch(error){showError(error);$('engine-status').textContent='Could not connect to the local app';}}
 boot();setInterval(async()=>{if(model.polling)return;model.polling=true;try{await refreshState();}catch(error){$('engine-status').textContent='Connection interrupted · reconnecting';}finally{model.polling=false;}},2500);
 export {transport};
 

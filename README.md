@@ -97,7 +97,7 @@ Shows can be saved to a file and brought in on another computer (**Export to a f
 
 **Visualizer → Stream to OBS…** (at the top of the window) copies an address for an OBS **Browser Source**. OBS draws it off screen, so it keeps going while you click around in Chord Buddy, it is exactly the size you set in the source (for example 1920 × 1080), and it shows only the picture: no buttons, mixer or mouse pointer. It follows the open song, playback and the look you choose in the visualizer. Tick **Use custom frame rate** and choose 60 for smooth motion.
 
-For the sound, add an **Application Audio Capture** source in OBS and pick the browser Chord Buddy is open in (**Start in browser.cmd**). The address stays the same from one launch to the next. Keep it private: while Chord Buddy is running, it can read your songs.
+For the sound in the desktop app, click **Open sound window** in that same dialog, then add an **Application Audio Capture** source in OBS and pick the window named **Chord Buddy sound for OBS**. OBS hears nothing if you pick the main window. You can minimize the sound window, and it comes back each time Chord Buddy starts, until you close it. If you started with **Start in browser.cmd**, pick your browser instead. The address stays the same from one launch to the next. Keep it private: while Chord Buddy is running, it can read your songs.
 
 ## For developers
 

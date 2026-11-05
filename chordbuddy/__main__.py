@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import threading
+from urllib.parse import urlparse
 import webbrowser
 
 from .server import make_server
@@ -119,6 +120,29 @@ def keep_drawing_arguments(existing=''):
                      *[part for part in extra if part not in KEEP_DRAWING_FLAGS]])
 
 
+SOUND_WINDOW='/obs-sound.html'
+
+
+def is_sound_window(url):
+    """Only this one page of this app, never an outside link that happens to end the same way."""
+    parts=urlparse(str(url))
+    return parts.scheme=='http' and parts.hostname=='127.0.0.1' and parts.path==SOUND_WINDOW
+
+
+def allow_sound_window():
+    """pywebview sends every new window to the person's browser. This page has to stay here: left unhandled, WebView2 opens it as a window of
+    its own, owned by the program that plays the sound. OBS's Application Audio Capture listens to whichever program owns the window you
+    pick, and it hears nothing from the main window, which Python owns. See obs-sound.html."""
+    from webview.platforms.edgechromium import EdgeChrome
+    original=EdgeChrome.on_new_window_request
+
+    def on_new_window_request(self,sender,args):
+        if is_sound_window(args.get_Uri()):
+            return
+        original(self,sender,args)
+    EdgeChrome.on_new_window_request=on_new_window_request
+
+
 class WindowApi:
     """What a page in the desktop app can ask of its own window (as window.pywebview.api): the web page cannot open a second
     window or make its window full screen inside WebView2 by itself. One instance per window. Names starting with _ stay private."""
@@ -204,6 +228,8 @@ def main():
             window.events.closing += close_guard.on_closing
             webview.settings['ALLOW_DOWNLOADS']=True   # exports (mix, charts) are saved through the window's Save dialog
             os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS']=keep_drawing_arguments(os.environ.get('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'))
+            if os.name=='nt':
+                allow_sound_window()
             webview.start(gui='edgechromium' if os.name=='nt' else None,private_mode=True)
     except KeyboardInterrupt:
         pass

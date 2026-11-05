@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chord Buddy sound for OBS</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{color-scheme:light dark;font:14px/1.45 system-ui,sans-serif}
+  body{margin:0;padding:14px 16px;background:Canvas;color:CanvasText}
+  h1{margin:0 0 6px;font-size:15px}
+  p{margin:0 0 6px}
+</style>
+</head>
+<body>
+<!-- OBS's Application Audio Capture can only pick a window, and it listens to the program that owns it. The main window belongs to Python,
+     which OBS hears nothing from. This window belongs to the same WebView2 that plays the sound, so choosing it lets OBS hear Chord Buddy. -->
+<h1>Chord Buddy sound for OBS</h1>
+<p>This window lets OBS hear Chord Buddy. In OBS, add an Application Audio Capture source and pick this window.</p>
+<p>You can minimize it, but keep it open while you stream. It comes back each time Chord Buddy starts, until you close it.</p>
+<script src="/obs-sound.js"></script>
+</body>
+</html>

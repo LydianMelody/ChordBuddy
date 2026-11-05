@@ -17,7 +17,7 @@ MP3 import and metadata titles; Default and ordered set lists; real SheetSage2 i
 - Visualizer on a second monitor or full screen, with built-in looks and your own in **My Visuals**; a look can be pinned to a song, and looks can restyle their controls (skins).
 - Advanced Visuals Editor: rewire which sounds and signals move which parts, per visualization, for every song or one song.
 - Your own MIDI for the visualizer: drop a file, line it up with the song's beats, and use it as an extra or in place of a melody. Round trip with Reaper.
-- Stream to OBS as a Browser Source.
+- Stream to OBS as a Browser Source, with the desktop app's sound through a small window OBS can capture (on `perform`).
 
 ## Performance system — built, on the local `perform` branch (not merged, not pushed)
 

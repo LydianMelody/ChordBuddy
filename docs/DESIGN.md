@@ -46,6 +46,8 @@ On the lead sheet, chord symbols the model was less sure of are drawn fainter. A
 
 Visualizations are JavaScript modules in `chordbuddy/web/visualizations/`, or `My Visuals` beside the app. Each draws from a frame of musical data built by `visual-scene.js`. The player publishes the song and its clock over a BroadcastChannel (`visual-bridge.js`), and to OBS through the server (`visual_relay.py`), so any number of windows follow one player. `visual-patch.js` turns sounds and signals into each visualization's inputs; the Advanced Visuals Editor (`visual-patchbay.js`) edits those connections. A file you drop for the visualizer (`midi-import.js`, `user_midi.py`) never changes the chart or the model's data.
 
+The page plays the sound, not Python. OBS's Application Audio Capture listens to whichever program owns the window you pick, and asking Windows for `python.exe`'s audio returns silence even though WebView2 is its child. So the desktop app can open `obs-sound.html`, the one new window `allow_sound_window` in `__main__.py` leaves to WebView2. WebView2's main process owns that window, and capturing it hears the sound the same way capturing a browser does. The window closes itself when the main window or the server is gone (`obs-sound.js`); otherwise it would keep WebView2 running.
+
 ## Performance
 
 The Prepare, Shows and Perform pages run a set from one Start. Practice playback (`transport.js`, `pcm-mixer-core.js`) doesn't use any of this until a show takes the transport over, and gets its mix and speed back afterward.

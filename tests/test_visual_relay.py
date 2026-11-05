@@ -1,13 +1,15 @@
 import json
 import queue
 import socket
+import sys
 import threading
+import types
 import urllib.error
 import urllib.request
 
 import pytest
 
-from chordbuddy.__main__ import STABLE_PORT,keep_drawing_arguments,start_server
+from chordbuddy.__main__ import STABLE_PORT,allow_sound_window,is_sound_window,keep_drawing_arguments,start_server
 from chordbuddy.server import make_server
 from chordbuddy.visual_relay import VisualRelay,stream_key
 
@@ -136,3 +138,30 @@ def test_desktop_windows_keep_drawing_when_covered():
     assert '--disable-renderer-backgrounding' in args and '--disable-backgrounding-occluded-windows' in args
     mine=keep_drawing_arguments('--remote-debugging-port=9333 --disable-features=Foo,ElasticOverscroll').split()
     assert mine[0].endswith(',Foo') and mine.count('--remote-debugging-port=9333')==1 and sum(a.startswith('--disable-features') for a in mine)==1
+
+
+def test_only_the_sound_page_stays_in_the_app():
+    assert is_sound_window('http://127.0.0.1:51730/obs-sound.html')
+    for url in ('https://example.com/obs-sound.html','http://example.com/obs-sound.html','http://127.0.0.1.example.com/obs-sound.html',
+                'http://127.0.0.1:51730/visualizer.html','https://github.com/LydianMelody'):
+        assert not is_sound_window(url)
+
+
+def test_other_new_windows_still_go_where_pywebview_sends_them(monkeypatch):
+    sent=[]
+
+    class EdgeChrome:
+        def on_new_window_request(self,sender,args):
+            sent.append(args.get_Uri())
+
+    class Args:
+        def __init__(self,url):self.url=url
+        def get_Uri(self):return self.url
+
+    module=types.ModuleType('webview.platforms.edgechromium');module.EdgeChrome=EdgeChrome
+    monkeypatch.setitem(sys.modules,'webview.platforms.edgechromium',module)
+    allow_sound_window()
+    EdgeChrome().on_new_window_request(None,Args('http://127.0.0.1:51730/obs-sound.html'))
+    assert sent==[]
+    EdgeChrome().on_new_window_request(None,Args('https://example.com/'))
+    assert sent==['https://example.com/']
