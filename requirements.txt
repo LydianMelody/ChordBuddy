@@ -1,5 +1,7 @@
 mutagen==1.47.0
 mido==1.3.3
+# python-rtmidi: live MIDI to and from a pedal or controller in a performance (chordbuddy/midi_service.py)
+python-rtmidi==1.5.8
 pywebview==6.1
 # numpy: the app reads and checks audio with it, so it opens even if the transcription engine did not install (same version as the engine)
 numpy==1.24.3

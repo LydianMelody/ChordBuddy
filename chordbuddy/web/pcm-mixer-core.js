@@ -21,6 +21,7 @@ export class PcmMixer{
   this.generation=generation;this.runId=runId;this.frame=startFrame;this.total=totalFrames;this.gain=commonGain;this.queue=[];this.end=startFrame;this.offset=0;this.loop=loop?{start:loop.start,end:loop.end}:null;this.engaged=loopEngaged(this.loop,startFrame);this.wrapNext=false;this.queued=0;this.played=0;this.playIntent=false;this.state='paused';this.envelope=0;this.last=[0,0];
  }
  get queuedFrames(){return this.queued;}
+ get finished(){return this.frame>=this.total&&!(this.loop&&this.engaged);}
  // A chunk finished playing: keep it for a later loop change, dropping the oldest beyond HISTORY_FRAMES.
  remember(chunk){
   this.history.push(chunk);this.historyFrames+=chunk.count;
@@ -83,7 +84,7 @@ export class PcmMixer{
  pullMixed(left,right){
   const targetBlend=this.mode==='stems'?1:0;let first=null;
   for(let i=0;i<left.length;i++){
-   const finished=this.frame>=this.total&&!(this.loop&&this.engaged);
+   const finished=this.finished;
    if(!this.queue.length||finished){this.state=finished?'ended':'buffering';left[i]=0;right[i]=0;continue;}
    this.state='playing';
    const chunk=this.queue[0],at=this.offset*2,span=chunk.count*2;
@@ -106,7 +107,7 @@ export class PcmMixer{
  render(left,right){
   const targetBlend=this.mode==='stems'?1:0;
   for(let i=0;i<left.length;i++){
-   const finished=this.frame>=this.total&&!(this.loop&&this.engaged);
+   const finished=this.finished;
    if(!this.playIntent||!this.queue.length||finished){
     this.state=finished?'ended':this.playIntent?'buffering':'paused';
     if(this.state==='ended')this.playIntent=false;
