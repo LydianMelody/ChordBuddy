@@ -1,7 +1,6 @@
 // Fetches what one song needs to be performed: its bars, sections, audio details and saved arrangement. Used by Prepare and by a running show.
 // api(path, body?) is the app's own API call. Reads only.
-import {effectiveMeasures} from './chart-layout.js';
-import {buildCompactChart} from './compact-chart.js';
+import {buildChartModel} from './chart-model.js';
 import {detectFadeIn,detectFadeOut} from './fade-out.js';
 import {sectionLoopRange} from './loop-range.js';
 import {defaultMix} from './pcm-mixer-core.js';
@@ -16,9 +15,11 @@ export async function loadSongGrid(api,songId){
   const chart=(detail.documents||detail.docs||[]).find(d=>d.kind==='chart');
   if(!chart)throw Error('This song has no chart yet. Analyze it first.');
   const doc=await api('/api/document/'+encodeURIComponent(chart.id));
-  const measures=effectiveMeasures(doc.music,doc.content?.layout||{});
+  // The same bars, numbers and sections the chart shows: silence before the music is not a bar, so bar 1 here is bar 1 there.
+  const model=buildChartModel(doc.content,doc.music);
+  const measures=model.measures.map(m=>({...m,number:m.number-model.barOffset}));
   if(!measures.length)throw Error('This song has no bars yet. Analyze it first.');
-  const sections=buildCompactChart(doc.content,doc.music).sections.map(s=>({id:s.id,name:s.name,start:s.start,end:s.end}));
+  const sections=model.sections.map(s=>({id:s.id,name:s.name,start:s.start,end:s.end}));
   const playback=await api('/api/playback/'+encodeURIComponent(songId));
   const manifest=playback.ready?playback.active:null;
   let trim=null;

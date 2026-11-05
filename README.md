@@ -77,8 +77,9 @@ During a show, the usual keys wait for the music, so nothing ever happens in the
 - **L** loops the four bars you're in and **R** the section. Press the same key to leave after the pass you're in, or the other one to switch after it.
 - **←** and **→** queue a jump to another bar, and it happens at the next bar line. Clicking in the chart does the same. Whatever is queued is shown, with a **Cancel**.
 - **Space** pauses at once. The music stops, and the slot clock keeps counting.
+- A hold that waits for you shows **Go on**. A song set to start when you say waits for **Next song**.
 
-Anything you change by hand (a fader, a mute, the visualization) stays until you release it, even if the plan changes it later, unless you choose otherwise under **When you change something by hand**. Each one shows as **LIVE** on the Perform view; click it to go back to the plan. By default, a stem you mute also stops what it moves in the visuals. If you're playing that part yourself, tick **Keep visuals when a stem is muted** on the show.
+The Perform view has its own **Mixer**, and you can leave it at any time: the show keeps playing, the chart follows along, and the button at the top says **Show running** to bring you back. Anything you change by hand (a fader, a mute, the visualization) stays until you release it, even if the plan changes it later, unless you choose otherwise under **When you change something by hand**. Each one shows as **LIVE** on the Perform view; click it to go back to the plan. By default, a stem you mute also stops what it moves in the visuals. If you're playing that part yourself, tick **Keep visuals when a stem is muted** on the show.
 
 A loop that lasts until you release it makes the finish time an estimate: it's planned as four plays and grows if you stay longer. Leaving early takes the unused plays back off.
 

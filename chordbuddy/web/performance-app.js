@@ -9,6 +9,7 @@ import {createPathSession} from './pcm-path-session.js';
 import {createVisualOut} from './performance-visuals.js';
 import {createDeviceWatch,createMidiBridge,listenForInput} from './performance-midi.js';
 import {playbackAction} from './playback-keys.js';
+import {desktopWindow} from './visual-bridge.js';
 import {mixFromState} from './performance-actions.js';
 import {compilePerformance} from './performance-compiler.js';
 import {pathSeconds} from './performance-duration.js';
@@ -29,8 +30,19 @@ export function createPerformanceApp(deps){
   const scenesLoaded=loadVisualizations().then(r=>{scenes=r.scenes.map(s=>({id:s.id,name:s.name,inputs:readInputs(s)}));}).catch(()=>{});
   const devices=()=>['Line 6 Helix'];
 
-  function closePage(){open?.dispose();open=null;kind=null;page.classList.add('hidden');document.body.classList.remove('preparing');}
-  function show(k,mount){closePage();kind=k;page.classList.remove('hidden');document.body.classList.add('preparing');open=mount(page);}
+  function closePage(){
+    if(kind==='prepare'&&previewing){controller?.stop();release();}
+    // a show that was never started lets go of the music, so practice playback works again; come back through Shows
+    if(kind==='perform'&&controller&&['armed','preparing'].includes(controller.status)){release();controller=null;}
+    open?.dispose();open=null;kind=null;page.classList.add('hidden');document.body.classList.remove('preparing','performing');
+  }
+  function show(k,mount){closePage();kind=k;page.classList.remove('hidden');document.body.classList.add('preparing');document.body.classList.toggle('performing',k==='perform');open=mount(page);}
+  /** The Perform button says so while a show runs, wherever you are. */
+  function paintRunning(){
+    const running=!!controller&&RUNNING.includes(controller.status)&&!previewing;
+    $('perform-menu').classList.toggle('show-running',running);
+    $('perform-menu').querySelector('summary em').textContent=running?'Show running':'Perform';
+  }
 
   // ---- the running show
   /** When the engine will sound an output frame, in ms on the epoch clock every window shares. */
@@ -71,13 +83,14 @@ export function createPerformanceApp(deps){
     transport.performerReport({seconds:(now?.source??0)/RATE,playing,playIntent:RUNNING.includes(snapshot.status)&&snapshot.status!=='paused',buffering:snapshot.status==='buffering',
       loop:looped?{enabled:true,start:looped.start/RATE,end:looped.end/RATE,implicit:true,kind:looped.kind||'bars'}:{enabled:false,start:null,end:null,implicit:false},
       mix,visualMix,rate:r.rate,levels:playing&&Array.isArray(m?.levels)?m.levels:null,duration:(r.grid.frames)/RATE,ready:true});
+    paintRunning();
     if(snapshot.status==='finished'||snapshot.status==='stopped'||snapshot.status==='error')release();
   }
   function release(){
     clearInterval(deviceTimer);
     if(!transport.performer)return;
     stopInput?.();stopInput=null;previewing=false;
-    transport.detachPerformer();visuals.setPerformState(null);
+    transport.detachPerformer();visuals.setPerformState(null);paintRunning();
   }
   const isRunning=()=>!!controller&&(RUNNING.includes(controller.status)||controller.status==='armed');
 
@@ -97,6 +110,7 @@ export function createPerformanceApp(deps){
     const items=[...controller.entries].map(e=>controller.loaded.get(e.id));
     const {preflight}=await import('./performance-controller.js');
     controller.check=preflight(items,{devices:connections,missingScenes,keepAwake:awake?null:false});
+    controller.connections=connections;
     controller.status=controller.check.ready?'armed':'preparing';
     transport.attachPerformer(controller);
     stopInput=listenForInput({api,mappings:deps.mappings,onCommand:runCommand});
@@ -121,6 +135,7 @@ export function createPerformanceApp(deps){
     await scenesLoaded;
     show('prepare',root=>mountPrepare(root,{api,songId:song.id,grid,scenes:()=>scenes,devices,showError,onClose:closePage,
       previewing:()=>previewing,
+      previewFrame:()=>previewing?controller?.runner?.heard??null:null,
       onStopPreview:()=>{controller?.stop();release();},
       onPreview:(performance,fromSeconds,sendMidi)=>startPreview(song.id,performance,fromSeconds,sendMidi,grid).catch(showError)}));
   }
@@ -144,7 +159,14 @@ export function createPerformanceApp(deps){
   function openPerform(){
     if(!controller){openShow();return;}
     show('perform',root=>{
-      view=mountPerform(root,{controller,onClose:closePage,chordAt:()=>deps.chordNow(),catalog:deps.songs});
+      view=mountPerform(root,{controller,onClose:closePage,chordAt:()=>deps.chordNow(),catalog:deps.songs,
+        onShows:openShow,
+        onAgain:async()=>{const body=controller.show;release();try{await armShow(body);openPerform();}catch(error){showError(error);}},
+        fullscreen:()=>{const api=desktopWindow();if(api)api.toggle_fullscreen();else if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(()=>{});},
+        openVisualizer:()=>$('visualizer-window').click(),
+        visualizerOpen:()=>visuals.listening,
+        mixer:{send:mix=>{try{transport.setMix(mix);}catch(error){showError(error);}},current:()=>transport.getSnapshot().mix,levels:()=>transport.getSnapshot().levels},
+        audioSeconds:()=>(controller?.lastReport?.queuedFrames??0)/RATE});
       return {dispose(){view?.dispose();view=null;}};
     });
   }
@@ -163,7 +185,19 @@ export function createPerformanceApp(deps){
     view?.paint();
     return true;
   }
-  document.addEventListener('keydown',event=>{if(!document.querySelector('dialog[open]'))handleKey(event);},true);
+  document.addEventListener('keydown',event=>{
+    if(document.querySelector('dialog[open]'))return;
+    if(handleKey(event))return;
+    if(kind==='prepare'||kind==='show')open?.keydown?.(event);
+    if(kind&&!event.defaultPrevented)keepFromHiddenPages(event);
+  },true);
+  // The chart is still there, hidden under these pages. Its letter keys must not change it unseen. L, R, Y and C mean what they always do.
+  function keepFromHiddenPages(event){
+    if(event.ctrlKey||event.metaKey||event.altKey||String(event.key).length!==1)return;
+    const t=event.target;if(t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||'')))return;
+    if(/^[a-z]$/i.test(event.key)&&!/^[lryc]$/i.test(event.key))event.stopPropagation();
+  }
+  window.addEventListener('beforeunload',event=>{if(controller&&RUNNING.includes(controller.status)&&!previewing){event.preventDefault();event.returnValue='';}});
 
   $('perform-prepare').onclick=()=>{$('perform-menu').open=false;openPrepare();};
   $('perform-shows').onclick=()=>{$('perform-menu').open=false;openShow();};

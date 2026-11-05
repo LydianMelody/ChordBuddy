@@ -98,7 +98,7 @@ export class PerformanceRunner{
     const s={status:this.status,played:this.played,source:this.heard,section:this.sectionAt(this.heard)?.name??null,bar:this.measures[barAt(this.measures,this.heard)]?.number??null,
       occurrence:this.current?{key:this.current.key,regionId:this.current.regionId,passId:this.current.passId,passIndex:this.current.passIndex,traversal:this.traversal}:null,
       loop:this.loop?{kind:this.loop.kind,label:this.loop.label,start:this.loop.start,end:this.loop.end,pass:this.loop.pass}:null,
-      pending:this.pendingText(),waiting:this.waiting,overrides:[...this.overrides.entries()].map(([property,o])=>({property,value:o.value,policy:o.policy})),rate:this.rate};
+      pending:this.pendingText(),waiting:this.waiting,holding:this.status==='holding'?{seconds:this.hold?.left??null,waiting:this.hold?.segment.seconds===null}:null,overrides:[...this.overrides.entries()].map(([property,o])=>({property,value:o.value,policy:o.policy})),rate:this.rate};
     return {...s,...this.durations()};
   }
   pendingText(){
@@ -164,8 +164,14 @@ export class PerformanceRunner{
   }
   finish(){this.status='finished';this.note('finished');this.current=null;this.out({type:'finished'});}
   stop(){this.status='stopped';this.engine.cancel('');this.engine.play(false);this.note('stopped');this.out({type:'cleanup'});}
-  pause(){if(this.status==='playing'||this.status==='buffering'){this.status='paused';this.engine.play(false);this.note('paused');}}
-  resume(){if(this.status==='paused'){this.status='playing';this.engine.play(true);this.note('resumed');}}
+  pause(){
+    if(this.status==='holding'){this.holdPaused=true;if(this.hold)this.hold.last=null;this.note('paused');return;}   // a timed hold waits too
+    if(this.status==='playing'||this.status==='buffering'){this.status='paused';this.engine.play(false);this.note('paused');}
+  }
+  resume(){
+    if(this.status==='holding'){this.holdPaused=false;this.note('resumed');return;}
+    if(this.status==='paused'){this.status='playing';this.engine.play(true);this.note('resumed');}
+  }
 
   // ---- the path
   /** What follows the current segment. Markers stay in the path, so a loop repeats until something removes its marker. */
@@ -686,6 +692,7 @@ export class PerformanceRunner{
   }
   tickHold(report){
     const h=this.hold;
+    if(this.holdPaused)return;
     if(h.segment.seconds!==null&&Number.isFinite(report.now)){
       if(h.last!==null)h.left-=report.now-h.last;
       h.last=report.now;

@@ -16,6 +16,7 @@ const HANDOFF_WINDOW=RATE*2;
 /** Checks everything a show needs before Start. Returns {ready, blocking:[...], notes:[...], live, assumptions}. checks: extra facts from the app. */
 export function preflight(loaded,{devices=[],keepAwake=null,missingScenes=[],policy='continue'}={}){
   const blocking=[],notes=[];let live=false,unknown=false,estimated=false;
+  if(!loaded.length)blocking.push('This show has no songs yet. Add some on the Shows page.');
   loaded.forEach((item,i)=>{
     const name=item.song?.title||`Song ${i+1}`;
     if(item.error){blocking.push(`${name}: ${item.error}`);return;}
@@ -128,12 +129,28 @@ export class ShowController{
     this.runner?.tick({played:m.played,source:m.sourceFrame,heard:Math.max(0,m.heardFrame-Math.round((m.latency||0)*RATE*rate)),state:m.state,now:this.now()});
     if(this.status==='playing'&&this.runner?.status==='buffering')this.status='buffering';
     else if(this.status==='buffering'&&this.runner?.status==='playing')this.status='playing';
-    this.planHandoff();
+    if(this.runner?.status==='finished')this.afterSong();else this.planHandoff();
     this.emit();
   }
+  /** The song has played to its end with nothing lined up to take over: the show is over, or it waits. */
+  afterSong(){
+    const next=this.next;
+    if(!next){this.finishShow();return;}
+    if(!this.waitingAtEnd)this.note('waiting-at-end',{next:next.id});
+    this.waitingAtEnd=true;this.status='waiting';
+    if(this.transitionOf(next).kind!=='control'&&this.readySlot===next.id)this.goFromWait();
+  }
+  finishShow(){
+    this.status='finished';this.note('show-finished');
+    this.power?.release?.();this.checkpoint?.clear?.();
+    this.out({type:'cleanup'});
+    this.session?.dispose?.();this.session=null;
+  }
+  /** Go on from a hold that waits for you, or one you don't want to sit out. */
+  goOn(){return this.runner?.endHold()??false;}
   /** The song's last boundary is near, or Next song is queued: tell the engine exactly where the next one begins. */
   planHandoff(){
-    const r=this.runner;if(!r||!r.current||this.handoffPlanned)return;
+    const r=this.runner;if(!r||!r.current||this.handoffPlanned||r.status==='holding')return;
     if(this.pendingNext){
       const at=this.pendingNext.at;
       const until=r.current.startPlayed+(at-r.current.start)-r.played;
@@ -222,7 +239,7 @@ export class ShowController{
   togglePlay(){if(this.status==='paused')this.resume();else this.pause();}
   /** Immediate: music, cues and a running gap all stop. The slot clock keeps counting. */
   pause(){
-    if(!['playing','gap','buffering','waiting'].includes(this.status))return;
+    if(!['playing','gap','buffering'].includes(this.status))return;
     this.beforePause=this.status;this.status='paused';this.runner?.pause();
     if(this.beforePause==='gap'){this.gapLeftAtPause=Math.max(0,this.gapEnds-this.now());this.session?.suspend?.();}
     this.note('paused');this.emit();
@@ -262,7 +279,7 @@ export class ShowController{
   /** Move on to the next song: at the next barline, or at once from a wait or between songs. */
   nextSong(){
     if(!this.next)return null;
-    if(this.waitingAtEnd||this.status==='waiting')return this.goFromWait();
+    if(this.waitingAtEnd||this.status==='waiting'||this.runner?.status==='holding')return this.goFromWait();
     const r=this.runner;if(!r?.current)return null;
     const at=nextBarline(r.measures,r.source+256)??r.grid.frames;
     this.pendingNext={at};this.note('next-queued',{at});

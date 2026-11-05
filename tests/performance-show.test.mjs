@@ -269,3 +269,48 @@ test('the sample show: valid, its passes differ, its totals are right, and it pl
  assert.ok(r.events.some(e=>e.type==='oneshot'&&e.action.input==='flash'));
  assert.ok(r.events.some(e=>e.type==='visual'&&e.action.type==='visual.switch'),'the exit action ran');
 });
+
+test('the last song ends: the show says finished, lets go of everything, and forgets its checkpoint', async () => {
+ let released=0,cleared=0;
+ const r=rig();r.c.power={acquire(){},release(){released++;}};r.c.checkpoint={save(){},load(){return null;},clear(){cleared++;}};
+ await r.c.arm(show([entryOf('e1','a')]));await r.c.start();await flush();
+ const session=r.session;session.run(RATE*21);await flush();
+ assert.equal(r.c.status,'finished');assert.equal(released,1);assert.equal(cleared,1);assert.equal(session.disposed,true);
+ assert.ok(r.events.some(e=>e.type==='cleanup'));
+});
+
+test('a song that ends with the next one not ready waits, says so, and goes as soon as it can', async () => {
+ const r=rig({withhold:'b'});await r.c.arm(show([entryOf('e1','a'),entryOf('e2','b')]));await r.c.start();await flush();await flush();
+ r.session.run(RATE*21);await flush();
+ assert.equal(r.c.status,'waiting');assert.equal(r.c.index,0);
+ r.session.withhold=null;r.c.preloadNext();await flush();await flush();
+ r.session.run(RATE);await flush();
+ assert.equal(r.c.index,1);assert.equal(r.c.status,'playing');
+});
+
+test('a wait for a control: Next song, or Go on from a hold', async () => {
+ const perform=id=>({...song(id),holds:[{id:'h',at:address('m2'),seconds:null,expected:10}]});
+ const r=rig({perform});await r.c.arm(show([entryOf('e1','a')]));await r.c.start();await flush();
+ r.session.run(RATE*3);await flush();
+ assert.equal(r.c.runner.status,'holding');assert.equal(r.c.snapshot().song.holding.waiting,true);
+ const at=r.session.mixers[0].played;r.session.run(RATE);assert.equal(r.session.mixers[0].played,at,'it stays held');
+ assert.equal(r.c.goOn(),true);r.session.run(RATE);assert.ok(r.session.mixers[0].played>at);
+});
+
+test('a timed hold stops counting while paused', async () => {
+ const perform=id=>({...song(id),holds:[{id:'h',at:address('m2'),seconds:2}]});
+ const r=rig({perform});await r.c.arm(show([entryOf('e1','a')]));await r.c.start();await flush();
+ r.session.run(RATE*2.2);await flush();
+ assert.equal(r.c.runner.status,'holding');
+ r.c.pause();assert.equal(r.c.status,'paused');
+ r.session.run(RATE*4);await flush();
+ assert.equal(r.c.runner.status,'holding','still holding after 4 seconds paused');
+ r.c.resume();r.session.run(RATE*2.5);await flush();
+ assert.equal(r.c.runner.status,'playing');
+});
+
+test('an empty show cannot start, and says why', async () => {
+ const r=rig();const check=await r.c.arm(show([]));
+ assert.equal(check.ready,false);assert.match(check.blocking[0],/no songs/);
+ await assert.rejects(r.c.start(),/isn’t ready/);
+});

@@ -186,3 +186,12 @@ test('spare time reads naturally at any size', async () => {
  const {spareText}=await import('../chordbuddy/web/performance-duration.js');
  assert.equal(spareText(42),'42s to spare');assert.equal(spareText(134),'2m 14s to spare');assert.equal(spareText(54437),'15h 7m to spare');assert.equal(spareText(-38),'38s over');
 });
+
+test('live changes in plain words', async () => {
+ const {liveWords}=await import('../chordbuddy/web/performance-view.js');
+ assert.equal(liveWords({property:'track.drums.mute',value:true}),'Drums muted');
+ assert.equal(liveWords({property:'track.lead.gain',value:.5}),'Lead guitar at 50%');
+ assert.equal(liveWords({property:'master',value:.8}),'Overall volume at 80%');
+ assert.equal(liveWords({property:'rate',value:90}),'Speed at 90%');
+ assert.equal(liveWords({property:'midi.Helix.tone',value:{}}),'A pedal or MIDI setting');
+});
