@@ -205,3 +205,67 @@ test('preflight: only what cannot run blocks Start, and the rest is said plainly
  assert.match(preflight([ok],{keepAwake:false}).notes[0],/go to sleep/);
  assert.match(preflight([ok],{missingScenes:['x']}).blocking[0],/“x”/);
 });
+
+test('live changes end with the song, unless the show says to keep them', async () => {
+ const run=async carry=>{
+  const r=rig();await r.c.arm(show([entryOf('e1','a'),entryOf('e2','b')],{carryOverrides:carry}));await r.c.start();await flush();
+  r.c.setLive('track.drums.mute',true);r.c.nextSong();r.session.run(RATE*3);await flush();
+  assert.equal(r.c.index,1);
+  return r.c.runner.overrides.size;
+ };
+ assert.equal(await run(false),0);assert.equal(await run(true),1);
+});
+
+test('a song marked to come off after it ends does, and the set carries on', async () => {
+ const r=rig();await r.c.arm(show([entryOf('e1','a'),entryOf('e2','b')]));await r.c.start();await flush();
+ r.c.removeEntry('e1');r.c.nextSong();r.session.run(RATE*3);await flush();
+ assert.deepEqual(r.c.entries.map(e=>e.id),['e2']);assert.equal(r.c.current.id,'e2');assert.equal(r.c.index,0);
+});
+
+test('a device a show needs going away stops the show at the next bar line; one it doesn’t need just gets noted', async () => {
+ const r=rig();await r.c.arm(show([entryOf('e1','a')]));await r.c.start();await flush();
+ r.session.run(RATE*1);await flush();
+ r.c.deviceLost('Spare',false);r.session.run(RATE*3);await flush();
+ assert.equal(r.c.status,'playing');assert.deepEqual(r.c.snapshot().missingDevices,['Spare']);
+ r.c.deviceBack('Spare');assert.deepEqual(r.c.snapshot().missingDevices,[]);
+ const before=r.c.runner.source;r.c.deviceLost('Helix',true);
+ assert.ok(r.c.stopAt>before);assert.equal(r.c.stopAt%(RATE*2),0,'a bar line');
+ r.session.run(RATE*3);await flush();
+ assert.equal(r.c.status,'stopped');assert.match(r.c.lastError,/Helix was disconnected/);
+});
+
+test('after a crash, it offers the song it stopped on; a clean Stop forgets it; another show never gets it', async () => {
+ let saved=null;const store={save:v=>{saved=v;},load:()=>saved,clear:()=>{saved=null;}};
+ const r=rig();r.c.checkpoint=store;await r.c.arm(show([entryOf('e1','a'),entryOf('e2','b')]));await r.c.start();await flush();
+ r.c.nextSong();r.session.run(RATE*3);await flush();
+ assert.equal(saved.entryId,'e2');
+ const again=rig();again.c.checkpoint=store;await again.c.arm(show([entryOf('e1','a'),entryOf('e2','b')]));
+ assert.equal(again.c.resumePoint().index,1);assert.equal(again.c.snapshot().resume.index,1);
+ await again.c.start({entryIndex:1});await flush();assert.equal(again.c.current.id,'e2');
+ const other=rig();other.c.checkpoint=store;await other.c.arm({...show([entryOf('e1','a'),entryOf('e2','b')]),id:'different'});
+ assert.equal(other.c.resumePoint(),null);
+ again.c.stop();assert.equal(saved,null);
+});
+
+test('a target finish time counts down like a slot', async () => {
+ const r=rig();r.c.epochNow=()=>1000000;
+ await r.c.arm(show([entryOf('e1','a')],{target:{finishAtEpoch:1000000+60000}}));await r.c.start();
+ assert.ok(Math.abs(r.c.deadline-(r.c.now()+60))<.01);
+});
+
+test('the sample show: valid, its passes differ, its totals are right, and it plays from one Start', async () => {
+ const {readFileSync}=await import('node:fs');
+ const bundle=JSON.parse(readFileSync(new URL('./fixtures/sample-show.json',import.meta.url),'utf8'));
+ const body=bundle.performances[0].body,g=grid();           // 60 bars of 2 seconds
+ const c=compilePerformance(body,g);
+ assert.equal(c.ok,true,JSON.stringify(c.errors));
+ assert.deepEqual(c.segments.filter(s=>s.regionId==='intro').map(s=>s.actions.map(a=>a.id)),[[],['drums-in'],['flash']]);
+ const r=rig({g,perform:id=>id==='a'?body:song(id)});
+ const sets={...bundle.show,entries:[entryOf('e1','a'),entryOf('e2','b',{transition:{kind:'gap',seconds:10}})]};
+ await r.c.arm(sets);
+ const t=r.c.totals();assert.equal(t.music,120+16+120);assert.equal(t.planned,120+16+120+10);
+ await r.c.start();await flush();r.session.run(RATE*30);await flush();
+ assert.equal(r.c.status,'playing');
+ assert.ok(r.events.some(e=>e.type==='oneshot'&&e.action.input==='flash'));
+ assert.ok(r.events.some(e=>e.type==='visual'&&e.action.type==='visual.switch'),'the exit action ran');
+});

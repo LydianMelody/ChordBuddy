@@ -144,7 +144,11 @@ export function mountVisualizer(container,{open,stream=false,editor=null}={}){
   let patches={usual:{},song:{}},patcher=new Patcher(),patcherFor=null,catalogFor=null,catalog=null,catalogById=null,bayShown=null;const bayHeld={};
   const inputsOf=new WeakMap();
   const inputsFor=definition=>{if(!inputsOf.has(definition))inputsOf.set(definition,readInputs(definition));return inputsOf.get(definition);};
-  const patchFor=definition=>choosePatch(inputsFor(definition),{song:patches.song?.[definition.id],usual:patches.usual?.[definition.id]});
+  const patchFor=definition=>{
+    // a show can choose which saved connections are in use; left alone, a song's own win over the usual ones
+    const chosen=cues.state.patch;
+    return choosePatch(inputsFor(definition),{song:chosen==='usual'||chosen==='default'?null:patches.song?.[definition.id],usual:chosen==='default'?null:patches.usual?.[definition.id]});
+  };
   function sources(){if(catalogFor!==song){catalogFor=song;catalog=sourceCatalog(song);catalogById=catalogMap(catalog);}return catalog;}
   function followSong(id){if(id!==songId){songId=id||null;showing=null;pinned=null;}}
 

@@ -54,7 +54,7 @@ test('a replay repeats the same random numbers each pass', () => {
 test('the player side: stamps by when it will be heard, and keeps the state for a window opening late, without old effects', () => {
  const sent=[],out=createVisualOut({timeOf:p=>p*2,post:m=>sent.push(m)});
  out.event({type:'state',atPlayed:10,state:{'visual.scene':'first','visual.input.glow':.5,'track.bass.mute':true}});
- assert.deepEqual(sent[0].cues[0],{at:20,kind:'state',state:{scene:'first',lyrics:null,calm:null,inputs:{glow:.5}}});
+ assert.deepEqual(sent[0].cues[0],{at:20,kind:'state',state:{scene:'first',lyrics:null,calm:null,patch:null,inputs:{glow:.5}}});
  out.event({type:'oneshot',atPlayed:20,action:{type:'visual.trigger',input:'flash'}});
  out.event({type:'visual',atPlayed:30,action:{type:'visual.scene',scene:'second'}});
  out.event({type:'oneshot',atPlayed:40,action:{type:'midi.note',note:60}});

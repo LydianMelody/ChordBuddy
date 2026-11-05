@@ -1,0 +1,213 @@
+{
+ "format": "chordbuddy-show",
+ "version": 1,
+ "show": {
+  "schema": 1,
+  "id": "sample-set",
+  "name": "Sample set",
+  "sourceList": null,
+  "entries": [
+   {
+    "id": "e1",
+    "songId": "sample-song",
+    "performanceId": "sample-live-guitar",
+    "revision": 1,
+    "transition": null
+   },
+   {
+    "id": "e2",
+    "songId": "sample-song",
+    "performanceId": null,
+    "revision": null,
+    "transition": {
+     "kind": "gap",
+     "seconds": 10
+    }
+   }
+  ],
+  "target": {
+   "slotSeconds": 600
+  },
+  "policy": {
+   "all": "until-released"
+  },
+  "transitions": {
+   "kind": "immediate",
+   "seconds": 0
+  },
+  "devices": [],
+  "keepVisualsWhenMuted": false,
+  "carryOverrides": false
+ },
+ "performances": [
+  {
+   "id": "sample-live-guitar",
+   "revision": 1,
+   "body": {
+    "schema": 1,
+    "id": "sample-live-guitar",
+    "songId": "sample-song",
+    "name": "Live guitar",
+    "grid": null,
+    "initial": [
+     {
+      "type": "track.set",
+      "track": "lead",
+      "mute": true
+     }
+    ],
+    "cues": [
+     {
+      "id": "verse-scene",
+      "at": {
+       "measure": "m9",
+       "beat": {
+        "n": 0,
+        "d": 1
+       }
+      },
+      "action": {
+       "type": "visual.scene",
+       "scene": "starlane"
+      }
+     },
+     {
+      "id": "verse-tone",
+      "at": {
+       "measure": "m9",
+       "beat": {
+        "n": 0,
+        "d": 1
+       }
+      },
+      "leadMs": 20,
+      "action": {
+       "type": "midi.helix",
+       "device": "Line 6 Helix",
+       "channel": 1,
+       "snapshot": 2
+      }
+     },
+     {
+      "id": "note",
+      "at": {
+       "measure": "m17",
+       "beat": {
+        "n": 0,
+        "d": 1
+       }
+      },
+      "action": {
+       "type": "marker.text",
+       "text": "Solo next"
+      }
+     },
+     {
+      "id": "end-fade",
+      "at": {
+       "measure": "m29",
+       "beat": {
+        "n": 0,
+        "d": 1
+       }
+      },
+      "action": {
+       "type": "master.set",
+       "value": 0,
+       "ramp": 4
+      }
+     }
+    ],
+    "regions": [
+     {
+      "id": "intro",
+      "start": {
+       "measure": "m1",
+       "beat": {
+        "n": 0,
+        "d": 1
+       }
+      },
+      "end": {
+       "measure": "m5",
+       "beat": {
+        "n": 0,
+        "d": 1
+       }
+      },
+      "plays": 3,
+      "family": "bars",
+      "passes": [
+       {
+        "id": "intro-1",
+        "entry": [],
+        "program": null
+       },
+       {
+        "id": "intro-2",
+        "entry": [],
+        "program": [
+         {
+          "id": "drums-in",
+          "at": {
+           "measure": "m1",
+           "beat": {
+            "n": 0,
+            "d": 1
+           }
+          },
+          "action": {
+           "type": "track.set",
+           "track": "drums",
+           "mute": false
+          }
+         }
+        ]
+       },
+       {
+        "id": "intro-3",
+        "entry": [],
+        "program": [
+         {
+          "id": "flash",
+          "at": {
+           "measure": "m3",
+           "beat": {
+            "n": 0,
+            "d": 1
+           }
+          },
+          "action": {
+           "type": "visual.trigger",
+           "input": "flash"
+          }
+         }
+        ]
+       }
+      ],
+      "further": {
+       "entry": [],
+       "program": null
+      },
+      "onExit": [
+       {
+        "type": "visual.switch",
+        "name": "lyrics",
+        "value": true
+       }
+      ]
+     }
+    ],
+    "jumps": [],
+    "holds": []
+   }
+  }
+ ],
+ "songs": [
+  {
+   "id": "sample-song",
+   "title": "Sample song",
+   "artist": ""
+  }
+ ]
+}

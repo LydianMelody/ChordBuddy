@@ -11,16 +11,16 @@ function mulberry(seed){
 export const hashText=text=>{let h=2166136261;for(const c of String(text)){h^=c.codePointAt(0);h=Math.imul(h,16777619);}return h>>>0;};
 
 export class VisualCues{
-  constructor(){this.pending=[];this.state={scene:null,lyrics:null,calm:null,inputs:{}};this.ramps=new Map();this.fired=new Map();this.random=Math.random;this.replay=null;this.lastReplay=null;}
+  constructor(){this.pending=[];this.state={scene:null,lyrics:null,calm:null,patch:null,inputs:{}};this.ramps=new Map();this.fired=new Map();this.random=Math.random;this.replay=null;this.lastReplay=null;}
   /** message: {state?: the state in force now, cues?: [{at, kind, ...}], withdraw?: at, clear?: true}. */
   receive(message){
-    if(message.clear){this.pending=[];this.state={scene:null,lyrics:null,calm:null,inputs:{}};this.ramps.clear();this.fired.clear();this.random=Math.random;return;}
+    if(message.clear){this.pending=[];this.state={scene:null,lyrics:null,calm:null,patch:null,inputs:{}};this.ramps.clear();this.fired.clear();this.random=Math.random;return;}
     if(Number.isFinite(message.withdraw))this.pending=this.pending.filter(c=>c.at<message.withdraw);
     if(message.state)this.takeState(message.state);
     if(message.cues?.length){this.pending.push(...message.cues);this.pending.sort((a,b)=>a.at-b.at);}
   }
   takeState(state){
-    this.state={scene:state.scene??null,lyrics:state.lyrics??null,calm:state.calm??null,inputs:{...(state.inputs||{})}};
+    this.state={scene:state.scene??null,lyrics:state.lyrics??null,calm:state.calm??null,patch:state.patch??null,inputs:{...(state.inputs||{})}};
     this.ramps.clear();
   }
   /** Bring everything up to `now`. */
@@ -29,6 +29,7 @@ export class VisualCues{
       const c=this.pending.shift();
       switch(c.kind){
         case 'scene':this.state.scene=c.scene;break;
+        case 'patch':this.state.patch=c.patch;break;
         case 'switch':this.state[c.name]=c.value;break;
         case 'input':
           if(c.ramp>0)this.ramps.set(c.input,{from:this.state.inputs[c.input]??0,to:c.value,start:c.at,end:c.at+c.ramp*1000});
@@ -72,9 +73,9 @@ export class VisualCues{
 /** On the player: turns a runner's events into stamped messages. timeOf(atPlayed)->epoch ms when that output frame will be heard; post(message). */
 export function createVisualOut({timeOf,post}){
   // What's in force, for a visualizer opening late.
-  let state={scene:null,lyrics:null,calm:null,inputs:{}};
+  let state={scene:null,lyrics:null,calm:null,patch:null,inputs:{}};
   const stateOf=s=>{
-    const out={scene:s['visual.scene']??null,lyrics:s['visual.lyrics']??null,calm:s['visual.calm']??null,inputs:{}};
+    const out={scene:s['visual.scene']??null,lyrics:s['visual.lyrics']??null,calm:s['visual.calm']??null,patch:s['visual.patch']??null,inputs:{}};
     for(const [k,v] of Object.entries(s))if(k.startsWith('visual.input.'))out.inputs[k.slice(13)]=v;
     return out;
   };
@@ -82,6 +83,7 @@ export function createVisualOut({timeOf,post}){
     const t=at-leadMs;
     switch(action.type){
       case 'visual.scene':return {at:t,kind:'scene',scene:action.scene};
+      case 'visual.patch':return {at:t,kind:'patch',patch:action.patch};
       case 'visual.switch':return {at:t,kind:'switch',name:action.name,value:action.value};
       case 'visual.input':return {at:t,kind:'input',input:action.input,value:action.value,ramp:action.ramp||0};
       case 'visual.trigger':return {at:t,kind:'trigger',input:action.input};
@@ -92,14 +94,14 @@ export function createVisualOut({timeOf,post}){
     event(e){
       switch(e.type){
         case 'visual':case 'oneshot':{const c=cueOf(e.action,timeOf(e.atPlayed),e.leadMs);if(c){post({cues:[c]});
-          if(c.kind==='scene')state={...state,scene:c.scene};else if(c.kind==='switch')state={...state,[c.name]:c.value};else if(c.kind==='input')state={...state,inputs:{...state.inputs,[c.input]:c.value}};}break;}
+          if(c.kind==='scene')state={...state,scene:c.scene};else if(c.kind==='patch')state={...state,patch:c.patch};else if(c.kind==='switch')state={...state,[c.name]:c.value};else if(c.kind==='input')state={...state,inputs:{...state.inputs,[c.input]:c.value}};}break;}
         case 'state':{state=stateOf(e.state);post({cues:[{at:timeOf(e.atPlayed),kind:'state',state}]});break;}
         case 'loop-replay':post({cues:[{at:timeOf(e.atPlayed),kind:'replay',loop:e.loop,pass:e.pass}]});break;
         case 'withdrawn':post({withdraw:timeOf(e.atPlayed)});break;
         case 'live':if(String(e.property).startsWith('visual.')){const name=e.property.slice(7);
-          if(name==='scene'||name==='lyrics'||name==='calm')state={...state,[name]:e.value};else if(name.startsWith('input.'))state={...state,inputs:{...state.inputs,[name.slice(6)]:e.value}};
+          if(name==='scene'||name==='lyrics'||name==='calm'||name==='patch')state={...state,[name]:e.value};else if(name.startsWith('input.'))state={...state,inputs:{...state.inputs,[name.slice(6)]:e.value}};
           post({state});}break;
-        case 'cleanup':state={scene:null,lyrics:null,calm:null,inputs:{}};post({clear:true});break;
+        case 'cleanup':state={scene:null,lyrics:null,calm:null,patch:null,inputs:{}};post({clear:true});break;
         default:break;
       }
     },

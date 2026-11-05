@@ -61,9 +61,11 @@ export function mountPerform(root,{controller,onClose,onSong=()=>{},chordAt=()=>
   const centre=el('section','pf-centre');
   const section=el('div','pf-section'),position=el('div','pf-position'),chords=el('div','pf-chords'),next=el('div','pf-next');
   centre.append(section,position,chords,next);
+  const resumeRow=el('div','pf-pending'),resumeText=el('span'),resumeButton=el('button','btn hot','Start from that song');resumeButton.type='button';resumeButton.title='Start the show from where the last run stopped. Press Start instead to begin at the first song.';resumeRow.append(resumeText,resumeButton);resumeRow.hidden=true;
+  resumeButton.onclick=()=>{const point=controller.resumePoint();if(point)controller.start({entryIndex:point.index}).catch(error=>showProblem(error.message));paint();};
   const pending=el('div','pf-pending');pending.setAttribute('role','status');const pendingText=el('span');const cancelPending=el('button','btn','Cancel');cancelPending.type='button';cancelPending.title='Take back what’s queued. The music carries on as it was going.';pending.append(pendingText,cancelPending);
   const up=el('section','pf-upcoming');up.setAttribute('aria-label','Coming up');const upList=el('ol','pf-up-list');up.append(el('h3','vx-cap','Coming up'),upList);
-  const middle=el('div','pf-main');middle.append(centre,pending,up);
+  const middle=el('div','pf-main');middle.append(centre,resumeRow,pending,up);
   const side=el('aside','pf-side');
   const clocks=el('section','pf-clocks');clocks.setAttribute('aria-label','Time');
   const clockRow=label=>{const row=el('div','pf-clock'),value=el('b');row.append(el('span','vx-cap',label),value);clocks.append(row);return {row,value};};
@@ -145,7 +147,9 @@ export function mountPerform(root,{controller,onClose,onSong=()=>{},chordAt=()=>
     song.textContent=entry?.title||'No song';perf.textContent=entry?.performance||'';
     count.textContent=s.count?`Song ${Math.max(1,s.index+1)} of ${s.count}`:'';
     state.textContent=s.error?`${STATUS.error}: ${s.error}`:STATUS[s.status]||s.status;state.dataset.state=s.status;
-    section.textContent=now?.section||(s.status==='armed'?'Ready to start':'');
+    section.textContent=now?.section||(s.status==='armed'?'Ready to start':s.check&&!s.check.ready?'Not ready: see Checks':'');
+    resumeRow.hidden=!s.resume;
+    if(s.resume)resumeText.textContent=`The last run stopped during song ${s.resume.index+1}${s.resume.title?`, ${s.resume.title}`:''}.`;
     const looped=now?.loop;
     position.textContent=now?`Bar ${now.bar??'–'}${now.occurrence?.passIndex!==null&&now.occurrence?.passIndex!==undefined?` · Pass ${now.occurrence.passIndex+1}`:''}${looped?` · Looping ${looped.label}`:''}`:'';
     const chord=now?chordAt(entry?.songId,now.source):null;
@@ -164,7 +168,7 @@ export function mountPerform(root,{controller,onClose,onSong=()=>{},chordAt=()=>
     if(now?.overrides.length){
       for(const o of now.overrides){const b=el('button','btn pf-live');b.type='button';b.append(el('span','pf-live-tag','LIVE'),el('span','',LIVE_WORDS(o.property)));b.title=`${POLICY_WORDS[o.policy]||o.policy}. Click to go back to the plan for this.`;b.onclick=()=>{controller.release({property:o.property});paint();};overrides.append(b);}
     }else overrides.append(el('p','pf-none','None. Everything is following the plan.'));
-    health.replaceChildren(...(s.check?.notes||[]).map(n=>el('li','',n)));
+    health.replaceChildren(...(s.check?.notes||[]).map(n=>el('li','',n)),...(s.missingDevices||[]).map(n=>el('li','pf-lost',s.stoppingAt?`${n} was disconnected. The show stops at the next bar.`:`${n} was disconnected. The show plays on without it.`)),...(s.check?.blocking||[]).map(n=>el('li','pf-lost',n)));
     if(!health.children.length)health.append(el('li','pf-none','All good.'));
     const running=['playing','paused','gap','waiting','buffering'].includes(s.status);
     playButton.querySelector('span').textContent=s.status==='armed'?'Start':s.status==='paused'?'Resume':'Pause';

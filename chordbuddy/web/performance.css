@@ -54,6 +54,15 @@ body.preparing :is(#song-controls,#song-actions){display:none!important}
 .pf-list-row.on small{color:inherit}
 .pf-warn{grid-column:2;font:800 12px var(--g)}
 
+.pf-cell.drop{opacity:1;background:var(--hl)!important}
+.pf-chip[draggable=true]{cursor:grab}
+.pf-list-item{display:flex;align-items:flex-start;gap:6px}
+.pf-tick{flex:none;width:18px;height:18px;margin-top:8px}
+.pf-list-item .pf-list-row{flex:1;min-width:0}
+.pf-targets{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.pf-wire{font:600 13px var(--g)}
+.pf-wire code{display:block;margin-top:4px;font:700 13px var(--m)}
+
 /* ---- the show ---- */
 .pf-show-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,360px);gap:12px}
 .pf-entries,.pf-settings{min-height:0;overflow-y:auto;scrollbar-width:thin}
@@ -73,6 +82,9 @@ body.preparing :is(#song-controls,#song-actions){display:none!important}
 .pf-ports{display:flex;flex-direction:column;gap:6px}
 .pf-port{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font:600 14px var(--g)}
 .pf-port small{color:var(--soft)}
+
+.pf-monitor{margin:0;padding:8px;border:1.5px solid var(--ink);border-radius:8px;font:600 12px var(--m);white-space:pre-wrap}
+.pf-row input[type=checkbox]{width:18px;height:18px}
 
 /* ---- Perform ---- */
 .pf-stage{display:flex;flex-direction:column;gap:12px;color:var(--ink);font:14px/1.4 var(--g)}
@@ -108,6 +120,7 @@ body.preparing :is(#song-controls,#song-actions){display:none!important}
 .pf-live{justify-content:flex-start;gap:8px;height:auto;min-height:32px}
 .pf-live-tag{padding:0 6px;border-radius:4px;background:var(--ink);color:var(--page);font:800 11px var(--m)}
 .pf-health{margin:0;padding-left:18px;font:600 13px var(--g)}
+.pf-lost{font-weight:800}
 .pf-health .pf-none{list-style:none;margin-left:-18px}
 .pf-drawer{width:320px;overflow-y:auto}
 .pf-set{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}

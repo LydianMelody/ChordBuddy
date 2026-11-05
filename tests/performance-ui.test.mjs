@@ -136,3 +136,53 @@ test('after a show, practice playback gets back its own mix and speed, and a son
  t.detachPerformer();
  assert.deepEqual(t.getSnapshot().mix,before);assert.equal(t.getSnapshot().rate,90);assert.equal(t.getSnapshot().visualMix,null);assert.equal(t.performer,null);
 });
+
+test('copies move by bars, keep their place in the bar, and what would fall off the song is left out and counted', async () => {
+ const {copyCues,moveCue}=await import('../chordbuddy/web/performance-model.js');
+ const odd=grid([4,4,2,4]).measures;
+ const cues=[{id:'a',at:{measure:'m2',beat:{n:3,d:1}},action:{type:'marker.text',text:'x'}},{id:'b',at:{measure:'m1',beat:{n:0,d:1}},action:{type:'marker.text',text:'y'}}];
+ let k=0;const r=copyCues(cues,odd,1,()=>`c${++k}`);
+ assert.equal(r.skipped,1,'beat 4 is not in a two-beat bar');
+ assert.deepEqual(r.copies.map(c=>[c.id,c.at.measure]),[['c1','m2']]);
+ assert.equal(cues[1].id,'b','the originals are untouched');
+ assert.equal(copyCues(cues,odd,50).copies.length,0);
+ assert.equal(moveCue(cues[0],odd[2]),null);assert.equal(moveCue(cues[0],odd[3]).at.measure,'m4');
+});
+
+test('a visualization’s parts are offered by what they can do, and melodies aren’t offered', async () => {
+ const {inputChoices}=await import('../chordbuddy/web/performance-prepare.js');
+ const scenes=[{id:'a',name:'Aurora',inputs:[{key:'flash',type:'trigger',label:'Flash'},{key:'glow',type:'amount',label:'Glow'},{key:'tune',type:'notes',label:'Tune'},{key:'on',type:'gate',label:'On'}]}];
+ assert.deepEqual(inputChoices(scenes,'trigger'),[['flash','Aurora: Flash']]);
+ assert.deepEqual(inputChoices(scenes,'level').map(x=>x[0]),['glow','on']);
+});
+
+test('a show can choose which saved connections the visuals use', async () => {
+ const {VisualCues,createVisualOut}=await import('../chordbuddy/web/performance-visuals.js');
+ const sent=[],out=createVisualOut({timeOf:p=>p,post:m=>sent.push(m)});
+ out.event({type:'visual',atPlayed:5,action:{type:'visual.patch',patch:'default'}});
+ assert.deepEqual(sent[0].cues[0],{at:5,kind:'patch',patch:'default'});
+ const v=new VisualCues();v.receive(sent[0]);v.step(4);assert.equal(v.state.patch,null);v.step(5);assert.equal(v.state.patch,'default');
+ const late=new VisualCues();late.receive(out.current());assert.equal(late.state.patch,'default');
+});
+
+test('finish by a clock time: later today, or tomorrow if it has passed', async () => {
+ const {nextTimeOfDay,clockValue}=await import('../chordbuddy/web/performance-prepare.js');
+ const now=new Date(2026,10,5,20,0,0).getTime();
+ assert.equal(new Date(nextTimeOfDay('21:30',now)).getDate(),5);assert.equal(clockValue(nextTimeOfDay('21:30',now)),'21:30');
+ assert.equal(new Date(nextTimeOfDay('19:00',now)).getDate(),6);
+});
+
+test('device watch: gone is reported once, and coming back opens it again', async () => {
+ const {createDeviceWatch}=await import('../chordbuddy/web/performance-midi.js');
+ let outputs=[{name:'H'}],log=[];
+ const api=async(path)=>{log.push(path);if(path==='/api/midi/ports')return {available:true,outputs,inputs:[]};if(path==='/api/midi/connect')return {output:true};return {};};
+ const seen=[];const w=createDeviceWatch({api,devices:()=>[{name:'H',critical:true}],onLost:(n,c)=>seen.push(['lost',n,c]),onBack:n=>seen.push(['back',n])});
+ await w.check();assert.deepEqual(seen,[]);
+ outputs=[];await w.check();await w.check();assert.deepEqual(seen,[['lost','H',true]]);assert.deepEqual(w.gone(),['H']);
+ outputs=[{name:'H'}];await w.check();assert.deepEqual(seen.at(-1),['back','H']);assert.deepEqual(w.gone(),[]);
+});
+
+test('spare time reads naturally at any size', async () => {
+ const {spareText}=await import('../chordbuddy/web/performance-duration.js');
+ assert.equal(spareText(42),'42s to spare');assert.equal(spareText(134),'2m 14s to spare');assert.equal(spareText(54437),'15h 7m to spare');assert.equal(spareText(-38),'38s over');
+});

@@ -7,13 +7,14 @@ import {mountPrepare,mountShow} from './performance-prepare.js';
 import {mountPerform} from './performance-view.js';
 import {createPathSession} from './pcm-path-session.js';
 import {createVisualOut} from './performance-visuals.js';
-import {createMidiBridge,listenForInput} from './performance-midi.js';
+import {createDeviceWatch,createMidiBridge,listenForInput} from './performance-midi.js';
 import {playbackAction} from './playback-keys.js';
 import {mixFromState} from './performance-actions.js';
 import {compilePerformance} from './performance-compiler.js';
 import {pathSeconds} from './performance-duration.js';
 import {defaultMix} from './pcm-mixer-core.js';
 import {loadVisualizations} from './visualizer-view.js';
+import {readInputs} from './visual-patch.js';
 
 const RATE=44100;
 const RUNNING=['playing','paused','gap','waiting','buffering'];
@@ -23,9 +24,9 @@ const RUNNING=['playing','paused','gap','waiting','buffering'];
 export function createPerformanceApp(deps){
   const {api,token,transport,visuals,$,showError}=deps;
   const page=$('perform-page');
-  let open=null,kind=null,controller=null,view=null,scenes=[],stopInput=null,previewing=false,bridge=null;
+  let open=null,kind=null,controller=null,view=null,scenes=[],stopInput=null,previewing=false,bridge=null,deviceTimer=null;
 
-  const scenesLoaded=loadVisualizations().then(r=>{scenes=r.scenes.map(s=>({id:s.id,name:s.name}));}).catch(()=>{});
+  const scenesLoaded=loadVisualizations().then(r=>{scenes=r.scenes.map(s=>({id:s.id,name:s.name,inputs:readInputs(s)}));}).catch(()=>{});
   const devices=()=>['Line 6 Helix'];
 
   function closePage(){open?.dispose();open=null;kind=null;page.classList.add('hidden');document.body.classList.remove('preparing');}
@@ -55,6 +56,7 @@ export function createPerformanceApp(deps){
       power:{acquire:()=>api('/api/power/acquire',{holder:'show'}).then(r=>{c.check&&(c.check.keepAwake=r.awake);if(!r.awake)c.check?.notes.push('This computer may still go to sleep during the show: keeping it awake didn’t work.');}).catch(()=>{}),release:()=>api('/api/power/release',{holder:'show'}).catch(()=>{})},
     });
     c.epochNow=()=>Date.now();
+    c.checkpoint={save:value=>deps.prefs.set('cb-show-running',JSON.stringify(value)),load:()=>{try{return JSON.parse(deps.prefs.get('cb-show-running','null'));}catch{return null;}},clear:()=>deps.prefs.set('cb-show-running','null')};
     return c;
   }
   /** What every view reads: the same values a practice stream would report. */
@@ -72,6 +74,7 @@ export function createPerformanceApp(deps){
     if(snapshot.status==='finished'||snapshot.status==='stopped'||snapshot.status==='error')release();
   }
   function release(){
+    clearInterval(deviceTimer);
     if(!transport.performer)return;
     stopInput?.();stopInput=null;previewing=false;
     transport.detachPerformer();visuals.setPerformState(null);
@@ -85,11 +88,11 @@ export function createPerformanceApp(deps){
     const used=new Set(),devicesNeeded=new Set();
     const check=await controller.arm(showBody,{});
     for(const item of controller.loaded.values())for(const s of item.compiled?.segments||[])for(const a of s.actions||[]){if(a.action.type==='visual.scene')used.add(a.action.scene);if(a.action.device)devicesNeeded.add(a.action.device);}
+    for(const d of showBody.devices||[])if(d.critical)devicesNeeded.add(d.name);
     const missingScenes=[...used].filter(id=>!scenes.some(s=>s.id===id));
-    const status=devicesNeeded.size?await api('/api/midi/status').catch(()=>null):null;
     const connections=[];
     for(const name of devicesNeeded){const r=await api('/api/midi/connect',{name}).catch(()=>null);connections.push({name,connected:!!r?.output,critical:!!showBody.devices?.find?.(d=>d.name===name&&d.critical)});}
-    void status;void check;
+    void check;
     const awake=await api('/api/power').then(r=>r.supported).catch(()=>false);
     const items=[...controller.entries].map(e=>controller.loaded.get(e.id));
     const {preflight}=await import('./performance-controller.js');
@@ -97,6 +100,11 @@ export function createPerformanceApp(deps){
     controller.status=controller.check.ready?'armed':'preparing';
     transport.attachPerformer(controller);
     stopInput=listenForInput({api,mappings:deps.mappings,onCommand:runCommand});
+    // a device unplugged during the show: say so, stop only if the show can't do without it; back again: it gets where things stand, not what it missed
+    const running=controller,needed=connections.map(c=>({name:c.name,critical:c.critical}));
+    const watch=createDeviceWatch({api,devices:()=>needed,onLost:(name,critical)=>running.deviceLost(name,critical),
+      onBack:name=>{running.deviceBack(name);const r=running.runner;if(r)bridge?.chase(r.withOverrides(r.plannedThrough(r.played)),name).catch(()=>{});}});
+    if(needed.length){clearInterval(deviceTimer);deviceTimer=setInterval(()=>{if(controller===running&&RUNNING.includes(running.status))watch.check();},4000);}
     return controller.check;
   }
   function runCommand(command){

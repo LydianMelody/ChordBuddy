@@ -110,6 +110,27 @@ export function createMidiBridge({api,now=()=>performance.now()/1000,timeOfPlaye
   return bridge;
 }
 
+/** Notices a device going away and coming back. check() once every few seconds. Coming back: it is opened again, and told only where things stand now. */
+export function createDeviceWatch({api,devices,onLost,onBack}){
+  const gone=new Set();
+  return {
+    async check(){
+      let ports;try{ports=await api('/api/midi/ports');}catch{return;}
+      if(!ports?.available)return;
+      const present=new Set(ports.outputs.map(p=>p.name));
+      for(const {name,critical} of devices()){
+        if(!present.has(name)){
+          if(!gone.has(name)){gone.add(name);await api('/api/midi/disconnect',{name}).catch(()=>{});onLost(name,!!critical);}
+        }else if(gone.has(name)){
+          const r=await api('/api/midi/connect',{name}).catch(()=>null);
+          if(r?.output){gone.delete(name);onBack(name);}
+        }
+      }
+    },
+    gone:()=>[...gone],
+  };
+}
+
 /** Reads mapped input for as long as it runs. Only explicit mappings do anything, so a pedal's own preset chatter is ignored. */
 export function listenForInput({api,mappings,onCommand,onEvent=()=>{}}){
   let running=true,after=0;const held=new Map();

@@ -9,7 +9,8 @@ import {ACTIONS,STEM_ROLES,checkAction,describeAction,domainOf} from './performa
 import {addressPosition,compilePerformance,endForBeats,gridFingerprint} from './performance-compiler.js';
 import {clockText,pathSeconds,showSeconds,spareText} from './performance-duration.js';
 import {COMMANDS,learnFrom} from './performance-midi.js';
-import {addRepeat,address,copyPass,copyPreviousPass,defaultPolicy,editPass,newEntry,newPerformance,newShow,removePass,removeRegion,resetPass,setPlays,POLICIES,movePass,customizedPasses} from './performance-model.js';
+import {messagesFor} from './performance-midi.js';
+import {addRepeat,address,copyCues,moveCue,copyPass,copyPreviousPass,defaultPolicy,editPass,newEntry,newPerformance,newShow,removePass,removeRegion,resetPass,setPlays,POLICIES,movePass,customizedPasses} from './performance-model.js';
 
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 const btn=(cls,text,title,run,iconName)=>{const b=el('button','btn '+cls,text);b.type='button';if(iconName)b.insertAdjacentHTML('afterbegin',icon(iconName));if(title)b.title=title;if(run)b.onclick=run;return b;};
@@ -27,6 +28,7 @@ export const NEW_ACTION={
   'rate.set':()=>({type:'rate.set',percent:100}),
   'visual.scene':({scenes})=>({type:'visual.scene',scene:scenes[0]?.id||'abstract'}),
   'visual.switch':()=>({type:'visual.switch',name:'lyrics',value:true}),
+  'visual.patch':()=>({type:'visual.patch',patch:'song'}),
   'visual.input':()=>({type:'visual.input',input:'',value:1,ramp:0}),
   'visual.trigger':()=>({type:'visual.trigger',input:''}),
   'midi.helix':({device})=>({type:'midi.helix',device:device||'Line 6 Helix',channel:1,snapshot:1}),
@@ -35,7 +37,7 @@ export const NEW_ACTION={
   'midi.note':({device})=>({type:'midi.note',device:device||'Line 6 Helix',channel:1,note:60,velocity:100,length:.5}),
   'marker.text':()=>({type:'marker.text',text:'Note'}),
 };
-const LANE_TYPES={tracks:['track.set','master.set','rate.set'],visuals:['visual.scene','visual.switch','visual.input','visual.trigger'],midi:['midi.helix','midi.cc','midi.pc','midi.note'],markers:['marker.text']};
+const LANE_TYPES={tracks:['track.set','master.set','rate.set'],visuals:['visual.scene','visual.patch','visual.switch','visual.input','visual.trigger'],midi:['midi.helix','midi.cc','midi.pc','midi.note'],markers:['marker.text']};
 // The fields each action shows in the inspector. kind: number, text, check, track, optional-number.
 const FIELDS={
   'track.set':[['track','track','Track'],['mute','tristate','Mute'],['solo','tristate','Solo'],['gain','optional','Level (0 to 1)',{min:0,max:1,step:.05}],['ramp','optional','Over this many seconds',{min:0,max:600,step:.5}]],
@@ -43,8 +45,9 @@ const FIELDS={
   'rate.set':[['percent','number','Speed (%)',{min:50,max:125,step:5}]],
   'visual.scene':[['scene','scene','Visualization']],
   'visual.switch':[['name','choice','What',{choices:[['lyrics','The lyrics'],['calm','Calm mode']]}],['value','check','On']],
-  'visual.input':[['input','input','Part of the visualization'],['value','number','Value (0 to 1)',{min:0,max:1,step:.05}],['ramp','optional','Over this many seconds',{min:0,max:600,step:.5}]],
-  'visual.trigger':[['input','input','Effect to fire']],
+  'visual.patch':[['patch','choice','Connections',{choices:[['song','This song’s own'],['usual','Your usual ones'],['default','The defaults']]}]],
+  'visual.input':[['input','input','Part of the visualization',{wants:'level'}],['value','number','Value (0 to 1)',{min:0,max:1,step:.05}],['ramp','optional','Over this many seconds',{min:0,max:600,step:.5}]],
+  'visual.trigger':[['input','input','Effect to fire',{wants:'trigger'}]],
   'midi.helix':[['device','device','Device'],['channel','number','MIDI channel',{min:1,max:16,step:1}],['setlist','optional','Setlist (1 to 8)',{min:1,max:8,step:1}],['preset','optional','Preset (1 to 128)',{min:1,max:128,step:1}],['snapshot','optional','Snapshot (1 to 8)',{min:1,max:8,step:1}]],
   'midi.cc':[['device','device','Device'],['channel','number','MIDI channel',{min:1,max:16,step:1}],['controller','number','Controller',{min:0,max:127,step:1}],['value','number','Value',{min:0,max:127,step:1}]],
   'midi.pc':[['device','device','Device'],['channel','number','MIDI channel',{min:1,max:16,step:1}],['program','number','Program',{min:0,max:127,step:1}]],
@@ -88,6 +91,17 @@ export const scopeWords=(scope,region)=>{
   if(scope.passId==='further')return 'Further passes';
   return `Pass ${scope.index+1}${region?` of ${region.plays==='live'?'until released':region.plays}`:''}`;
 };
+/** The parts of the visualizations an action can reach: [input key, "Starlane: Melody rings"]. wants 'trigger': what fires; 'level': what holds a value. */
+export function inputChoices(scenes,wants){
+  const out=[];
+  for(const scene of scenes)for(const input of scene.inputs||[]){
+    if(input.type==='notes')continue;
+    if(wants==='trigger'&&input.type!=='trigger')continue;
+    if(wants==='level'&&input.type==='trigger')continue;
+    out.push([input.key,`${scene.name||scene.id}: ${input.label||input.key}`]);
+  }
+  return out;
+}
 const barAtFrame=(measures,seconds)=>measures.find(m=>seconds>=m.start&&seconds<m.end)||measures.at(-1);
 
 /** The Prepare page. deps: {api, songId, scenes(): [{id,name}], devices(): [names], grid (loadSongGrid's result), onClose, onPreview(performance, fromSeconds, sendMidi), onStopPreview, previewing(), showError}. */
@@ -128,10 +142,13 @@ export function mountPrepare(root,deps){
   panel.addEventListener('keydown',event=>{
     const typing=/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName);
     if((event.ctrlKey||event.metaKey)&&String(event.key).toLowerCase()==='z'){if(!typing){event.preventDefault();event.stopPropagation();event.shiftKey?redo():undo();}return;}
+    if((event.ctrlKey||event.metaKey)&&String(event.key).toLowerCase()==='c'&&!typing&&selectedIds().length){event.preventDefault();event.stopPropagation();copySelected();return;}
+    if((event.ctrlKey||event.metaKey)&&String(event.key).toLowerCase()==='v'&&!typing&&clipboard&&selection.kind==='bars'){event.preventDefault();event.stopPropagation();pasteAt(selection.from);return;}
     if(typing||event.ctrlKey||event.altKey||event.metaKey)return;
     const k=String(event.key).toLowerCase();
     if(k==='v'){setTool('select');event.stopPropagation();}else if(k==='n'){setTool('repeat');event.stopPropagation();}else if(k==='a'){setTool('action');event.stopPropagation();}
     else if(event.key==='Delete'&&selection.kind==='cue'){deleteSelected();event.stopPropagation();}
+    else if(event.key==='Delete'&&selection.kind==='cues'){deleteMany(selection.ids);event.stopPropagation();}
     else if(event.key==='Escape'){selection={kind:'none'};paint();event.stopPropagation();}
   },true);
 
@@ -197,6 +214,34 @@ export function mountPrepare(root,deps){
   function updateCue(id,patch){const item=find(id);if(!item)return;programEdit(item.scope,cues=>{const c=cues.find(x=>x.id===id);Object.assign(c,patch(c));});}
   function deleteSelected(){const item=find(selection.id);if(!item)return;programEdit(item.scope,cues=>{cues.splice(cues.findIndex(c=>c.id===item.cue.id),1);});selection={kind:'none'};paint();}
 
+  let dragging=null,clipboard=null;
+  function dropOn(measure){
+    const item=dragging&&find(dragging);dragging=null;if(!item)return;
+    const moved=moveCue(item.cue,measure);
+    if(!moved){status=`That spot isn’t in bar ${measure.number}: it has fewer beats.`;saved.textContent=status;return;}
+    updateCue(item.cue.id,()=>({at:moved.at}));
+  }
+  // Several actions at once: tick them in the list. Copy and paste go by bars, so a copy keeps its place in the bar.
+  const selectedIds=()=>selection.kind==='cues'?selection.ids:selection.kind==='cue'?[selection.id]:[];
+  function copySelected(){
+    const items=selectedIds().map(find).filter(Boolean);if(!items.length)return false;
+    clipboard=items.map(x=>structuredClone(x.cue));status=`${items.length===1?'One action':`${items.length} actions`} copied. Select a bar, then Paste.`;saved.textContent=status;paint();
+    return true;
+  }
+  function pasteAt(measure){
+    if(!clipboard?.length)return;
+    const first=Math.min(...clipboard.map(c=>measures.findIndex(m=>m.id===c.at.measure)));
+    const {copies,skipped}=copyCues(clipboard,measures,measures.indexOf(measure)-first,uid);
+    programEdit(scope,cues=>cues.push(...copies));
+    selection=copies.length===1?{kind:'cue',id:copies[0].id}:{kind:'cues',ids:copies.map(c=>c.id)};
+    if(skipped){status=`${skipped} didn’t fit in the song and ${skipped===1?'was':'were'} left out.`;saved.textContent=status;}
+    paint();
+  }
+  function deleteMany(ids){
+    for(const id of ids){const item=find(id);if(item)programEdit(item.scope,cues=>{cues.splice(cues.findIndex(c=>c.id===id),1);});}
+    selection={kind:'none'};paint();
+  }
+
   // ---- the timeline
   function drawTimeline(){
     const p=perf(),rows=[];
@@ -248,6 +293,9 @@ export function mountPrepare(root,deps){
           if(tool==='action'){addActionAt(m,LANE_TYPES[key][0]);return;}
           selection={kind:'bars',from:m,to:m};paint();
         };
+        cell.ondragover=event=>{if(dragging){event.preventDefault();cell.classList.add('drop');}};
+        cell.ondragleave=()=>cell.classList.remove('drop');
+        cell.ondrop=event=>{event.preventDefault();cell.classList.remove('drop');dropOn(m);};
         grid_.append(cell);
       }
       const shown=items.filter(x=>laneOf(x.cue.action)===key&&(inScope(x)||(followShared&&x.scope.kind==='shared')));
@@ -255,6 +303,7 @@ export function mountPrepare(root,deps){
         const m=barAtFrame(measures,x.seconds);if(!m)continue;
         const chip=el('button','pf-chip'+(selection.kind==='cue'&&selection.id===x.cue.id?' on':'')+(x.scope.kind==='shared'&&scope.kind==='pass'?' shared':''),describeAction(x.cue.action));chip.type='button';chip.style.gridColumn=String(col(m));chip.style.gridRow=String(rowIndex);chip.title=describeAction(x.cue.action);
         chip.onclick=()=>{selection={kind:'cue',id:x.cue.id};paint();};
+        chip.draggable=true;chip.ondragstart=()=>{dragging=x.cue.id;};chip.ondragend=()=>{dragging=null;};
         grid_.append(chip);
       }
     });
@@ -296,7 +345,13 @@ export function mountPrepare(root,deps){
       else if(kind==='choice'){control=el('select');for(const [v,t] of o.choices){const n=el('option','',t);n.value=v;control.append(n);}control.value=a[key];control.onchange=()=>set({[key]:control.value});}
       else if(kind==='scene'){control=el('select');for(const s of deps.scenes()){const n=el('option','',s.name||s.id);n.value=s.id;control.append(n);}control.value=a[key];control.onchange=()=>set({[key]:control.value});}
       else if(kind==='device'){control=el('input');control.setAttribute('list','pf-devices');control.value=a[key]??'';control.onchange=()=>set({[key]:control.value});}
-      else {control=el('input');control.value=a[key]??'';control.placeholder='Its name in the Visuals editor';control.onchange=()=>set({[key]:control.value});}
+      else {
+        const parts=inputChoices(deps.scenes(),o.wants);
+        control=el('select');const none=el('option','','Choose…');none.value='';control.append(none);
+        for(const [v,t] of parts){const n=el('option','',t);n.value=v;control.append(n);}
+        if(a[key]&&!parts.some(([v])=>v===a[key])){const n=el('option','',a[key]);n.value=a[key];control.append(n);}
+        control.value=a[key]??'';control.onchange=()=>set({[key]:control.value});
+      }
       frag.push(field(name,control));
     }
     return frag;
@@ -305,6 +360,13 @@ export function mountPrepare(root,deps){
     inspector.replaceChildren();
     const p=perf();
     if(!p){inspector.append(el('p','pf-none','Make a new arrangement to start. Original arrangement plays the song as it is, and can’t be edited.'));return;}
+    if(selection.kind==='cues'){
+      inspector.append(el('h3','pf-title',`${selection.ids.length} actions`));
+      const row=el('div','pf-add-actions');
+      row.append(btn('','Copy','Copy these, to paste at another bar (Ctrl+C). Select a bar, then Paste.',()=>copySelected()),btn('danger','Delete','Remove these actions (Delete). Undo brings them back.',()=>deleteMany(selection.ids)));
+      inspector.append(row);
+      return;
+    }
     if(selection.kind==='cue'){
       const item=find(selection.id);if(!item)return;
       const m=measures.find(x=>x.id===item.cue.at.measure);
@@ -317,6 +379,16 @@ export function mountPrepare(root,deps){
       const problem=checkAction(item.cue.action);
       inspector.append(el('h3','pf-title',describeAction(item.cue.action)),el('p','pf-scope',scopeWords(item.scope,p.regions.find(r=>r.id===item.scope.regionId))),...drawActionFields(item),field('Bar',barInput),field('Beat',beatInput,'1 is the start of the bar'),field('When',when),field('Early by (ms)',lead,'Send it this much ahead of the beat, for a pedal or preset that takes a moment to change'),field('Order on this spot',order,'For two actions that set the same thing at the same moment: the lower number goes first'),field('On',enabled));
       if(problem)inspector.append(el('p','pf-problem',problem));
+      if(!problem&&item.cue.action.device){
+        const wire=el('details','pf-wire');wire.append(el('summary','','Exact MIDI bytes'),el('code','',messagesFor(item.cue.action,0).map(m=>m.bytes.map(b=>b.toString(16).toUpperCase().padStart(2,'0')).join(' ')).join('  ·  ')));
+        const send=btn('','Send this now','Send it to the device right now, to try it. This does change what the device is doing.',async()=>{
+          try{const c=await api('/api/midi/connect',{name:item.cue.action.device});if(!c.output){status=c.error||`${item.cue.action.device} isn’t connected.`;saved.textContent=status;return;}
+            const {clock}=await api('/api/midi/status');await api('/api/midi/schedule',{device:item.cue.action.device,events:messagesFor(item.cue.action,clock+.01)});status='Sent. That means it left this computer, not that the device acted on it.';saved.textContent=status;}
+          catch(error){deps.showError(error);}
+        });
+        inspector.append(wire,send);
+      }
+      inspector.append(btn('','Copy','Copy this action, to paste at another bar (Ctrl+C). Select a bar, then Paste.',()=>copySelected()));
       inspector.append(btn('danger','Delete this action','Remove it (Delete). Undo brings it back.',()=>deleteSelected()));
       return;
     }
@@ -337,6 +409,7 @@ export function mountPrepare(root,deps){
         try{const id=uid();change(addRepeat(perf(),{start:address(from.id),end,plays:until.checked?'live':Number(plays.value)||1,family:key.value,id},uid));regionId=id;scope={kind:'shared'};selection={kind:'region',id};paint();}catch(error){hint.textContent=error.message;}
       },'loop');
       inspector.append(field('Total plays',plays,'Counting the first play'),field('Until released',until,'Keep repeating until you leave it during the show'),field('Or just the first (beats)',beats,'Repeat only this many beats from the start of the selection. It must end on a bar line.'),field('Leaving it',key),hint,add);
+      if(clipboard?.length)inspector.append(btn('',`Paste ${clipboard.length===1?'the copied action':`${clipboard.length} copied actions`} here`,'Put copies here (Ctrl+V), keeping their places in the bar and their spacing',()=>pasteAt(from)));
       const here=el('div','pf-add-actions');inspector.append(el('h3','vx-cap','Add at the start'));
       for(const [k,name] of LANES){const b=btn('',name,`Add to ${name} at bar ${from.number}`,()=>addActionAt(from,LANE_TYPES[k][0]));here.append(b);}inspector.append(here);
       return;
@@ -355,7 +428,12 @@ export function mountPrepare(root,deps){
         const i=r.passes.findIndex(x=>x.id===scope.passId);
         row.append(btn('','Copy previous','Replace this pass with a copy of the one before it',()=>change(copyPreviousPass(perf(),r.id,scope.passId,position,uid))));
         row.lastChild.disabled=i<1;
-        row.append(btn('','Apply to all','Copy this pass’s actions to every other pass',()=>change(copyPass(perf(),r.id,scope.passId,r.passes.map(x=>x.id),position,uid))));
+        const others=r.passes.filter(x=>x.id!==scope.passId),ticks=new Map();
+        const targets=el('div','pf-targets');targets.append(el('span','vx-cap','Copy this pass to'));
+        others.forEach(x=>{const label=el('label','pf-check'),box=el('input');box.type='checkbox';ticks.set(x.id,box);label.append(box,el('span','',`Pass ${r.passes.indexOf(x)+1}`));targets.append(label);});
+        if(r.plays==='live'){const label=el('label','pf-check'),box=el('input');box.type='checkbox';ticks.set('further',box);label.append(box,el('span','','Further passes'));targets.append(label);}
+        targets.append(btn('','Copy to ticked passes','Replace those passes’ actions with a copy of this pass’s. The other passes stay as they are.',()=>{const ids=[...ticks].filter(([,b])=>b.checked).map(([id])=>id);if(ids.length)change(copyPass(perf(),r.id,scope.passId,ids,position,uid));}));
+        if(others.length||r.plays==='live')inspector.append(targets);
         row.append(btn('','Reset','Go back to following Every play',()=>change(resetPass(perf(),r.id,scope.passId))));
         const earlier=btn('sq','', 'Move this pass earlier',()=>change(movePass(perf(),r.id,scope.passId,i-1)),'up');earlier.disabled=i<1;earlier.setAttribute('aria-label','Move this pass earlier');
         const later=btn('sq','', 'Move this pass later',()=>change(movePass(perf(),r.id,scope.passId,i+1)),'down');later.disabled=i<0||i>=r.passes.length-1;later.setAttribute('aria-label','Move this pass later');
@@ -386,7 +464,10 @@ export function mountPrepare(root,deps){
       b.append(el('b','',`Bar ${m.number}`),el('span','',describeAction(x.cue.action)),el('small','',scopeWords(x.scope,p.regions.find(r=>r.id===x.scope.regionId))));
       if(errors.has(x.cue.id))b.append(el('em','pf-warn','Needs a look'));
       b.onclick=()=>{selection={kind:'cue',id:x.cue.id};if(x.scope.kind==='pass'){regionId=x.scope.regionId;scope=x.scope;}else if(scope.kind==='pass'){scope={kind:'shared'};}paint();};
-      li.append(b);list.append(li);
+      const tick=el('input');tick.type='checkbox';tick.className='pf-tick';tick.setAttribute('aria-label',`Select: bar ${m.number}, ${describeAction(x.cue.action)}`);tick.title='Tick several to copy or delete them together';
+      tick.checked=selection.kind==='cues'?selection.ids.includes(x.cue.id):false;
+      tick.onchange=()=>{const now=new Set(selection.kind==='cues'?selection.ids:selection.kind==='cue'?[selection.id]:[]);if(tick.checked)now.add(x.cue.id);else now.delete(x.cue.id);selection=now.size?{kind:'cues',ids:[...now]}:{kind:'none'};paint();};
+      li.className='pf-list-item';li.append(tick,b);list.append(li);
     }
     if(keep)list.querySelector(`[data-cue="${CSS.escape(keep)}"]`)?.focus();
     void listFocus;
@@ -419,6 +500,14 @@ export function mountPrepare(root,deps){
   return {paint,get performance(){return perf();},get selection(){return selection;},setSelection(value){selection=value;paint();},change,dispose(){disposed=true;clearTimeout(saveTimer);saveDraft();root.replaceChildren();}};
 }
 
+const pad2=n=>String(n).padStart(2,'0');
+export const clockValue=epoch=>{const d=new Date(epoch);return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;};
+/** The next time this clock time comes round, as epoch ms: later today, or tomorrow if it has passed. */
+export function nextTimeOfDay(text,now){
+  const [h,m]=String(text).split(':').map(Number),d=new Date(now);d.setHours(h,m,0,0);
+  if(d.getTime()<=now)d.setDate(d.getDate()+1);
+  return d.getTime();
+}
 /** The next message a device sends, or null after 15 seconds. */
 async function nextInput(api){
   const {last}=await api('/api/midi/events?after=999999999');
@@ -433,7 +522,7 @@ async function nextInput(api){
 /** The Show page: the set in order, its timing, its rules, and Perform. deps: {api, songs(): [{id,title,artist}], setlists(): [{id,name,song_ids}], onClose, onPerform(show), showError, midi: {ports(), connect(name)}}. */
 export function mountShow(root,deps){
   const {api}=deps;
-  let shows=[],record=null,show=null,history=null,timer=null,performances=new Map(),lengths=new Map(),status='',disposed=false,ports=null,dragging=null;
+  let batch=new Set(),shows=[],record=null,show=null,history=null,timer=null,performances=new Map(),lengths=new Map(),status='',disposed=false,ports=null,dragging=null;
   const panel=el('div','vx pf');panel.setAttribute('role','region');panel.setAttribute('aria-label','Shows');
   const bar=el('header','vx-bar'),title=el('h2','vx-title','Show');title.insertAdjacentHTML('afterbegin',icon('list'));
   const pick=el('label','vx-pick'),choice=el('select','vx-visual');pick.append(el('span','vx-cap','Show'),choice);choice.title='Which saved show to edit';
@@ -528,32 +617,45 @@ export function mountShow(root,deps){
       which.onchange=()=>{const [id,rev]=which.value.split('|');entryChange(i,{performanceId:id||null,revision:id?Number(rev):null});};
       const gap=el('select');gap.setAttribute('aria-label',`How ${song?.title??'this song'} starts`);for(const [v,t] of [['immediate','Right after the last song'],['gap','After a gap'],['control','When you press Next song']]){const o=el('option','',t);o.value=v;gap.append(o);}
       gap.value=e.transition?.kind||'immediate';gap.onchange=()=>entryChange(i,{transition:{kind:gap.value,seconds:gap.value==='gap'?(e.transition?.seconds??5):0,expected:gap.value==='control'?30:undefined}});
-      const seconds=numberField(e.transition?.seconds??5,0,600,v=>entryChange(i,{transition:{...e.transition,kind:'gap',seconds:v}}));seconds.hidden=gap.value!=='gap';seconds.setAttribute('aria-label','Gap in seconds');
+      const seconds=numberField(e.transition?.seconds??5,0,600,v=>entryChange(i,{transition:{...e.transition,kind:'gap',seconds:v}}));seconds.hidden=gap.value!=='gap';seconds.setAttribute('aria-label','Gap in seconds');seconds.title='Seconds of silence before this song';
+      const countIn=numberField(e.transition?.countIn??0,0,60,v=>entryChange(i,{transition:{kind:e.transition?.kind||'immediate',seconds:e.transition?.seconds??0,...e.transition,countIn:v}}));countIn.setAttribute('aria-label',`Count-in seconds for ${song?.title??'this song'}`);countIn.title='More silence just before this song, to count yourself in. 0 for none. A count-in on the recording itself plays as usual.';
+      const pickBatch=el('input');pickBatch.type='checkbox';pickBatch.className='pf-tick';pickBatch.checked=batch.has(e.id);pickBatch.setAttribute('aria-label',`Select ${song?.title??'this song'} to set its start along with others`);pickBatch.title='Tick several to set how they start, all at once';pickBatch.onchange=()=>{if(pickBatch.checked)batch.add(e.id);else batch.delete(e.id);paint();};
       const up=btn('sq','', 'Earlier in the set',()=>{const next=structuredClone(show);next.entries.splice(i-1,0,next.entries.splice(i,1)[0]);change(next);},'up');up.disabled=i===0;up.setAttribute('aria-label',`Move ${song?.title??'this song'} earlier`);
       const down=btn('sq','', 'Later in the set',()=>{const next=structuredClone(show);next.entries.splice(i+1,0,next.entries.splice(i,1)[0]);change(next);},'down');down.disabled=i===show.entries.length-1;down.setAttribute('aria-label',`Move ${song?.title??'this song'} later`);
       const out=btn('sq','', 'Take this song out of the show',()=>{const next=structuredClone(show);next.entries.splice(i,1);change(next);},'x');out.setAttribute('aria-label',`Take ${song?.title??'this song'} out`);
       const time=el('span','pf-length',length?clockText(length.music):'…');
       const flags=el('small','pf-flag',length?.live?'Needs you there':'');
-      if(i===0){gap.hidden=true;seconds.hidden=true;}
-      row.append(words,which,gap,seconds,time,flags,up,down,out);rows.append(row);
+      if(i===0){gap.hidden=true;seconds.hidden=true;countIn.hidden=true;}
+      row.append(pickBatch,words,which,gap,seconds,countIn,time,flags,up,down,out);rows.append(row);
     });
     const addSong=el('select','vx-visual');addSong.setAttribute('aria-label','A song to add');for(const s of songs){const o=el('option','',s.title);o.value=s.id;addSong.append(o);}
     const addB=btn('','Add song','Add this song to the end. The same song can go in twice, each with its own arrangement.',()=>{const next=structuredClone(show);next.entries.push(newEntry({songId:addSong.value,performanceId:null,revision:null,id:uid()}));change(next);loadFacts().then(paint);});
     add.append(addSong,addB);
+    if(batch.size){
+      const kind=el('select');kind.setAttribute('aria-label','How the ticked songs start');for(const [v,t] of [['immediate','Right after the last song'],['gap','After a gap'],['control','When you press Next song']]){const o=el('option','',t);o.value=v;kind.append(o);}
+      const secs=numberField(5,0,600,()=>{});secs.setAttribute('aria-label','Gap in seconds for the ticked songs');
+      add.append(el('span','vx-cap',`${batch.size} ticked`),kind,secs,btn('','Set for ticked','Give all the ticked songs this start',()=>{const next=structuredClone(show);for(const e of next.entries)if(batch.has(e.id))e.transition={kind:kind.value,seconds:kind.value==='gap'?Number(secs.value)||0:0,expected:kind.value==='control'?30:undefined,countIn:e.transition?.countIn??0};batch=new Set();change(next);}));
+    }
     const t=totals();
     const fact=(label,value)=>{const n=el('div','pf-fact');n.append(el('span','vx-cap',label),el('b','',value));return n;};
     footer.append(fact('Music',clockText(t.music)),fact('Gaps',clockText(t.gaps+t.holds)),fact('Planned total',t.unknown?`${clockText(t.planned)} and a wait`:clockText(t.planned)));
     const slotMinutes=show.target?.slotSeconds?show.target.slotSeconds/60:'';
     if(slotMinutes)footer.append(fact('In your slot',spareText(show.target.slotSeconds-t.planned)));
+    if(Number.isFinite(show.target?.finishAtEpoch))footer.append(fact('If you start now',spareText((show.target.finishAtEpoch-Date.now())/1000-t.planned)));
     if(show.entries.some(e=>lengths.get(`${e.songId}|${e.performanceId}|${e.revision}`)?.live)||show.entries.some(e=>e.transition?.kind==='control'))footer.append(el('p','pf-note','Needs you there: it has a loop or a wait that lasts until you release it, so the finish time is an estimate.'));
     // settings
     right.append(el('h3','pf-title','This show'));
-    right.append(field2('Slot length (minutes)',numberField(slotMinutes,0,600,v=>{const next=structuredClone(show);next.target=v?{slotSeconds:v*60}:null;change(next);},true),'How long you have. The clocks count down to this during the show.'));
+    right.append(field2('Slot length (minutes)',numberField(slotMinutes,0,600,v=>{const next=structuredClone(show);next.target=v?{slotSeconds:v*60}:null;change(next);},true),'How long you have, counted from when you press Start. The clocks count down to this during the show.'));
+    const finishAt=el('input');finishAt.type='time';finishAt.value=Number.isFinite(show.target?.finishAtEpoch)?clockValue(show.target.finishAtEpoch):'';
+    finishAt.onchange=()=>{const next=structuredClone(show);next.target=finishAt.value?{finishAtEpoch:nextTimeOfDay(finishAt.value,Date.now()),finishText:finishAt.value}:null;change(next);};
+    right.append(field2('Or finish by (clock time)',finishAt,'A time on the clock instead of a length. The next time it comes round. Setting this replaces the slot length.'));
     const nameInput=el('input');nameInput.value=show.name;nameInput.onchange=()=>{if(nameInput.value.trim())change({...structuredClone(show),name:nameInput.value.trim()});};right.append(field2('Name',nameInput));
     const keep=el('input');keep.type='checkbox';keep.checked=!!show.keepVisualsWhenMuted;keep.onchange=()=>change({...structuredClone(show),keepVisualsWhenMuted:keep.checked});
     right.append(field2('Keep visuals when a stem is muted',keep,'Off: muting a stem also stops what it moves in the visuals. On: its visuals keep going, handy when you play that part yourself.'));
     const clockDevice=el('input');clockDevice.setAttribute('list','pf-show-devices');clockDevice.value=show.midiClock?.device||'';clockDevice.placeholder='Off';clockDevice.onchange=()=>change({...structuredClone(show),midiClock:clockDevice.value.trim()?{device:clockDevice.value.trim()}:null});
     right.append(field2('Send MIDI clock to',clockDevice,'A device name. Delays and the like on it can then follow the song’s real tempo. Leave empty for none.'));
+    const carry=el('input');carry.type='checkbox';carry.checked=!!show.carryOverrides;carry.onchange=()=>change({...structuredClone(show),carryOverrides:carry.checked});
+    right.append(field2('Keep live changes into the next song',carry,'Off: each song starts from its plan. On: what you changed by hand stays until you release it.'));
     right.append(el('h3','vx-cap','When you change something by hand'));
     const policy=show.policy||defaultPolicy();
     const policySelect=(key,label)=>{const s=el('select');if(key!=='all'){const o=el('option','','Same as above');o.value='';s.append(o);}for(const v of POLICIES){const o=el('option','',POLICY_LABELS[v]);o.value=v;s.append(o);}s.value=policy[key]||'';s.onchange=()=>{const next=structuredClone(show);next.policy={...policy,[key]:s.value||null};change(next);};return field2(label,s);};
@@ -573,10 +675,24 @@ export function mountShow(root,deps){
     if(!names.length)node.append(el('p','pf-none','No MIDI devices found.'));
     for(const name of names){
       const row=el('div','pf-port');const on=ports.outputs.concat(ports.inputs).some(p=>p.name===name&&p.open);
-      row.append(el('span','',name),el('small','',on?'Connected':'Not connected'),btn('',on?'Disconnect':'Connect',on?'Let go of this device so another program can use it':'Open this device. Nothing is sent to it until a show or a preview does.',async()=>{try{const r=await api(on?'/api/midi/disconnect':'/api/midi/connect',{name});if(r.error)deps.showError(Error(r.error));await findPorts(node);}catch(error){deps.showError(error);}}));
+      const needs=el('label','pf-check'),needBox=el('input');needBox.type='checkbox';needBox.checked=!!show?.devices?.find?.(d=>d.name===name&&d.critical);
+      needBox.onchange=()=>{const next=structuredClone(show);next.devices=[...(next.devices||[]).filter(d=>d.name!==name),...(needBox.checked?[{name,critical:true}]:[])];change(next);};
+      needs.append(needBox,el('span','','This show needs it'));needs.title='Ticked: the show won’t start without it, and stops at the next bar if it’s disconnected. Not ticked: the show plays on without it and lists what it missed.';
+      row.append(el('span','',name),el('small','',on?'Connected':'Not connected'),needs,btn('',on?'Disconnect':'Connect',on?'Let go of this device so another program can use it':'Open this device. Nothing is sent to it until a show or a preview does.',async()=>{try{const r=await api(on?'/api/midi/disconnect':'/api/midi/connect',{name});if(r.error)deps.showError(Error(r.error));await findPorts(node);}catch(error){deps.showError(error);}}));
       node.append(row);
     }
     node.append(btn('','Look again','List the MIDI devices again',()=>findPorts(node)));
+    const monitor=el('pre','pf-monitor');monitor.hidden=true;
+    const watching=btn('','Watch incoming MIDI','For 20 seconds, list every message arriving from connected devices, to check they reach this computer. Nothing is sent.',async()=>{
+      monitor.hidden=false;monitor.textContent='Listening…';watching.disabled=true;
+      try{
+        let {last}=await api('/api/midi/events?after=999999999');const lines=[],deadline=Date.now()+20000;
+        while(Date.now()<deadline&&!disposed){const r=await api(`/api/midi/events?after=${last}&wait=1`);last=r.last;for(const e of r.events)lines.push(`${e.device}: ${e.bytes.map(b=>b.toString(16).toUpperCase().padStart(2,'0')).join(' ')}`);monitor.textContent=lines.length?lines.slice(-12).join('\n'):'Listening… nothing yet.';}
+        monitor.textContent=lines.length?`${lines.length} messages:\n${lines.slice(-12).join('\n')}`:'Nothing arrived. MIDI from this device isn’t reaching this computer.';
+      }catch(error){monitor.textContent=error.message;}
+      watching.disabled=false;
+    });
+    node.append(watching,monitor);
     node.append(el('h3','vx-cap','Foot switches and buttons'));
     const open=ports.inputs.some(p=>p.open);
     if(!open)node.append(el('p','pf-none','Connect a device to teach it controls.'));

@@ -410,7 +410,7 @@ function closeVisualEditor(){
 $('visual-editor-open').onclick=openVisualEditor;
 // The show system (performance-app.js): the Prepare, Show and Perform pages, and the one running show.
 let lastNow=null;{const setNow=player.setNow;player.setNow=value=>{lastNow=value;setNow(value);};}
-const performanceApp=createPerformanceApp({api,token,transport,visuals,$,showError,
+const performanceApp=createPerformanceApp({api,token,transport,visuals,$,showError,prefs,
   songs:()=>(model.state?.songs||[]).filter(song=>song.active_run),setlists:()=>model.state?.setlists||[],currentSong,
   showSong:id=>selectSong(id,{forShow:true}).catch(showError),
   chordNow:()=>lastNow?{now:lastNow.chord,next:lastNow.next}:null,mappings:()=>{try{return JSON.parse(prefs.get('cb-midi-mappings','[]'));}catch{return [];}},saveMappings:value=>prefs.set('cb-midi-mappings',JSON.stringify(value))});

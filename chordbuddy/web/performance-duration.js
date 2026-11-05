@@ -66,6 +66,6 @@ export function clockText(seconds){
 /** "2m 14s to spare" / "38s over". */
 export function spareText(spare){
   if(spare===null||!Number.isFinite(spare))return '';
-  const whole=Math.round(Math.abs(spare)),m=Math.floor(whole/60),s=whole%60,text=m?`${m}m ${s}s`:`${s}s`;
+  const whole=Math.round(Math.abs(spare)),h=Math.floor(whole/3600),m=Math.floor(whole/60)%60,s=whole%60,text=h?`${h}h ${m}m`:m?`${m}m ${s}s`:`${s}s`;
   return spare<0?`${text} over`:`${text} to spare`;
 }

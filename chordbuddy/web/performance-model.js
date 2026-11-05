@@ -130,5 +130,20 @@ export function editShared(performance,edit,{regionId=null,propagateTo=[],positi
   return next;
 }
 
+/** Copies of some actions, moved by a number of bars. A copy that would fall off the song is left out, and counted. measures: the song's bars. */
+export function copyCues(cues,measures,bars,makeId=defaultId){
+  const out=[];let skipped=0;
+  for(const cue of cues){
+    const i=measures.findIndex(m=>m.id===cue.at.measure),target=measures[i+bars];
+    if(i<0||!target||beatValue(cue.at)>=target.beats.length){skipped++;continue;}
+    out.push({...clone(cue),id:makeId(),at:{measure:target.id,beat:{...cue.at.beat}},from:undefined});
+  }
+  return {copies:out,skipped};
+}
+/** The action moved to another bar, keeping its place in the bar, or null if that place isn't in the new bar. */
+export function moveCue(cue,measure){
+  if(beatValue(cue.at)>=measure.beats.length)return null;
+  return {...clone(cue),at:{measure:measure.id,beat:{...cue.at.beat}}};
+}
 /** Which key leaves or switches to a region: an explicit choice, default by its kind. */
 export const loopKey=region=>region.family==='section'?'R':'L';

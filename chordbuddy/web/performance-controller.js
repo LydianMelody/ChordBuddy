@@ -37,10 +37,15 @@ export function preflight(loaded,{devices=[],keepAwake=null,missingScenes=[],pol
   return {ready:!blocking.length,blocking,notes,live,estimated,unknown,keepAwake};
 }
 
+/** Live changes that can go on to the next song. A MIDI setting stays with its device, and a loop never carries over. Policy comes along. */
+export function carryable(overrides){
+  return overrides?[...overrides].filter(([property])=>property==='master'||property==='rate'||property.startsWith('track.')||property.startsWith('visual.')||property.startsWith('midi.')):[];
+}
+
 export class ShowController{
   constructor({createSession,loadEntry,now,out=()=>{},onChange=()=>{},onSong=()=>{},power=null,policy=null}){
     Object.assign(this,{createSession,loadEntry,now,out,onChange,onSong,power,policy});
-    this.status='idle';this.entries=[];this.index=-1;this.loaded=new Map();this.session=null;this.runner=null;this.slot=0;this.log=[];this.handoffPlanned=null;this.pendingNext=null;this.handoffRequest=0;
+    this.status='idle';this.entries=[];this.index=-1;this.loaded=new Map();this.session=null;this.runner=null;this.slot=0;this.log=[];this.handoffPlanned=null;this.pendingNext=null;this.handoffRequest=0;this.missingDevices=new Set();this.stopAt=null;this.checkpoint=null;
     this.deadline=null;this.gapLeft=null;this.lastError=null;this.completedMusic=0;this.skipped=[];
   }
   note(type,details={}){if(this.log.length>5000)this.log.splice(0,1000);this.log.push({type,at:this.now(),entry:this.current?.id??null,...details});}
@@ -71,13 +76,19 @@ export class ShowController{
     this.index=Math.max(0,Math.min(this.entries.length-1,entryIndex));this.slot=0;
     await this.startCurrent(from);
     this.note('started');
+    this.saveCheckpoint();
     this.preloadNext();
     this.emit();
   }
   setDeadline(){
     const t=this.show.target;
     if(t?.slotSeconds)this.deadline=this.now()+t.slotSeconds;
-    else if(Number.isFinite(t?.finishAtEpoch)&&this.epochNow)this.deadline=this.now()+(t.finishAtEpoch-this.epochNow())/1000;
+    else if(Number.isFinite(t?.finishAtEpoch)&&this.epochNow){
+      // a clock time saved earlier means its next time round, never one already gone
+      let at=t.finishAtEpoch;const epoch=this.epochNow();
+      while(at<=epoch)at+=86400000;
+      this.deadline=this.now()+(at-epoch)/1000;
+    }
     else this.deadline=null;
   }
   async startCurrent(from=0){
@@ -113,6 +124,7 @@ export class ShowController{
     if(this.status==='gap'&&this.now()>=this.gapEnds){this.status='playing';this.gapEnds=null;this.note('gap-ended');}
     const rate=(this.runner?.rate??100)/100;
     this.lastReport=m;
+    if(this.stopAt!==null&&this.stopAt!==undefined&&m.sourceFrame>=this.stopAt){this.lastError=`${this.lostDevice} was disconnected, and this show needs it.`;this.stopAt=null;this.stop();return;}
     this.runner?.tick({played:m.played,source:m.sourceFrame,heard:Math.max(0,m.heardFrame-Math.round((m.latency||0)*RATE*rate)),state:m.state,now:this.now()});
     if(this.status==='playing'&&this.runner?.status==='buffering')this.status='buffering';
     else if(this.status==='buffering'&&this.runner?.status==='playing')this.status='playing';
@@ -133,7 +145,7 @@ export class ShowController{
     const until=r.current.startPlayed+(end-r.current.start)-r.played;
     if(until>HANDOFF_WINDOW)return;
     const next=this.next;
-    if(!next){return;}                           // the show ends with the song; the runner says when
+    if(!next){if(r.status==='playing'&&this.runner.peek()===null&&until<=0)this.checkpoint?.clear?.();return;}   // the show ends with the song; the runner says when
     const t=this.transitionOf(next);
     if(t.kind==='control'||this.readySlot!==next.id){this.waitingAtEnd=true;return;}
     this.requestHandoff(end,t);
@@ -162,16 +174,21 @@ export class ShowController{
   handedOff(m){
     if(this.handoffPlanned===null&&!this.pendingNext)return;
     const finished=this.current;
+    const carried=this.show.carryOverrides?carryable(this.runner?.overrides):null;
     this.completedMusic+=this.runner?.playedSeconds??0;
     this.note('song-ended',{entry:finished?.id,next:m.to});
     this.runner?.out?.({type:'cleanup'});
     this.pendingNext=null;this.handoffPlanned=null;this.waitingAtEnd=false;
     this.index++;this.slot=m.to;this.readySlot=null;
+    if(this.removeAfter===finished?.id){this.entries=this.entries.filter(e=>e.id!==finished.id);this.index--;this.removeAfter=null;}
     const item=this.loaded.get(this.current.id);
     this.makeRunner(this.slot,item);
+    if(carried)for(const [property,value] of carried)this.runner.overrides.set(property,value);
+    this.saveCheckpoint();
     // The next song's first sound comes after the gap: the worklet holds its start until then.
     this.runner.start(0);
-    this.status=m.gap>0?'gap':'playing';this.gapEnds=m.gap>0?this.now()+m.gap/RATE:null;
+    this.status=m.gap>0?'gap':'playing';
+    if(m.gap>0)this.note('gap-started',{seconds:m.gap/RATE});this.gapEnds=m.gap>0?this.now()+m.gap/RATE:null;
     this.onSong(this.current.songId,item);
     this.preloadNext();
     this.emit();
@@ -184,6 +201,23 @@ export class ShowController{
     this.emit();
   }
 
+  /** Where the run has got to, kept outside the page, so a crash can offer to start again from this song. */
+  saveCheckpoint(){this.checkpoint?.save?.({showId:this.show.id,entryId:this.current?.id??null,index:this.index});}
+  /** Where a run of this show stopped by itself last time, or null. */
+  resumePoint(){
+    const saved=this.checkpoint?.load?.();
+    if(!saved||saved.showId!==this.show?.id)return null;
+    const index=this.entries.findIndex(e=>e.id===saved.entryId);
+    return index>0?{index,title:this.loaded.get(saved.entryId)?.song?.title??null}:null;
+  }
+  /** A device this show can't do without has gone: the show stops at the next bar line, not this instant. */
+  deviceLost(name,critical){
+    this.note('device-lost',{name,critical});
+    this.missingDevices.add(name);
+    if(critical&&this.runner?.current&&!this.stopAt){this.stopAt=nextBarline(this.runner.measures,this.runner.source)??this.runner.grid.frames;this.lostDevice=name;}
+    this.emit();
+  }
+  deviceBack(name){this.note('device-back',{name});this.missingDevices.delete(name);this.emit();}
   // ---- what the performer can do
   togglePlay(){if(this.status==='paused')this.resume();else this.pause();}
   /** Immediate: music, cues and a running gap all stop. The slot clock keeps counting. */
@@ -201,7 +235,7 @@ export class ShowController{
   }
   /** Stop everything now. Never locked, never quantized. */
   stop(){
-    this.runner?.stop();if(this.runner){this.runner.pendingLoop=null;this.runner.pendingNav=null;}this.pendingNext=null;this.status='stopped';this.power?.release?.();this.note('stopped');
+    this.runner?.stop();if(this.runner){this.runner.pendingLoop=null;this.runner.pendingNav=null;}this.pendingNext=null;this.status='stopped';this.power?.release?.();this.note('stopped');this.checkpoint?.clear?.();
     this.session?.dispose?.();this.session=null;this.out({type:'cleanup'});this.emit();
   }
   pressLoop(kind){return this.runner?.pressLoop(kind)??null;}
@@ -293,7 +327,7 @@ export class ShowController{
     const totals=this.status==='idle'?null:this.totals();
     const clock=totals?timing(totals,{now:this.now(),deadline:this.deadline}):null;
     return {status:this.status,index:this.index,count:this.entries.length,entries:this.entries.map((e,i)=>({id:e.id,songId:e.songId,performanceId:e.performanceId??null,revision:e.revision??null,done:i<this.index,now:i===this.index,title:this.loaded.get(e.id)?.song?.title??e.songId,artist:this.loaded.get(e.id)?.song?.artist??'',performance:this.loaded.get(e.id)?.performance?.name??'Original arrangement',transition:this.transitionOf(e),seconds:pathSeconds(this.loaded.get(e.id)?.compiled?.segments||[]).music})),
-      song:this.runner?.snapshot()??null,clock,check:this.check??null,error:this.lastError,pendingNext:this.pendingNext,removeAfter:this.removeAfter??null,policy:this.policy,gapLeft:this.status==='gap'?Math.max(0,this.gapEnds-this.now()):null,waiting:!!this.waitingAtEnd};
+      song:this.runner?.snapshot()??null,clock,check:this.check??null,error:this.lastError,pendingNext:this.pendingNext,removeAfter:this.removeAfter??null,policy:this.policy,gapLeft:this.status==='gap'?Math.max(0,this.gapEnds-this.now()):null,waiting:!!this.waitingAtEnd,missingDevices:[...this.missingDevices],stoppingAt:this.stopAt??null,lostDevice:this.lostDevice??null,resume:this.status==='armed'?this.resumePoint():null};
   }
   emit(){this.onChange(this.snapshot());}
 }

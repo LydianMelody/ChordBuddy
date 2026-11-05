@@ -154,3 +154,10 @@ def test_bad_show_files_are_refused_and_a_failed_import_leaves_nothing_behind(se
     assert refused(good)==400
     assert json.load(request(service,'/api/performances/'+song))==[],'rolled back'
     assert json.load(request(service,'/api/shows'))==[]
+
+
+def test_the_sample_show_file_is_one_the_app_accepts(service,song):
+    from pathlib import Path
+    text=(Path(__file__).parent/'fixtures'/'sample-show.json').read_text('utf-8').replace('sample-song',song)
+    result=post(service,'/api/show/import',{'bundle':json.loads(text)})
+    assert result['missing_songs']==[] and result['show_id']
