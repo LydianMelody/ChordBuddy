@@ -64,6 +64,30 @@ Each visualization reacts to the music in its own way: Abstract's shockwave foll
 
 Patches are kept in `visual-patches.json` in your library folder. Visualizations in **My Visuals** can declare their own parts to patch (see the template, `chordbuddy/web/visualizations/_template.js`).
 
+## Perform: run a whole set with one Start
+
+**Perform** at the top of the window has three pages, each taking the chart's place. The chart itself never changes.
+
+- **Prepare this song** plans how a song plays on stage, as a named arrangement you can save (a song can have several). Select some bars, then **Repeat** them a set number of times or until you release them. Add actions at any bar: mute or fade a track, change the speed, change the visualization, fire one of its parts, send MIDI, or put a note on the stage screen. Each pass of a repeat can be edited on its own, so pass 2 can bring the drums in and change the visuals without touching pass 1. **Save** makes a version a show can use.
+- **Shows** puts songs in order, each with its arrangement and how it starts (right after the last song, after a gap, or when you press Next song). The same song can go in twice. It adds up the music and the gaps, and counts against your slot if you give it one.
+- **Perform view** is what you read during the show, from a distance: where you are, what's coming, the time left, and your controls. Press **Start** once, and the set plays by itself.
+
+During a show, the usual keys wait for the music, so nothing ever happens in the middle of a bar:
+
+- **L** loops the four bars you're in and **R** the section. Press the same key to leave after the pass you're in, or the other one to switch after it.
+- **←** and **→** queue a jump to another bar, and it happens at the next bar line. Clicking in the chart does the same. Whatever is queued is shown, with a **Cancel**.
+- **Space** pauses at once. The music stops, and the slot clock keeps counting.
+
+Anything you change by hand (a fader, a mute, the visualization) stays until you release it, even if the plan changes it later, unless you choose otherwise under **When you change something by hand**. Each one shows as **LIVE** on the Perform view; click it to go back to the plan. By default, a stem you mute also stops what it moves in the visuals. If you're playing that part yourself, tick **Keep visuals when a stem is muted** on the show.
+
+A loop that lasts until you release it makes the finish time an estimate: it's planned as four plays and grows if you stay longer. Leaving early takes the unused plays back off.
+
+**MIDI:** connect a device from the **Shows** page (the Line 6 Helix has its own action for setlist, preset and snapshot). You can teach it controls with **Learn**: only a control you taught does anything, so a pedal's own chatter when it changes preset is ignored. Nothing is sent while you edit, and Preview sends MIDI only if you tick **Send to hardware**. A sent message means it was sent, not that the device did anything; presets can take a moment to load, so an action can be set to go a little early.
+
+While a show runs, Chord Buddy keeps the computer and screen from going to sleep by themselves. It can't stop you putting it to sleep or closing the lid, and it changes no power settings.
+
+Shows can be saved to a file and brought in on another computer (**Export**, **Import**). The recordings don't go with it, so the songs must already be there.
+
 ## Stream the visualizer with OBS
 
 **Visualizer → Stream to OBS…** (at the top of the window) copies an address for an OBS **Browser Source**. OBS draws it off screen, so it keeps going while you click around in Chord Buddy, it is exactly the size you set in the source (for example 1920 × 1080), and it shows only the picture: no buttons, mixer or mouse pointer. It follows the open song, playback and the look you choose in the visualizer. Tick **Use custom frame rate** and choose 60 for smooth motion.
