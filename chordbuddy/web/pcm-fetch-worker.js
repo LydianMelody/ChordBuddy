@@ -1,15 +1,29 @@
 import {availableCredit,validateChunk,planChunk,loopEngaged} from './pcm-stream.js';
-let session=null,port=null;
+let session=null,port=null,preparing=Promise.resolve();
 self.onmessage=event=>{
  const message=event.data;
  if(message.type==='connect'){port=message.port;port.onmessage=onAudio;port.start();return;}
  if(message.type==='stop'){session?.abort.abort();session=null;return;}
+ // A performance fetching ahead for a jump: one stretch at a time, beside the stream, which it never disturbs (pcm-path.js keeps it).
+ if(message.type==='prepare'){preparing=preparing.then(()=>prepare(message));return;}
  if(message.type==='load'){
   session?.abort.abort();
   const value={...message,loop:message.loop||null,sentEnd:message.startFrame,sent:0,consumed:0,engaged:loopEngaged(message.loop,message.startFrame),busy:false,abort:new AbortController()};
   session=value;pump(value);
  }
 };
+async function prepare({runId,token,startFrame,frames,total}){
+ try{
+  for(let at=startFrame;at<Math.min(startFrame+frames,total);at+=44100){
+   const frameCount=Math.min(44100,total-at);
+   const response=await fetch('/api/separation-audio/'+encodeURIComponent(runId)+'?start_frame='+at+'&frame_count='+frameCount,{headers:{'X-ChordBuddy-Token':token}});
+   if(!response.ok)throw Error('Stem audio unavailable ('+response.status+').');
+   const buffer=await response.arrayBuffer();
+   validateChunk(response.headers,buffer,{runId,startFrame:at,frameCount});
+   port.postMessage({type:'prepared',runId,startFrame:at,frameCount,buffer},[buffer]);
+  }
+ }catch(error){port.postMessage({type:'prepare-failed',runId,startFrame,error:error.message});}
+}
 function onAudio(event){
  const m=event.data,s=session;
  if(m.type==='splice'){

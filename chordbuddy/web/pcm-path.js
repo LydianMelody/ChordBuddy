@@ -90,6 +90,19 @@ export class PathMixer extends PcmMixer{
   this.loop=loop?{start:loop.start,end:loop.end}:null;this.engaged=engaged;
   return {status:'committed',startFrame:pos,sent:this.played+queued,consumed:this.played,engaged,atPlayed};
  }
+ /** While paused: be at `to` when playback resumes, with nothing kept from before. Refused ('waiting') if its audio is not here. */
+ jumpNow({generation,to}){
+  if(!Number.isSafeInteger(to)||to<0||to>this.total)throw Error('Invalid PCM timeline');
+  if(this.readyFrames(to)<Math.min(READY_FRAMES,this.total-to))return {status:'waiting'};
+  const known=[...this.prepared,...this.history,...this.queue].reverse(),kept=[];let pos=to,filled=0;
+  while(filled<MEMORY_FILL_FRAMES&&pos<this.total){
+   const c=known.find(k=>k.start<=pos&&pos<k.start+k.count);if(!c)break;
+   const count=Math.min(c.start+c.count,pos+MEMORY_FILL_FRAMES-filled)-pos;
+   kept.push(cut(c,pos-c.start,count));filled+=count;pos+=count;
+  }
+  this.generation=generation;this.queue=kept;this.offset=0;this.queued=filled;this.end=pos;this.wrapNext=false;this.loop=null;this.engaged=false;this.frame=to;
+  return {status:'committed',startFrame:pos,sent:this.played+filled,consumed:this.played,engaged:false,atPlayed:this.played};
+ }
  /** Run apply() when output frame `atPlayed` is about to render. Late ones run at once, on the next block. */
  schedule(atPlayed,apply,id=null){
   const action={atPlayed,apply,id};let i=this.actions.length;
