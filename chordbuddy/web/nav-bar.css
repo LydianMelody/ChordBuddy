@@ -4,7 +4,12 @@
 .player{position:relative;flex:none;margin:0 -26px;padding:10px 26px 12px;border-top:var(--bd) solid var(--ink);background:var(--page);z-index:5}
 .player audio{display:none}
 .nav-grid{display:grid;grid-template-columns:250px minmax(0,1fr) 170px;gap:18px;align-items:center}
+/* The passing word "Buffering…" (or an error) floats over the page just above the bar. It used to sit inside the bar, so the bar
+   grew by a line and dropped back each time a song started: everything jumped. It also waits a moment before showing, so a blink of buffering is never seen. */
 .player-buffering{display:block;font:400 11px var(--m);color:var(--soft);margin-top:4px;text-align:center}
+.player-buffering.floating{position:absolute;margin:0;font:600 11px var(--m);left:50%;bottom:calc(100% + 6px);transform:translateX(-50%);max-width:min(92%,560px);padding:2px 12px;border:2px solid var(--ink);border-radius:999px;background:var(--page);color:var(--ink);pointer-events:none;animation:status-in .2s ease-out .25s both}
+@keyframes status-in{from{opacity:0}}
+@media (prefers-reduced-motion:reduce){.player-buffering.floating{animation:none}}
 .player-buffering:empty{display:none}
 
 /* now / next + buttons */

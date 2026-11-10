@@ -99,6 +99,7 @@ export function mountPlayer(footer,transport,onError,{onViewportChange=()=>{},lo
   if(!base)tempoB.title='The tempo shows here once the song has been analyzed.';
   else tempoB.title=`The tempo you’re hearing: the song is at ${Math.round(base)} BPM here${rateValue!==100?`, playing at ${speedLabel(rateValue)}`:''}. Click to type a tempo to practice at, and the speed changes to play it.`;
   status.textContent=!s.ready?s.readiness:s.buffering?'Buffering…':s.error?s.error:'';
+  status.classList.toggle('floating',!!s.ready);     // a passing word (Buffering…, an error) floats over the page; the reason playback is not ready yet stays in the bar
   // A loop R or L set (not one whose handles you moved) follows you when you jump elsewhere: to the new section, or the new four bars. Only a seek moves it: playback itself
   // never does (the playhead reported just after the loop wraps, or as playback starts, can sit a moment before the section's start).
   const seeked=s.seeks!==seeksSeen;seeksSeen=s.seeks;

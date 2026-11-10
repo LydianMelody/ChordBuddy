@@ -50,3 +50,12 @@ test('L loops four bars or the pass you are in; R and L swap, end their own loop
  transport.setLoop({enabled:true,start:4,end:8});player.toggleLoop('bars');assert.equal(loops.at(-1),null,'over handles you placed, L ends the loop');
  transport.setLoop({enabled:true,start:4,end:8});set({seconds:2,seeks:3});assert.deepEqual(loops.at(-1),{enabled:true,start:4,end:8},'and a seek never moves it');
 });
+
+// "Buffering…" appearing inside the bar made it a line taller for a moment on a song's first play, so the whole bar jumped. A passing word floats
+// over the page instead; the reason playback is not ready yet (a steady message) stays in the bar.
+test('a passing status floats over the page, a steady reason for waiting stays in the bar',()=>{
+ const {root,setState}=setup();
+ const status=root.querySelector('.player-buffering');assert.ok(status);
+ setState({ready:true,buffering:true});assert.equal(status.textContent,'Buffering…');assert.match(status.className,/floating/);
+ setState({ready:false,readiness:'Analyze this song first.',buffering:false});assert.equal(status.textContent,'Analyze this song first.');assert.doesNotMatch(status.className,/floating/);
+});
