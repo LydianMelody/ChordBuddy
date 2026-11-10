@@ -25,6 +25,8 @@ body.preparing #song-actions{display:flex!important}
 /* during a show the page stays the chart, with the set in the sidebar and the mixer on the right: only a slim strip of controls is added.
    The player bar stays too: its timeline, play and loop buttons go to the show (transport.js hands them to the performer), so it is how you get around. */
 body.performing :is(#song-controls,#song-actions,#more-tools){display:none!important}
+/* A show is steered, never edited: the whole toolbar (view tabs, tool options, undo and save) and the chart's tool rail are gone while it runs. */
+body.performing :is(#workspace .toolbar,#tool-rail,#tool-note,#tool-status){display:none!important}
 body.performing .perform-page{flex:none;padding:0 0 8px}
 .pf-menu{position:relative}
 .pf-menu>summary{list-style:none;cursor:pointer}

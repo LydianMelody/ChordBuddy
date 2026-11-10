@@ -306,8 +306,8 @@ export function mountChartPage(root,handlers={}){
 
   // ======================= the rail, the note bar and the status line =======================
   // The rail is shared with the lead sheet and the MIDI view: whichever is showing draws its own tools in it.
-  // during a show the chart is read, not edited: no Edit or Timing tool (Play and Cue stay)
-  const locked=name=>!!handlers.performing?.()&&(name==='edit'||name==='timing');
+  // during a show the chart is only read: no Edit, Timing or Cue tool (only Play, to follow and jump about), and the rail itself is hidden (performance.css)
+  const locked=name=>!!handlers.performing?.()&&name!=='play';
   function renderTools(){
     dock.dataset.owner='chart';
     renderRail(dock,{groups:[CHART_TOOLS.filter(name=>!locked(name))],active:tool,onPick:name=>api.setTool(name)});
