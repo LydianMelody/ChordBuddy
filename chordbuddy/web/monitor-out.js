@@ -125,6 +125,10 @@ export function createMonitorOut({api,transport,performer=()=>null,practice=()=>
       const asking=api('/api/monitor/load',{song_id:song}).then(r=>{tracks.set(song,r.key);return r.key;}).catch(error=>{
         tracks.set(song,null);if(!/no cue track/i.test(error?.message||''))fail(error);return null;});
       tracks.set(song,asking);
+      // The app keeps only two cue tracks in memory (MAX_TRACKS in monitor_audio.py): the one before these two has been dropped there, so it is
+      // forgotten here too. Going back to that song then asks for it again, instead of trusting a track that is gone and playing no cue at all.
+      const held=[...tracks].filter(([,version])=>version!==null).map(([id])=>id);
+      while(held.length>2)tracks.delete(held.shift());
     }
     return tracks.get(song);
   }

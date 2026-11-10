@@ -215,3 +215,13 @@ test('a flag turns the click or cue track on or off, in plain words', () => {
  assert.equal(itemFor({type:'monitor.set',part:'cue',on:true}).id,'monitor-cue');
 });
 test('AHEAD leaves room for a slow page', () => {assert.ok(AHEAD>=.25);});
+
+// The app keeps two cue tracks in memory. The page used to remember every one it had ever asked for, so in a set with three cue tracks,
+// going back to the first song trusted a track the app had dropped, and no cue played.
+test('a cue track the app has dropped is asked for again when its song comes back', async () => {
+ const r=rig();const loads=()=>r.calls.filter(c=>c[0]==='/api/monitor/load').map(c=>c[1].song_id);
+ for(const song of ['a','b','a','b'])r.out.trackFor(song);await settle();
+ assert.deepEqual(loads(),['a','b'],'two tracks: each asked for once');
+ r.out.trackFor('c');await settle();r.out.trackFor('b');r.out.trackFor('a');await settle();
+ assert.deepEqual(loads(),['a','b','c','a'],'the third pushed the first out, so the first is asked for again; the second was still held');
+});

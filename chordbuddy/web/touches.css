@@ -11,18 +11,46 @@ dialog[open]::backdrop{animation:backdrop-in .2s ease-out}
 .alert:not(.hidden){animation:alert-in .22s ease-out}
 @keyframes alert-in{from{opacity:0;transform:translateY(-8px)}}
 
-/* The big icon on an empty page floats, slowly, keeping its tilt. */
-.empty-state .big{animation:big-float 4.5s ease-in-out infinite}
-@keyframes big-float{50%{transform:rotate(-5deg) translateY(-5px)}}
+/* An empty page (no song open, or no songs at all in All songs) shows a blank cassette, drawn like the ones on the shelf: a paper label with
+   one highlighted line waiting for a title, the window with its two reels, the strip along the bottom. Its reels turn slowly, the only
+   thing here that keeps moving. Colors come from the theme alone, so it follows all three themes and the dark scheme. */
+.empty-tape{flex:none;display:flex;flex-direction:column;gap:6px;width:136px;margin-bottom:8px;padding:8px 9px 0;border:var(--bd) solid var(--ink);border-radius:12px;background:color-mix(in srgb,var(--a1) 32%,var(--page));box-shadow:4px 4px 0 var(--ink);transform:rotate(-4deg)}
+.empty-tape-label{display:block;height:24px;border:2px solid var(--ink);border-radius:5px;background:linear-gradient(var(--hl),var(--hl)) 8px 7px/52% 7px no-repeat,var(--page)}
+.empty-tape-foot{display:block;height:11px;margin:0 16px;border:2px solid var(--ink);border-bottom:0;border-radius:6px 6px 0 0;background:color-mix(in srgb,var(--ink) 8%,color-mix(in srgb,var(--a1) 32%,var(--page)))}
+.empty-tape .tape-window{padding:4px 9px}
+.empty-tape .reel{width:21px;height:21px;animation:reel-spin 9s linear infinite}
 
 /* A cassette turns its reels slowly while the pointer rests on it (one being analyzed already turns them faster). */
 .tape:not([data-status="busy"]):hover .reel{animation:reel-spin 3.6s linear infinite}
 
-/* A song that has just arrived drops onto the shelf; one that has just finished its analysis gives a single soft pulse (classes from app.js). */
-.song-row.just-added,.library-song.just-added{animation:tape-drop .55s cubic-bezier(.3,1.6,.5,1)}
+/* A song that has just arrived drops onto the shelf; one that has just finished its analysis gives a single soft pulse (classes from app.js,
+   which takes them off again after 1.6 seconds). --touch-age is how far along the moment already was if the list had to be drawn again
+   in the middle of it, so it carries on instead of starting over. The pulse keeps the tape's own hard shadow (--rest) under the ring. */
+.song-row.just-added,.library-song.just-added{animation:tape-drop .55s cubic-bezier(.3,1.6,.5,1) var(--touch-age,0s)}
 @keyframes tape-drop{from{opacity:0;transform:translateY(-16px) rotate(-2.5deg)}}
-.song-row.just-ready,.library-song.just-ready{animation:tape-ready 1.2s ease-out}
-@keyframes tape-ready{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--a2) 75%,transparent)}70%,100%{box-shadow:0 0 0 12px transparent}}
+.song-row{--rest:2px 2px 0 var(--ink)}
+.song-row.selected,.library-song{--rest:4px 4px 0 var(--ink)}
+.song-row.just-ready,.library-song.just-ready{animation:tape-ready 1.2s ease-out var(--touch-age,0s)}
+@keyframes tape-ready{0%{box-shadow:var(--rest),0 0 0 0 color-mix(in srgb,var(--a2) 75%,transparent)}70%,100%{box-shadow:var(--rest),0 0 0 12px transparent}}
+
+/* Ready to play: when a song's analysis finishes, its cassette's reels give one quick turn and come to rest (this outranks the slow turn
+   under the pointer for those 1.6 seconds, so the two never fight; both rest at the same angle, so nothing jumps afterwards). */
+.library-song.tape.just-ready .reel{animation:reel-once .9s cubic-bezier(.2,.8,.3,1) var(--touch-age,0s)}
+@keyframes reel-once{to{transform:rotate(360deg)}}
+/* ...and a small check mark pops once and fades: in the empty corner beside a cassette's bottom strip, and over the grip of a spine in the
+   sidebar, so it never covers a title or a number. It is invisible whenever it is not animating. (\2713 is the check mark character.) */
+.song-row.just-ready::after,.library-song.just-ready::after{content:'\2713';box-sizing:border-box;position:absolute;right:2px;bottom:2px;width:17px;height:17px;border:2px solid var(--ink);border-radius:50%;background:var(--a3);color:var(--onA3);font:800 10px/13px var(--m);text-align:center;opacity:0;pointer-events:none;animation:ready-check 1.5s ease-out var(--touch-age,0s)}
+.song-row.just-ready::after{right:auto;bottom:auto;left:-2px;top:50%;margin-top:-9px}
+@keyframes ready-check{0%{opacity:0;transform:scale(.3) rotate(-25deg)}20%{opacity:1;transform:scale(1.18) rotate(6deg)}32%,70%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-5px)}}
+
+/* The magnifying glass leans in while you type in a search field, and straightens when you leave it: a quiet sign of where your typing goes. */
+.search .ic{transition:transform .18s ease-out}
+.search:focus-within .ic{transform:rotate(-14deg) scale(1.12)}
+
+/* The Import buttons hint at what they do when the pointer is on them: the plus gives a quarter turn, the upload arrow lifts a little. */
+:is(#import-button,#empty-import,.library-empty .btn) .ic{transition:transform .18s ease-out}
+:is(#import-button,.library-empty .btn):hover .ic{transform:rotate(90deg)}
+#empty-import:hover .ic{transform:translateY(-2px)}
 
 /* The progress bar fills smoothly between the app's checks instead of jumping, and its stripes already slide. */
 #job-progress{transition:width .8s ease-out}
@@ -31,7 +59,13 @@ dialog[open]::backdrop{animation:backdrop-in .2s ease-out}
 ::view-transition-old(root),::view-transition-new(root){animation-duration:.28s}
 
 @media (prefers-reduced-motion:reduce){
-  dialog[open],dialog[open]::backdrop,.alert:not(.hidden),.empty-state .big,.tape:hover .reel,.just-added,.just-ready{animation:none}
-  #job-progress{transition:none}
+  dialog[open],dialog[open]::backdrop,.alert:not(.hidden),.empty-tape .reel,.tape:not([data-status="busy"]):hover .reel,.song-row.just-added,.library-song.just-added,.song-row.just-ready,.library-song.just-ready,
+  .library-song.tape.just-ready .reel,.song-row.just-ready::after,.library-song.just-ready::after{animation:none}
+  #job-progress,.search .ic,:is(#import-button,#empty-import,.library-empty .btn) .ic{transition:none}
   ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none}
 }
+
+/* Nothing decorative moves during a show: the same touches are switched off while performing. */
+body.performing :is(.empty-tape .reel,.tape:not([data-status="busy"]):hover .reel,.song-row.just-added,.library-song.just-added,.song-row.just-ready,.library-song.just-ready,.library-song.tape.just-ready .reel){animation:none}
+body.performing .song-row.just-ready::after,body.performing .library-song.just-ready::after{animation:none}
+body.performing :is(.search .ic,#import-button .ic,#empty-import .ic,.library-empty .btn .ic){transition:none;transform:none}

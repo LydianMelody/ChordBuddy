@@ -98,6 +98,40 @@ def test_static_files_are_revalidated_with_a_tag_and_answer_304(service):
         assert api.headers['Cache-Control']=='no-store'                       # an answer from the app is never reused
 
 
+def test_the_polled_state_answers_304_until_something_changes(service):
+    with request(service,'/api/state') as first:
+        tag=first.headers['ETag'];before=first.read()
+        assert tag and first.headers['Cache-Control']=='no-store' and first.headers['Connection']=='close'
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        request(service,'/api/state',headers={'If-None-Match':tag})
+    assert exc.value.code==304 and exc.value.read()==b''
+    assert exc.value.headers['ETag']==tag and exc.value.headers['Content-Length']=='0' and exc.value.headers['Cache-Control']=='no-store'
+    with request(service,'/api/state',headers={'If-None-Match':'"other"'}) as again:
+        assert again.status==200 and again.read()==before                    # a tag that does not match gets the whole answer
+    request(service,'/api/setlist',json.dumps({'name':'Friday'}).encode()).close()
+    with request(service,'/api/state',headers={'If-None-Match':tag}) as changed:   # the old tag no longer matches once the library changed
+        assert changed.status==200 and changed.headers['ETag']!=tag
+        assert [s['name'] for s in json.load(changed)['setlists']]==['Default','Friday']
+    with pytest.raises(urllib.error.HTTPError) as exc:                        # a wrong token is still refused, tag or no tag
+        request(service,'/api/state',headers={'If-None-Match':tag,'X-ChordBuddy-Token':'wrong'})
+    assert exc.value.code==403
+
+
+def test_a_songs_polled_separation_and_playback_answer_304_when_unchanged(service,mp3_bytes):
+    song=json.load(request(service,'/api/import?filename=Test.mp3',mp3_bytes))
+    for path in ['/api/separation/'+song['id'],'/api/playback/'+song['id']]:
+        with request(service,path) as first:
+            tag=first.headers['ETag'];body=json.load(first);assert tag and first.headers['Cache-Control']=='no-store'
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            request(service,path,headers={'If-None-Match':tag})
+        assert exc.value.code==304 and exc.value.read()==b''
+        with request(service,path,headers={'If-None-Match':'"other"'}) as again:
+            assert json.load(again)==body
+    with pytest.raises(urllib.error.HTTPError) as exc:                        # an unknown song is an error as before, never a 304
+        request(service,'/api/separation/missing',headers={'If-None-Match':tag})
+    assert exc.value.code==404
+
+
 def test_static_traversal_is_rejected_and_import_errors_are_json(service):
     with pytest.raises(urllib.error.HTTPError) as exc:
         request(service,'/../library.sqlite3')

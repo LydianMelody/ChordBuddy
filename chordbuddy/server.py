@@ -1,6 +1,7 @@
 """Loopback-only desktop API. No library paths are accepted from the browser."""
 from __future__ import annotations
 
+from hashlib import blake2b
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
@@ -370,6 +371,20 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _json_if_changed(self,value):
+        # For the answers the page asks for again and again (its regular poll). Each answer carries a tag made from its own bytes; a page
+        # that sends the tag back (If-None-Match) while nothing changed gets a tiny 304 with no body, so it has nothing to read or redraw.
+        # The page does this itself: the answer stays "no-store", so the browser never keeps or reuses one, and the connection still closes.
+        body=json.dumps(value,allow_nan=False).encode('utf-8')
+        tag='"'+blake2b(body,digest_size=12).hexdigest()+'"'
+        same=tag in [t.strip() for t in self.headers.get('If-None-Match','').split(',')]
+        self.send_response(304 if same else 200)
+        self.send_header('ETag',tag)
+        if not same:self.send_header('Content-Type','application/json; charset=utf-8')
+        self.send_header('Content-Length','0' if same else str(len(body)))
+        self.end_headers()
+        if not same:self.wfile.write(body)
+
     def _read(self,limit):
         try:
             size=int(self.headers.get('Content-Length','0'))
@@ -586,9 +601,9 @@ class Handler(BaseHTTPRequestHandler):
                 root,manifest=self.app.separation_store.get_published_run(run_id)
             return self._json(visual_features.load_or_compute(root,manifest))
         if path.startswith('/api/playback/'):
-            return self._json(self.app.playback_state(path.removeprefix('/api/playback/')))
+            return self._json_if_changed(self.app.playback_state(path.removeprefix('/api/playback/')))
         if path.startswith('/api/separation/'):
-            return self._json(self.app.separation_store.get_song_state(path.removeprefix('/api/separation/')))
+            return self._json_if_changed(self.app.separation_store.get_song_state(path.removeprefix('/api/separation/')))
         if path=='/api/prefs':
             return self._json(self.app.library.read_prefs())
         if path=='/api/models':
@@ -596,7 +611,7 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/chord-model':
             return self._json(self.app.chord_model.status())
         if path=='/api/state':
-            return self._json(self.app.state())
+            return self._json_if_changed(self.app.state())
         if path.startswith('/api/song/'):
             return self._json(self.app.documents.song_detail(path.removeprefix('/api/song/')))
         if path.startswith('/api/document/'):

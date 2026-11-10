@@ -93,17 +93,20 @@ def test_analysis_admission_rejects_path_before_invalidating_cache(library,mp3_b
 
 def test_cache_environment_uses_bounded_children(tmp_path):
     from chordbuddy.path_policy import worker_environment as environment
-    env=environment(Path.cwd(),tmp_path)
+    # A job's folder must be inside the install folder, so the install folder here is the temporary one.
+    project=tmp_path;work=tmp_path/'work';work.mkdir()
+    env=environment(project,work)
     assert 'LIBROSA_CACHE_DIR' not in env          # no cache that could never be reused, and no budget spent reserving room for it
-    assert Path(env['TEMP'])==tmp_path/'c'
-    assert Path(env['HF_HOME'])==tmp_path/'c/h'
-    assert Path(env['CUDA_CACHE_PATH'])==Path.cwd()/'.models'/'cuda-cache'      # shared by every job, so GPU kernels are compiled once
+    assert Path(env['TEMP'])==work/'c'
+    assert Path(env['HF_HOME'])==work/'c/h'
+    assert Path(env['CUDA_CACHE_PATH'])==project/'.models'/'cuda-cache'      # shared by every job, so GPU kernels are compiled once
     assert int(env['CUDA_CACHE_MAXSIZE'])>=2*1024**3
 
 def test_an_inherited_librosa_cache_location_is_dropped(tmp_path,monkeypatch):
     from chordbuddy.path_policy import worker_environment as environment
     monkeypatch.setenv('LIBROSA_CACHE_DIR','C:/somewhere/very/long/and/outside')
-    assert 'LIBROSA_CACHE_DIR' not in environment(Path.cwd(),tmp_path)
+    work=tmp_path/'work';work.mkdir()
+    assert 'LIBROSA_CACHE_DIR' not in environment(tmp_path,work)
 
 def test_the_install_folder_can_be_about_ninety_characters_long():
     # Worst case below the library folder is the CUDA cache file, not librosa's: that is what limits the install path now.

@@ -5,8 +5,12 @@ import sys,threading
 from types import SimpleNamespace
 import pytest
 
+QA_ROOT=Path(__file__).resolve().parents[1]/'qa/p14'
+# qa/ is a local test-library folder that is not in the repository (.gitignore), so a fresh copy does not have this harness.
+pytestmark=pytest.mark.skipif(not (QA_ROOT/'serve.py').is_file(),reason='needs the local practice QA harness qa/p14/serve.py, which is not in the repository')
+
 def harness():
-    root=Path(__file__).resolve().parents[1]/'qa/p14'
+    root=QA_ROOT
     spec=importlib.util.spec_from_file_location('practice_qa_serve',root/'serve.py')
     module=importlib.util.module_from_spec(spec)
     sys.path.insert(0,str(root))

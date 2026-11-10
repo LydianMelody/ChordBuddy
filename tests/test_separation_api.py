@@ -67,7 +67,21 @@ def test_global_job_panel_tracks_latest_completed_kind(service,monkeypatch):
     service.app._last_job_kind='transcription'
     assert service.app.state()['job']['kind']=='transcription'
 
-def test_inference_gate_blocks_separation_without_creating_run(service):
+@pytest.fixture
+def project_service(tmp_path):
+    # Separation only starts for a library inside the install folder, so here the temporary folder is both.
+    import threading
+    from chordbuddy.server import make_server
+    server=make_server(tmp_path,port=0,project_dir=tmp_path)
+    thread=threading.Thread(target=server.serve_forever,daemon=True)
+    thread.start()
+    yield server
+    server.shutdown()
+    server.server_close()
+    thread.join()
+
+def test_inference_gate_blocks_separation_without_creating_run(project_service):
+    service=project_service
     publish(service.app)
     owner=service.app.inference_gate.try_acquire('transcription','s','test')
     try:

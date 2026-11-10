@@ -5,6 +5,13 @@ from test_server import service,request
 from test_separation_api import publish
 from chordbuddy.mix_export import parse_levels,mix_blocks
 
+@pytest.fixture
+def encoder(request,monkeypatch):
+    """The export routes run tools/ffmpeg.exe in the install folder. A copy without it (a fresh checkout) borrows another real FFmpeg."""
+    import chordbuddy.server as server
+    if not (server.PROJECT/'tools'/'ffmpeg.exe').is_file():
+        monkeypatch.setattr(server,'PROJECT',request.getfixturevalue('ffmpeg_project'))
+
 def test_levels_are_validated():
     assert parse_levels('1,0,.5,1,1,1,1','.8')==([1,0,.5,1,1,1,1],.8)
     for bad in ('1,1','a,b,c,d,e,f,g','2,1,1,1,1,1,1','-1,1,1,1,1,1,1'):
@@ -23,7 +30,7 @@ def test_mix_is_the_weighted_sum_of_stems(service):
     assert np.allclose(render([0]*7,1),0)                                         # all muted is silence
     assert np.allclose(render([1.5]*7,1.5)[0::2],1.0)                            # clipped, never wraps
 
-def test_export_route_streams_an_mp3_and_rejects_bad_requests(service):
+def test_export_route_streams_an_mp3_and_rejects_bad_requests(service,encoder):
     run_id=publish(service.app)
     query='levels=1,1,1,0,1,1,1&master=1&name='+'No%20vocals%20%2F%20a%3Ab'
     response=request(service,f'/api/mix-export/{run_id}?{query}')
@@ -38,7 +45,7 @@ def test_export_route_streams_an_mp3_and_rejects_bad_requests(service):
     with pytest.raises(urllib.error.HTTPError) as err:request(service,f'/api/mix-export/nope?{query}')
     assert err.value.code in (400,404)
 
-def test_stems_export_is_a_zip_with_one_named_mp3_per_stem(service):
+def test_stems_export_is_a_zip_with_one_named_mp3_per_stem(service,encoder):
     import io,zipfile
     run_id=publish(service.app)
     response=request(service,f'/api/stems-export/{run_id}?name=My%20Song')

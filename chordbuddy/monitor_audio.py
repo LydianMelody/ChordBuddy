@@ -22,6 +22,7 @@ LATE_OK=.03               # a click this late still plays; any later and it woul
 SETTLE=.002               # how fast the frame clock follows the callbacks' timing, per callback: slowly, so one late callback moves nothing
 MAX_QUEUE=4000
 MAX_TRACKS=2              # the song playing and the next one in a set list
+MAX_TRACK_SECONDS=3*3600  # a cue track is held whole in memory, about 11.5 MB a minute, so three hours is already 2 GB; anything longer is refused
 IDLE_CLOSE=120.0          # with nothing to play for this long, the stream closes and Windows can let the headset sleep
 EVENT_KINDS=('click','cue','cue-stop','cue-on','cue-off')
 
@@ -290,13 +291,22 @@ class MonitorAudio:
     def load_track(self,key,path):
         """A cue track, decoded to the output's sample rate and held in memory, ready to start the moment the music does. key names this version of the track."""
         self.last_used=self.clock();self._open()
-        if key in self.loaded:return {'ready':True}
+        with self.lock:
+            if key in self.loaded:
+                # asked for again, so it is the one in use: it goes to the back of the line, and the track nobody asked for lately is the one dropped
+                track=self.loaded[key]=self.loaded.pop(key);self.mixer.post('track',key,track)
+                return {'ready':True}
         ffmpeg=(self.project/'tools/ffmpeg.exe') if self.project else None
         if ffmpeg is None or not ffmpeg.is_file():raise OSError('The audio decoder (tools/ffmpeg.exe) is missing')
-        run=subprocess.run([str(ffmpeg),'-nostdin','-v','error','-i',str(path),'-vn','-ar',str(self.rate),'-ac','2','-f','s16le','pipe:1'],
+        # -t stops the decoder a second past the limit, so a file far too long is turned away without ever filling the memory
+        run=subprocess.run([str(ffmpeg),'-nostdin','-v','error','-i',str(path),'-vn','-ar',str(self.rate),'-ac','2','-t',str(MAX_TRACK_SECONDS+1),'-f','s16le','pipe:1'],
                            capture_output=True,timeout=120,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
         if run.returncode or not run.stdout:raise ValueError('Chord Buddy couldn’t read that audio file.')
-        track=np.frombuffer(run.stdout,dtype=np.int16).reshape(-1,2)
+        # Kept as the decoder's own 16-bit numbers, 4 bytes a stereo frame: half of what 32-bit floats would take. Only the few hundred frames a
+        # buffer needs are turned into floats, in CueVoice._slice. No copy is made here either: the array looks straight at the decoder's bytes.
+        track=np.frombuffer(run.stdout,dtype=np.int16,count=len(run.stdout)//4*2).reshape(-1,2)
+        if len(track)>MAX_TRACK_SECONDS*self.rate:
+            raise ValueError(f'That cue track is longer than {MAX_TRACK_SECONDS//3600} hours, which is more than Chord Buddy can keep in memory. Use a shorter file.')
         with self.lock:
             self.loaded[key]=track
             while len(self.loaded)>MAX_TRACKS:self.loaded.pop(next(iter(self.loaded)))

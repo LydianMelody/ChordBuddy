@@ -304,3 +304,90 @@ def test_sounds_with_bad_numbers_are_refused_before_they_reach_the_audio_callbac
         with pytest.raises(ValueError):audio.schedule([bad])
     audio.schedule([{'at':1,'kind':'cue','speed':.5,'source':12.5,'song':'abc'}])
     audio.close()
+
+
+# ---- how much memory a cue track takes
+def noise(seconds,rate=RATE):
+    """Loud, busy sound in both ears, different in each, so any slip in level, place or channel shows."""
+    return np.random.default_rng(7).integers(-30000,30000,(int(rate*seconds),2)).astype(np.int16)
+
+
+class LowRateSd(FakeSd):
+    """An output at 8 frames a second, so a test can hold hours of sound in a few kilobytes."""
+    def query_devices(self,device):return {'name':'Slow','default_samplerate':8}
+
+
+def decoder(tmp_path,monkeypatch,audio_for,sd=None):
+    """A MonitorAudio whose ffmpeg is a stand-in: audio_for(path) gives the int16 frames it 'decodes'. Returns it and the list of commands it ran."""
+    import chordbuddy.monitor_audio as module
+    (tmp_path/'tools').mkdir();(tmp_path/'tools'/'ffmpeg.exe').write_bytes(b'')
+    ran=[]
+    def run(command,**kw):
+        ran.append(command);return SimpleNamespace(returncode=0,stdout=audio_for(command[command.index('-i')+1]).tobytes())
+    monkeypatch.setattr(module.subprocess,'run',run)
+    return MonitorAudio(project=tmp_path,backend=sd or FakeSd(),idle_close=999),ran
+
+
+def test_a_loaded_cue_track_is_kept_as_16_bit_numbers_not_floats(tmp_path,monkeypatch):
+    sound=noise(2)
+    audio,ran=decoder(tmp_path,monkeypatch,lambda path:sound)
+    assert audio.load_track('a','a.wav')=={'ready':True}
+    track=audio.loaded['a']
+    assert track.dtype==np.int16 and track.shape==(2*RATE,2)
+    assert track.nbytes==2*RATE*4                               # 4 bytes a stereo frame: 11.5 MB a minute at 48 kHz, half of 32-bit floats
+    assert track.nbytes*2==sound.astype(np.float32).nbytes
+    assert np.array_equal(track,sound)
+    audio.mixer._drain();assert audio.mixer.tracks['a'] is track   # the callback reads the very same memory: no second copy
+    audio.close()
+
+
+def test_a_16_bit_track_plays_the_same_as_the_floats_it_stands_for():
+    track=noise(4);floats=track.astype(np.float64)/32768         # what a float decode of the same file would hold
+    m=mixer();m.post('track','s',track);m.post('event',10.0,'cue',{'song':'s','source':1.5,'speed':1})
+    m.render(480,10.0)                                           # the fade in
+    out=np.concatenate([m.render(480,10+i*.01) for i in range(1,6)])
+    at=int(1.5*RATE)+480
+    assert np.abs(out-floats[at:at+len(out)]).max()<1e-6
+    assert not np.array_equal(out[:,0],out[:,1])                 # left stayed left
+
+
+@pytest.mark.parametrize('speed',[.75,1.25])
+def test_at_another_speed_a_16_bit_track_plays_the_same_as_floats(speed):
+    track=np.stack([tone(4,440)[:,0],tone(4,660)[:,0]],axis=1)
+    compact=CueVoice(track,1.5*RATE,speed,RATE);wide=CueVoice(track.astype(np.float32),1.5*RATE,speed,RATE)
+    a=np.concatenate([compact.read(480) for _ in range(100)]);b=np.concatenate([wide.read(480) for _ in range(100)])
+    assert np.abs(a).max()>.2 and np.abs(a-b).max()<1e-6
+    assert compact.position==wide.position==pytest.approx(1.5*RATE+48000*speed)
+
+
+def test_reading_a_track_never_changes_it_or_makes_a_big_copy():
+    track=noise(2);before=track.copy();voice=CueVoice(track,0,1,RATE)
+    for _ in range(50):assert voice.read(480).dtype==np.float32
+    assert voice.data is track and np.array_equal(track,before)
+
+
+def test_a_cue_track_longer_than_three_hours_is_refused_in_plain_words(tmp_path,monkeypatch):
+    sounds={'long.wav':np.ones((3*3600*8+1,2),np.int16),'fits.wav':np.ones((3*3600*8,2),np.int16)}
+    audio,ran=decoder(tmp_path,monkeypatch,sounds.get,LowRateSd())
+    with pytest.raises(ValueError,match='longer than 3 hours.*Use a shorter file'):audio.load_track('long','long.wav')
+    assert 'long' not in audio.loaded and not any(m[0]=='track' for m in audio.mixer.inbox)   # nothing of it is kept
+    assert ran[0][ran[0].index('-t')+1]==str(3*3600+1)            # and the decoder itself is told to stop just past the limit
+    assert audio.load_track('fits','fits.wav')=={'ready':True} and len(audio.loaded['fits'])==3*3600*8
+    audio.close()
+
+
+def test_a_decode_cut_off_mid_frame_still_loads(tmp_path,monkeypatch):
+    audio,ran=decoder(tmp_path,monkeypatch,lambda path:np.ones(RATE*2+1,np.int16))   # one stray sample on the end
+    audio.load_track('a','a.wav')
+    assert audio.loaded['a'].shape==(RATE,2)
+    audio.close()
+
+
+def test_only_two_tracks_are_kept_and_the_one_not_asked_for_lately_goes(tmp_path,monkeypatch):
+    audio,ran=decoder(tmp_path,monkeypatch,lambda path:noise(.1))
+    audio.load_track('a','a.wav');audio.load_track('b','b.wav')
+    audio.load_track('a','a.wav');assert len(ran)==2             # already in memory: not decoded again
+    audio.load_track('c','c.wav')
+    assert list(audio.loaded)==['a','c'] and audio.status()['tracks']==['a','c']
+    audio.mixer._drain();assert list(audio.mixer.tracks)==['a','c']   # the callback's own list drops the same one
+    audio.close()

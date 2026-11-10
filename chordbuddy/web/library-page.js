@@ -50,7 +50,11 @@ export function renderLibraryPage(root,value,handlers){
   if(!list.children.length){
     const empty=el('div','library-empty');
     if(query)empty.append(el('p','','No songs match your search.'));
-    else{empty.append(el('p','','Your song library starts with an MP3.'));const b=el('button','btn hot');b.type='button';b.innerHTML=icon('plus')+'<em>Import</em>';b.onclick=()=>handlers.onImport?.();empty.append(b);}
+    else{
+      // a blank cassette with its reels turning slowly (touches.css .empty-tape), the same one the empty song page shows
+      const tape=el('div','empty-tape'),reels=el('span','tape-window');tape.setAttribute('aria-hidden','true');reels.append(el('i','reel'),el('i','reel'));
+      tape.append(el('span','empty-tape-label'),reels,el('span','empty-tape-foot'));
+      empty.append(tape,el('p','','Your song library starts with an MP3.'));const b=el('button','btn hot');b.type='button';b.innerHTML=icon('plus')+'<em>Import</em>';b.onclick=()=>handlers.onImport?.();empty.append(b);}
     list.append(empty);
   }
   const typing=root.contains?.(document.activeElement)&&document.activeElement?.type==='search';

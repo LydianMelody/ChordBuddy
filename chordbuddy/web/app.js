@@ -23,6 +23,7 @@ import {SHORTCUTS} from './shortcuts.js';
 import {renderLibraryPage,tapeTint} from './library-page.js';
 import {createSongFacts,shortKey,totalLabel} from './song-facts.js';
 import {activeChord, editChordContent, isJobActive, jobProgress, validateChart, displayChordLabel, settleHistoryResult} from './editor.js';
+import {pollDelay,RECHECK_MS} from './poll-pace.js';
 import {renderLeadSheet,updateLeadSheetPlayback,markCurrentChord,followPlayback} from './lead-sheet.js';
 import {renderMidiRoll} from './midi-view.js';
 import {installPageNav,MIN_ZOOM as MIN_PAGE_ZOOM,MAX_ZOOM as MAX_PAGE_ZOOM} from './page-nav.js';
@@ -67,7 +68,12 @@ async function api(path, body, options={}) {
   const headers={'X-ChordBuddy-Token':token,...options.headers};
   const init={...options,headers};
   if(body!==undefined) {init.method='POST';init.body=JSON.stringify(body);headers['Content-Type']='application/json';}
+  // `options.etag` is a {tag} holder for an answer that is asked for again and again: the last tag goes out with the request, and when the
+  // app says nothing changed (304, no body) this returns undefined instead of a result. A new answer leaves its tag in the holder.
+  const etag=options.etag;if(etag){delete init.etag;if(etag.tag)headers['If-None-Match']=etag.tag;}
   const response=await fetch(path,init);
+  if(etag&&response.status===304)return undefined;
+  if(etag&&response.ok)etag.tag=response.headers.get('ETag');
   let result;try{result=await response.json();}catch{throw new Error(`The local app returned an unreadable response (${response.status}).`);}
   if(!response.ok){const error=new Error(result.error || `Request failed (${response.status}).`);error.status=response.status;throw error;}
   return result;
@@ -572,13 +578,24 @@ let drawnLibrary='';
 // remembered here; the first drawing of the page only records it, so nothing animates just because the app was opened.
 let knownSongs=null;
 function noteArrivals(state){
-  const busy=isJobActive(state.job)?state.job.song_id:null;
+  const busy=isJobActive(state.job)?state.job.song_id:null,LASTS=1600,time=performance.now(),recent=noteArrivals.recent||=new Map();   // recent: song id -> its mark and when it was given
   const now=new Map(state.songs.map(song=>[song.id,song.id===busy?'busy':song.active_run?'ready':'new']));
   if(knownSongs)for(const [id,status] of now){
     const before=knownSongs.get(id),mark=before===undefined?'just-added':before==='busy'&&status==='ready'?'just-ready':null;
-    if(mark)for(const node of document.querySelectorAll(`[data-song="${CSS.escape(id)}"]`))node.classList.add(mark);
+    if(mark)recent.set(id,{mark,at:time});
   }
   knownSongs=now;
+  // The list is often drawn again a moment later (a finished song's tempo and key arrive), which would cut the moment short. So a mark is kept
+  // for as long as its animation lasts and put on the new nodes, started where the old ones had got to (--touch-age), then taken off again:
+  // a class left behind would keep the reels from turning under the pointer.
+  for(const [id,{mark,at}] of recent){
+    const age=Math.round(time-at);
+    if(age>=LASTS){recent.delete(id);continue;}
+    for(const node of document.querySelectorAll(`[data-song="${CSS.escape(id)}"]`)){
+      if(node.classList.contains(mark))continue;
+      node.classList.add(mark);node.style.setProperty('--touch-age',`-${age}ms`);setTimeout(()=>node.classList.remove(mark),LASTS-age);
+    }
+  }
 }
 const librarySignature=state=>JSON.stringify([state.songs,state.setlists,state.trash,state.engine.ready,state.engine.message,isJobActive(state.job)?state.job.song_id:null,
   model.setlist,model.song,model.view,model.libraryQuery,model.libraryKey,(()=>{try{return performanceApp.holdsList();}catch{return null;}})()]);   // (the show panel is built after this file starts)
@@ -825,9 +842,27 @@ function renderJob(){
   $('cancel-job').classList.toggle('hidden',!running);
   $('cancel-job').disabled=job.status==='cancelling';
 }
-async function refreshState(){
+// The regular poll. `tag` is the app's tag for the state the page last drew, `changed` when the state last changed or the user last did
+// something (it sets the pace, see poll-pace.js), `checked` when the open song's separation and playback were last looked at.
+const statePoll={tag:null,changed:performance.now(),checked:0,timer:0};
+// Called with nothing (after anything the user did) this always fetches and redraws. The timer calls it with {poll:true}: then the last
+// tag goes along, and an app with nothing new answers 304, which skips every redraw and the two per-song requests that used to follow.
+async function refreshState({poll=false}={}){
   const previous=currentSong();const oldStatus=previous?.status,oldRun=previous?.active_run,oldSettings=JSON.stringify(model.state?.settings);
-  model.state=await api('/api/state');chordModelPanel.update(model.state.chord_model);modelsPanel.update(model.state.models);renderLibrary({poll:true});renderControls();renderJob();renderLock();await refreshSeparation();
+  const etag={tag:poll?statePoll.tag:null};let state;
+  // After any failure the tag is forgotten, so the next poll does everything again (a failed check leaves playback blocked until one succeeds).
+  try{
+    state=await api('/api/state',undefined,{etag});
+    if(!state){
+      // Nothing new. The open song is still looked at now and then (its files can go missing on disk without the state changing), and on
+      // every poll while it cannot play yet, so a check that was cut short or overtaken is made good by the next poll, as it always was.
+      const settled=!model.song||model.readinessChecked&&transport.getSnapshot().ready;
+      if(!settled||performance.now()-statePoll.checked>=RECHECK_MS){statePoll.checked=performance.now();await refreshSeparation();}
+      return;
+    }
+    statePoll.tag=etag.tag;statePoll.changed=statePoll.checked=performance.now();
+    model.state=state;chordModelPanel.update(model.state.chord_model);modelsPanel.update(model.state.models);renderLibrary({poll:true});renderControls();renderJob();renderLock();await refreshSeparation();
+  }catch(error){statePoll.tag=null;throw error;}
   if(oldSettings!==JSON.stringify(model.state.settings)&&currentRecord()){
     if(currentRecord().doc.kind==='chart')refreshChartMusic();else if(currentRecord().doc.kind==='abc')renderAbc();
   }
@@ -1412,7 +1447,15 @@ transport.countIn=seconds=>{
   return {startAt};
 };
 async function boot(){try{await prefs.connect(values=>api('/api/prefs',values),()=>api('/api/prefs'));practiceView.setSnapping(prefs.get('cb-snap','1')!=='0');restoreSoundWindow();await refreshState();const last=prefs.get('cb-last-song',''),song=model.state.songs.find(s=>s.id===last)||model.state.songs[0];if(song)await selectSong(song.id);else showAllSongs();}catch(error){showError(error);$('engine-status').textContent='Could not connect to the local app';}}
-boot();setInterval(async()=>{if(model.polling)return;model.polling=true;try{await refreshState();}catch(error){$('engine-status').textContent='Connection interrupted · reconnecting';}finally{model.polling=false;}},2500);
+// One poll, then the wait until the next: about a second while a job runs, 2.5 s for a while after a change, 10 s once all is quiet.
+// A poll that fails counts as a change, so the page keeps trying at the steady pace until the app answers again.
+async function pollState(){
+  if(!model.polling){model.polling=true;try{await refreshState({poll:true});}catch(error){$('engine-status').textContent='Connection interrupted · reconnecting';statePoll.changed=performance.now();}finally{model.polling=false;}}
+  clearTimeout(statePoll.timer);statePoll.timer=setTimeout(pollState,pollDelay({jobActive:isJobActive(model.state?.job),sinceChange:performance.now()-statePoll.changed}));
+}
+boot();statePoll.timer=setTimeout(pollState,2500);
+// Coming back to the window: ask at once, instead of showing what may be ten seconds old (or older: a hidden page's timers run slow).
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollState();});window.addEventListener('focus',()=>pollState());
 export {transport};
 
 const proposalGuard=new ProposalGuard(()=>model.document);
