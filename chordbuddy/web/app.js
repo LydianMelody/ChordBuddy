@@ -5,10 +5,10 @@ import {reconcileCompactPreferences} from './compact-chart.js';
 import {installTooltips} from './tooltips.js';
 import {mountChartPage} from './chart-page.js';
 import {ZOOM_LEVELS} from './timing-geometry.js';
-import {askChoice,askSongSetup,askSongImport,openTrash,openShortcuts,CPU_STEMS_SLOW,CPU_STEMS_WARNING} from './dialogs.js';
+import {askChoice,openShortcuts,CPU_STEMS_SLOW,CPU_STEMS_WARNING} from './dialogs.js';
 import {updateViewport} from './practice-timeline.js';
 import {PlaybackGate} from './playback-ready.js';
-import {analysisUiState,songStatusLabel,analysisErrorMessage,lockStepStates,lockJobFailed} from './analysis-view.js';
+import {analysisUiState,analysisErrorMessage} from './analysis-view.js';
 import {ProposalGuard,renderRhythmPreview} from './rhythm-view.js';
 import {Transport} from './transport.js';
 import {mountMixer} from './mixer-rack.js';
@@ -21,8 +21,8 @@ import {playbackAction,targetSeconds} from './playback-keys.js';
 import {currentMapping} from './performance-commands.js';
 import {SHORTCUTS} from './shortcuts.js';
 import {renderLibraryPage,tapeTint} from './library-page.js';
-import {createSongFacts,shortKey,totalLabel} from './song-facts.js';
-import {activeChord, editChordContent, isJobActive, jobProgress, validateChart, displayChordLabel, settleHistoryResult} from './editor.js';
+import {createSongFacts,totalLabel} from './song-facts.js';
+import {activeChord, editChordContent, isJobActive, validateChart, displayChordLabel, settleHistoryResult} from './editor.js';
 import {pollDelay,RECHECK_MS} from './poll-pace.js';
 import {renderLeadSheet,updateLeadSheetPlayback,markCurrentChord,followPlayback} from './lead-sheet.js';
 import {renderMidiRoll} from './midi-view.js';
@@ -43,41 +43,29 @@ import {defaultVisualOptions,readSetup,readUsual,writeSetup,writeUsual} from './
 import {createMidiImport} from './midi-import.js';
 import {buildScene} from './visual-scene.js';
 import {createPerformanceApp} from './performance-app.js';
+import {readSessionToken,createApi,timeLabel,element,typingTarget,listLength,nowAndNext} from './app-helpers.js';
+import {createSongRows} from './song-rows.js';
+import {createSetlistActions} from './setlist-actions.js';
+import {createLockPanel} from './lock-panel.js';
+import {createJobPanel} from './job-panel.js';
+import {createHistoryUi} from './history-ui.js';
+import {createSongTitle,TITLE_NODES} from './song-title.js';
+import {createImportFlow} from './import-flow.js';
+import {createExportFlow} from './export-flow.js';
+import {createTrashFlow} from './trash-flow.js';
 
 const $ = id => document.getElementById(id);
 document.querySelector('.chart-intro h2')?.remove();
 // The session token arrives in the address (#token=...). Keep it for this tab only and take it out of the address, so it is not left in the
 // browser's history or in a copied link; a reload finds it again in the tab's own storage.
-const token = (() => {
-  let found = new URLSearchParams(location.hash.slice(1)).get('token') || '';
-  try {
-    if (found) { sessionStorage.setItem('chordbuddy-token', found); history.replaceState(null, '', location.pathname + location.search); }
-    else found = sessionStorage.getItem('chordbuddy-token') || '';
-  } catch { /* storage blocked: the token in the address still works for this load */ }
-  return found;
-})();
+const token=readSessionToken();
 const model = {view:'song',libraryQuery:'',libraryKey:'',state:null,setlist:null,song:null,detail:null,document:null,documents:new Map(),loadingSong:0,polling:false,importing:false,pendingTitle:false,titleSave:null,dragSong:null,chartSection:null,chartChord:null,pendingChart:null};
 const clone = value => structuredClone(value);
 const mediaUrl = path => `${path}?token=${encodeURIComponent(token)}`;
-const timeLabel = seconds => `${Math.floor(Math.max(0,seconds)/60)}:${String(Math.floor(Math.max(0,seconds)%60)).padStart(2,'0')}`;
-const element = (tag,className,text) => {const node=document.createElement(tag); if(className)node.className=className; if(text!==undefined)node.textContent=text;return node;};
 function showError(error) {$('alert').textContent=error?.message || String(error);$('alert').classList.remove('hidden');}
 function clearError() {$('alert').classList.add('hidden');}
 $('alert-close').onclick=clearError;
-async function api(path, body, options={}) {
-  const headers={'X-ChordBuddy-Token':token,...options.headers};
-  const init={...options,headers};
-  if(body!==undefined) {init.method='POST';init.body=JSON.stringify(body);headers['Content-Type']='application/json';}
-  // `options.etag` is a {tag} holder for an answer that is asked for again and again: the last tag goes out with the request, and when the
-  // app says nothing changed (304, no body) this returns undefined instead of a result. A new answer leaves its tag in the holder.
-  const etag=options.etag;if(etag){delete init.etag;if(etag.tag)headers['If-None-Match']=etag.tag;}
-  const response=await fetch(path,init);
-  if(etag&&response.status===304)return undefined;
-  if(etag&&response.ok)etag.tag=response.headers.get('ETag');
-  let result;try{result=await response.json();}catch{throw new Error(`The local app returned an unreadable response (${response.status}).`);}
-  if(!response.ok){const error=new Error(result.error || `Request failed (${response.status}).`);error.status=response.status;throw error;}
-  return result;
-}
+const api=createApi(token);
 // The chord model is needed for every analysis; it shows until it is downloaded (see chordbuddy/transcription_models.py).
 const chordModelPanel=mountChordModelPanel($('chord-model-panel'),{
   onDownload:async()=>{try{await api('/api/chord-model/download',{});await refreshState();}catch(error){showError(error);}},
@@ -91,7 +79,6 @@ const modelsPanel=mountModelsPanel($('models-panel'),{
 });
 const transport=new Transport({audio:$('audio'),token});
 let separationDetail=null;
-let lockSig='',lockedMode='none';
 const playbackGate=new PlaybackGate(transport,id=>api('/api/playback/'+encodeURIComponent(id)));
 // Whether to split the stems is remembered from the last time (off until chosen). The chart and lead sheet never wait for the stems.
 // Without a working NVIDIA GPU (or with "CPU only" chosen) splitting can take up to an hour, so there it starts unticked every time.
@@ -113,6 +100,17 @@ async function splitStems(){
  await api('/api/separate',{song_id:songId});await refreshState();
 }
 const mixer=mountMixer($('rack'),{transport,onError:showError,onSplit:()=>splitStems().catch(showError),exportTarget:()=>{const runId=separationDetail?.active?.run_id,song=currentSong();return runId&&song?{title:song.title||'Chord Buddy',stemsUrl:name=>mediaUrl(`/api/stems-export/${encodeURIComponent(runId)}`)+`&name=${encodeURIComponent(name)}`,url:(query,name)=>mediaUrl(`/api/mix-export/${encodeURIComponent(runId)}`)+`&${query}&name=${encodeURIComponent(name)}`}:null;}});
+// ---- Parts of the page that live in modules of their own. They are made here, before anything can call them; each one's buttons and
+// listeners are attached further down, where that code used to stand (its wire…() calls). ----
+// Tempo and key badges for a song in the lists (song-facts.js), and what a list adds up to.
+const songFacts=createSongFacts({api:(path,...rest)=>api(path,...rest),savedKey:id=>prefs.get('cb-key:'+id,''),onChange:()=>{model.libraryKey='';renderLibrary();}});
+const {songLine,noteArrivals}=createSongRows({songFacts,element});
+const setlistActions=createSetlistActions({$,model,api,refreshState,showError}),{addToSetlist,removeFromSetlist,reorderSong,moveSongBefore}=setlistActions;
+const lockPanel=createLockPanel({$,model,transport,element,currentSong,renderSections}),{lockMode,renderLock}=lockPanel;
+const jobPanel=createJobPanel({$,model,api,currentSong,refreshState,showError}),{renderJob}=jobPanel;
+const songTitle=createSongTitle({$,model,api,currentSong,renderPageHead,renderLibrary,showError}),{commitUiDrafts}=songTitle;
+const importFlow=createImportFlow({$,model,prefs,api,midiImport:{importFile:file=>midiImport.importFile(file)},wantsStems,stemsHint,startAnalysis,refreshState,selectSong,leaveSong,renderControls,showError,clearError});
+const trashFlow=createTrashFlow({$,model,api,currentSong,refreshState,selectSong,leaveSong,renderLibrary,renderControls,renderDocument,renderLock,showError});
 
 let practiceViewport=null,practiceData=null;
 // The waveform's peak outline also tells the chart whether the recording fades out (fade-out.js).
@@ -131,6 +129,9 @@ const practiceView=mountChartPage($('chart-sections'),{
  planNotes:()=>{const p=performanceApp.planNotes();return p&&p.songId===model.song?p.notes:[];},
  performing:()=>performanceApp.page==='perform',   // a show's controls are open: the chart is for reading, so only Play and Cue   // a playing arrangement's notes show with the song's cues
 });
+// (these two need the chart page above; the show system is built further down, so its history is read through a getter)
+const historyUi=createHistoryUi({$,model,practiceView,performanceApp:{get history(){return performanceApp.history;}},currentSong,currentRecord,historyAction}),{noteHistory,syncPrepareHistory,notePrepareStep}=historyUi;
+const exportFlow=createExportFlow({$,model,prefs,api,mediaUrl,practiceView,getLeadView:()=>leadView,currentSong,currentRecord,chartDoc,loadChartRecord,selectDocument,showError}),{renderExportMenu,exportChartPdf}=exportFlow;
 // The chart's tools (Play, Edit, Timing) sit in the rail beside it, with Ctrl and Shift as quick shortcuts on top (chart-page.js).
 // In time, the chart is drawn on a beat grid wider than the desk: it gets cassette bars (scroll and zoom) instead of scroll bars.
 // The bottom bar's grips and Ctrl+wheel share one zoom: the beat grid's own, and past either end of it the page shrinking (to 50%) or
@@ -181,7 +182,6 @@ document.addEventListener('keydown',event=>{
 // The space bar plays and pauses from anywhere: except while typing, or while one of our dialogs is open (the browser's own print and
 // save windows take the keys themselves). It also wins over a focused button, so a button you just clicked is not pressed a second time.
 let spaceHandled=false;
-const typingTarget=t=>!!t&&(t.isContentEditable||t.tagName==='TEXTAREA'||t.tagName==='SELECT'||(t.tagName==='INPUT'&&!/^(checkbox|radio|range|button|submit|reset|file|color)$/.test(t.type||'text')));
 document.addEventListener('keydown',event=>{
  spaceHandled=false;
  if(event.key!==' '&&event.code!=='Space')return;
@@ -556,47 +556,9 @@ function currentSong(){return model.state?.songs.find(song=>song.id===model.song
 function currentRecord(){return model.documents.get(model.document);}
 function currentContent(){const record=currentRecord();return record?.draft || record?.doc.content;}
 function currentChords(){const record=currentRecord();if(record?.doc.kind==='abc'&&leadView?.chords)return leadView.chords();return ['abc','chart'].includes(record?.doc.kind) ? currentContent()?.chords || [] : model.detail?.chords || [];}
-// Tempo and key badges for a song in the lists (song-facts.js), and what a list adds up to.
-const songFacts=createSongFacts({api:(path,...rest)=>api(path,...rest),savedKey:id=>prefs.get('cb-key:'+id,''),onChange:()=>{model.libraryKey='';renderLibrary();}});
-function factBadges(song){
-  const facts=songFacts.get(song.id),box=element('span','song-facts');
-  if(facts?.bpm){const tempo=element('b','fact-badge tempo');tempo.title=facts.bpm+' beats per minute';tempo.append(element('i','','♩'),String(facts.bpm));box.append(tempo);}
-  if(facts?.key)box.append(Object.assign(element('b','fact-badge key',shortKey(facts.key)),{title:facts.key}));
-  return box;
-}
-// the line under a song's title: what is wrong or happening with it, or else its tempo and key ("Transcribed" goes without saying)
-function songLine(song,busy){
-  if(busy)return element('small','song-note','Analyzing…');
-  const label=songStatusLabel(song);
-  return label==='Transcribed'?factBadges(song):element('small','song-note',label);
-}
-const listLength=songs=>songs.reduce((sum,song)=>sum+(Number(song.duration)||0),0);
 // Everything the sidebar and its status line show. The timer that checks on the app every few seconds draws again only when this has changed:
 // rebuilding every song row on each tick wasted work, and restarted the spinning reel of a song being analyzed each time.
 let drawnLibrary='';
-// A song that just arrived drops in once, and one that just finished its analysis glows once (touches.css). What each song was last seen as is
-// remembered here; the first drawing of the page only records it, so nothing animates just because the app was opened.
-let knownSongs=null;
-function noteArrivals(state){
-  const busy=isJobActive(state.job)?state.job.song_id:null,LASTS=1600,time=performance.now(),recent=noteArrivals.recent||=new Map();   // recent: song id -> its mark and when it was given
-  const now=new Map(state.songs.map(song=>[song.id,song.id===busy?'busy':song.active_run?'ready':'new']));
-  if(knownSongs)for(const [id,status] of now){
-    const before=knownSongs.get(id),mark=before===undefined?'just-added':before==='busy'&&status==='ready'?'just-ready':null;
-    if(mark)recent.set(id,{mark,at:time});
-  }
-  knownSongs=now;
-  // The list is often drawn again a moment later (a finished song's tempo and key arrive), which would cut the moment short. So a mark is kept
-  // for as long as its animation lasts and put on the new nodes, started where the old ones had got to (--touch-age), then taken off again:
-  // a class left behind would keep the reels from turning under the pointer.
-  for(const [id,{mark,at}] of recent){
-    const age=Math.round(time-at);
-    if(age>=LASTS){recent.delete(id);continue;}
-    for(const node of document.querySelectorAll(`[data-song="${CSS.escape(id)}"]`)){
-      if(node.classList.contains(mark))continue;
-      node.classList.add(mark);node.style.setProperty('--touch-age',`-${age}ms`);setTimeout(()=>node.classList.remove(mark),LASTS-age);
-    }
-  }
-}
 const librarySignature=state=>JSON.stringify([state.songs,state.setlists,state.trash,state.engine.ready,state.engine.message,isJobActive(state.job)?state.job.song_id:null,
   model.setlist,model.song,model.view,model.libraryQuery,model.libraryKey,(()=>{try{return performanceApp.holdsList();}catch{return null;}})()]);   // (the show panel is built after this file starts)
 function renderLibrary({force=false,poll=false}={}) {
@@ -663,19 +625,7 @@ function renderView(){
     onSearch:query=>{model.libraryQuery=query;renderView();},onImport:()=>$('import-button').click(),time:timeLabel,line:song=>songLine(song,song.id===busy),total:totalLabel(listLength(songs))});
 }
 function showAllSongs(){model.setlist='default';model.view='library';renderLibrary();}
-// While a song is dragged, the whole page takes it, so the pointer stays an arrow (the browser shows its "no" sign wherever a drop is not
-// taken). Only a set list does anything with it, and shows the arrow with a + (it is added there); let go anywhere else and nothing happens.
-document.addEventListener('dragover',event=>{if(!model.dragSong||event.defaultPrevented)return;event.preventDefault();event.dataTransfer.dropEffect='move';});
-document.addEventListener('drop',event=>{if(model.dragSong&&!event.defaultPrevented)event.preventDefault();});
-async function addToSetlist(list,songId,node){
-  const song=model.state.songs.find(s=>s.id===songId);
-  if(list.song_ids.includes(songId)){node?.classList.add('already');setTimeout(()=>node?.classList.remove('already'),900);showError(`${song?.title||'That song'} is already in ${list.name}.`);return;}
-  try{await api('/api/setlist/add',{id:list.id,song_id:songId});node?.classList.add('took');setTimeout(()=>node?.classList.remove('took'),900);await refreshState();}catch(error){showError(error);}
-}
-async function removeFromSetlist(listId,songId){try{await api('/api/setlist/remove',{id:listId,song_id:songId});await refreshState();}catch(error){showError(error);}}
-async function reorderSong(id,direction){try{const list=model.state.setlists.find(item=>item.id===model.setlist);const ids=[...list.song_ids];const index=ids.indexOf(id);[ids[index],ids[index+direction]]=[ids[index+direction],ids[index]];await api('/api/setlist/order',{id:list.id,song_ids:ids});await refreshState();}catch(error){showError(error);}}
-async function moveSongBefore(id,target){try{const list=model.state.setlists.find(item=>item.id===model.setlist);const destination=list.song_ids.indexOf(target);const ids=list.song_ids.filter(songId=>songId!==id);ids.splice(destination,0,id);await api('/api/setlist/order',{id:list.id,song_ids:ids});model.dragSong=null;await refreshState();}catch(error){showError(error);}}
-const TITLE_NODES=['page-song','score-title','midi-title'];
+setlistActions.wireDrag();     // a dragged song over the page, and dropped on a set list (setlist-actions.js)
 function renderControls(){
   const song=currentSong();$('empty-state').classList.toggle('hidden',!!song);$('song-controls').classList.toggle('hidden',!song);$('workspace').classList.toggle('hidden',!song);
   $('song-actions').classList.toggle('hidden',!song);$('more-tools').classList.toggle('hidden',!song);
@@ -687,37 +637,6 @@ function renderControls(){
   $('transcribe').querySelector('em').textContent=analysisUiState(song,model.state.job).label;renderChips();
   if(typeof rhythmButton!=='undefined'){const job=model.state.job;rhythmButton.textContent=job?.kind==='rhythm'&&job.document_id===model.document&&job.status==='completed'?'Review rhythm proposal':'Attempt timing correction w/drum track';rhythmButton.disabled=isJobActive(job)||!separationDetail?.active;rhythmButton.title=separationDetail?.active?'':'Split the stems first: this listens to the drums.';}
   $('transcribe').title=!model.state.engine.ready?model.state.engine.message || 'Set up the transcription engine first.':'Work out the chords, melody and sections again from the recording. You choose whether your edits stay.';
-}
-// ---- Locked state: a song is unusable until analysis finishes (readiness is decided by PlaybackGate/transport). ----
-function lockMode(){const song=currentSong();if(!song)return 'none';if(!song.active_run)return 'full';return model.readinessChecked&&!transport.getSnapshot().ready?'banner':'none';}
-function analysisJobFor(song){const job=model.state?.job;return job&&song&&job.song_id===song.id&&['analysis','separation'].includes(job.kind)?job:null;}
-function renderLock(){
-  const song=currentSong(),mode=lockMode(),job=analysisJobFor(song),running=!!job&&isJobActive(job),snap=transport.getSnapshot();
-  const sig=JSON.stringify([mode,song?.id,job&&[job.kind,job.status,job.stage,job.error,job.stages],model.state?.engine?.ready,snap.ready,snap.readiness]);
-  if(sig===lockSig)return;lockSig=sig;
-  $('app').dataset.lock=mode;
-  $('nav-lock').classList.toggle('hidden',!song||snap.ready);
-  $('lock-banner').classList.toggle('hidden',mode!=='banner');
-  $('banner-reanalyze').classList.toggle('hidden',running);               // the analysis is already running: its panel above has Cancel
-  if(mode==='banner')$('lock-banner-text').textContent=(running?'Analyzing again. ':'')+(snap.readiness||'Playback is locked.')+(running?'':' Your chart is still here to view and edit.');
-  $('locked-panel').classList.toggle('hidden',mode!=='full');
-  if(mode==='full'){
-    const failed=lockJobFailed(job);
-    $('lock-title').textContent=running?'Analyzing…':failed?(job.status==='cancelled'?'Analysis cancelled':'Analysis did not finish'):'Not analyzed yet';
-    $('lock-copy').textContent=running?(job.message||'This can take a few minutes. Playback unlocks when the chart and all seven stems are ready.'):failed?(analysisErrorMessage(job.error,false)||'Analyze again to unlock playback.'):'Chord Buddy needs to listen first. Analysis builds the chord chart and the seven practice stems; playback unlocks when both are ready.';
-    const steps=$('lock-steps');steps.replaceChildren();
-    for(const {label,glyph,state} of lockStepStates(job)){
-      const step=element('div','step'+(state==='idle'?'':' '+state));
-      const mark=element('span');mark.innerHTML=icon(state==='done'?'check':state==='failed'?'x':glyph);step.append(mark.firstChild,element('span','',label));
-      if(state==='active'){const bar=element('span','bar-p');bar.append(document.createElement('i'));step.append(bar);}
-      steps.append(step);
-    }
-    const cta=$('lock-cta'),text=cta.querySelector('em');
-    text.textContent=running?'Cancel analysis':failed?'Analyze again':'Analyze song';
-    cta.disabled=!running&&!model.state?.engine?.ready;cta.title=cta.disabled?(model.state?.engine?.message||'Set up the transcription engine first.'):'';
-    cta.classList.toggle('hot',!running);
-  }
-  if(lockedMode!==mode){lockedMode=mode;renderSections();}
 }
 // The time signature beside the key: the one most bars carry (the model's first, pickup bar is not trusted), unless you have set your own.
 // Click it to choose another; the choice is remembered with the library and used when the lead sheet is exported.
@@ -818,29 +737,6 @@ function renderPageHead(){
   const song=currentSong(),music=currentRecord()?.doc.music,bpm=music?.timing?.bpm;
   setSub($('page-sub'),[bpm?`♩ = ${Math.round(bpm)}`:null,song?.duration?timeLabel(song.duration):null,'arranged in Chord Buddy']);
   paintMeter($('meter-box'));
-}
-const jobKey=job=>JSON.stringify([job?.id,job?.kind,job?.status,job?.stage]);
-function renderJob(){
-  const finished=model.state?.job&&['completed','cancelled'].includes(model.state.job.status),dismissed=model.state?.job&&model.dismissedJob===jobKey(model.state.job);
-  if(!model.state?.job||finished||dismissed){$('job-panel').classList.add('hidden');return;}
-  const activeJob=model.state?.job;if(['analysis','rhythm'].includes(activeJob?.kind)){const running=isJobActive(activeJob);$('job-panel').classList.remove('hidden');$('job-title').textContent=activeJob.kind==='rhythm'?'Drum-based rhythm correction':'Analyze song';$('job-message').textContent=analysisErrorMessage(activeJob.error,!!currentSong()?.active_run)||activeJob.retention_warning||activeJob.retention?.warning||activeJob.stage;$('cancel-job').classList.toggle('hidden',false);$('cancel-job').textContent=running?'Cancel':'Dismiss';$('cancel-job').classList.toggle('btn-cancel',running);$('cancel-job').disabled=activeJob.status==='cancelling';const progress=$('job-progress'),p=activeJob.progress;progress.classList.toggle('indeterminate',running&&!p?.total);progress.style.width=p?.total?`${Math.min(100,100*p.completed/p.total)}%`:activeJob.status==='completed'?'100%':'25%';return;}
-
-  const job=model.state?.job;const running=isJobActive(job);
-  $('job-panel').classList.toggle('hidden',!job);if(!job)return;
-  const song=model.state.songs.find(item=>item.id===job.song_id);
-  const titles={failed:'Transcription failed',error:'Transcription failed',partial:'Partial transcription · outputs preserved',completed:'Transcription complete',cancelled:'Transcription cancelled',cancelling:'Cancelling transcription',starting:'Starting transcription'};
-  if(job.kind==='separation'){
-    $('job-title').textContent='Separation'+(song?' — '+song.title:'');
-    $('job-message').textContent=job.error||job.retention?.warning||job.message||job.stage;
-    const p=job.progress,value=p?.total?100*p.completed/p.total:0;
-    $('job-progress').classList.toggle('indeterminate',running&&!value);$('job-progress').style.width=(value||25)+'%';
-    $('cancel-job').classList.toggle('hidden',!running);$('cancel-job').disabled=job.status==='cancelling';return;
-  }
-  $('job-title').textContent=`${titles[job.status] || 'Transcribing'}${song?' · '+song.title:''}`;
-  $('job-message').textContent=[job.message || job.stage,job.windows?`Window ${job.window || 0} of ${job.windows}`:null].filter(Boolean).join(' · ');
-  const progress=$('job-progress'),value=jobProgress(job);progress.classList.toggle('indeterminate',value.indeterminate);progress.style.width=value.indeterminate?'25%':`${value.percent}%`;
-  $('cancel-job').classList.toggle('hidden',!running);
-  $('cancel-job').disabled=job.status==='cancelling';
 }
 // The regular poll. `tag` is the app's tag for the state the page last drew, `changed` when the state last changed or the user last did
 // something (it sets the pace, see poll-pace.js), `checked` when the open song's separation and playback were last looked at.
@@ -1085,12 +981,6 @@ async function confirmChordOverride(chord,label,start,end){
   await keepDeskPlace(()=>refreshSongDetail(model.song,true));
 }
 function refreshChartMusic(){try{renderChart();}catch(e){showError(e);}}
-function nowAndNext(chords,chord,time){
-  const label=c=>c&&!isNoChordLabel(c.label)?spellChord(displayChordLabel(c.label)):'';
-  const current=label(chord);
-  const upcoming=[...chords].filter(c=>c.start>time&&label(c)&&label(c)!==current).sort((a,b)=>a.start-b.start)[0];
-  return {chord:current||'—',next:label(upcoming)};
-}
 function updatePlayback(){
   const time=transport.getSnapshot().seconds;const chord=activeChord(currentChords(),time);player.setNow(nowAndNext(currentChords(),chord,time));
   for(const chip of $('chord-strip').children)chip.classList.toggle('active',chip.dataset.chordId===chord?.id);
@@ -1114,137 +1004,12 @@ async function historyAction(action,position){
   catch(error){showError(error);}
   finally{record.saving=false;record.historyPending=false;$('workspace').inert=false;if(model.document===id){renderSaveStatus();if(!record.dirty)renderDocument();}if(record.dirty&&!record.error)setTimeout(()=>saveDocument(id),0);}
 }
-let historyNoteTimer=0;
-function noteHistory(before,after){
-  const from=before.cursor,to=after.cursor,labels=before.history;
-  if(typeof from!=='number'||typeof to!=='number'||from===to||!labels)return;
-  const n=Math.abs(to-from),name=currentSong()?.title,where=name?` in ${name}`:'';
-  const text=to<from?(n===1?`Undid “${labels[from]}”${where}.`:`Undid ${n} changes${where}, back to before “${labels[to+1]}”.`)
-    :(n===1?`Redid “${labels[to]}”${where}.`:`Redid ${n} changes${where}, up to “${labels[to]}”.`);
-  showHistoryNote(text,to<from,()=>historyAction('goto',from));
-}
-/** The note after an undo or redo: what happened, by name, and a button to go back. undid: whether it was an undo. */
-function showHistoryNote(text,undid,back){
-  $('history-note-text').textContent=text;
-  const button=$('history-note-back');button.textContent=undid?'Redo':'Undo';
-  button.title=undid?'Put back what was just undone':'Undo what was just redone';
-  button.onclick=()=>{hideHistoryNote();back();};
-  $('history-note').classList.remove('hidden');clearTimeout(historyNoteTimer);historyNoteTimer=setTimeout(hideHistoryNote,8000);
-}
-// ---- the Perform tab's history, through the same Undo, Redo and History as every view
-function syncPrepareHistory(){
-  let h=null;try{h=performanceApp.history;}catch{return;}   // before the Perform tab exists, at startup
-  if(!h)return;
-  $('undo').disabled=!h.canUndo;$('redo').disabled=!h.canRedo;
-  $('undo').dataset.tip=h.undoLabels[0]?`Undo: ${h.undoLabels[0]}.`:'Undo the last change.';$('redo').dataset.tip=h.redoLabels[0]?`Redo: ${h.redoLabels[0]}.`:'Put back what you just undid.';
-  if($('history-menu').open)renderHistoryMenu();
-}
-function notePrepareStep({undid,count,label}){
-  const h=performanceApp.history;if(!h||!label)return;
-  const text=undid?(count===1?`Undid “${label}”.`:`Undid ${count} changes, back to before “${label}”.`):(count===1?`Redid “${label}”.`:`Redid ${count} changes, up to “${label}”.`);
-  showHistoryNote(text,undid,()=>performanceApp.history?.go(undid?count:-count));
-}
-function hideHistoryNote(){clearTimeout(historyNoteTimer);$('history-note').classList.add('hidden');}
-// The History menu: the changes after "Now" (to redo) above it, the ones before it (to undo) below, newest nearest; a step goes there at once.
-function renderHistoryMenu(){
-  if(performanceApp.history){renderPrepareHistoryMenu(performanceApp.history);return;}
-  const pop=$('history-pop'),record=currentRecord(),doc=record?.doc,labels=doc?.history||[],at=doc?.cursor??0;
-  const item=(text,steps,title,go)=>{const b=document.createElement('button');b.type='button';b.className='text-button';b.title=title;
-    b.append(document.createTextNode(text));const s=document.createElement('small');s.textContent=steps===1?'1 step':`${steps} steps`;b.append(s);
-    b.onclick=()=>historyAction('goto',go);pop.append(b);};
-  const line=(className,text)=>{const p=document.createElement('p');p.className=className;p.textContent=text;pop.append(p);};
-  pop.replaceChildren();
-  if(!doc||labels.length<2){line('more-label','No changes yet. Your edits show up here by name.');return;}
-  if(record.dirty||record.saving||model.pendingChart||practiceView.hasDraft()){line('more-label','Finish or save the edit you’re making first.');return;}
-  for(let p=Math.min(labels.length-1,at+10);p>at;p--)item(`Redo up to “${labels[p]}”`,p-at,`Put back ${p-at===1?'this change':`the ${p-at} changes up to and including this one`}`,p);
-  line('history-now',at===0?'Now · as Chord Buddy made it':'Now');
-  const last=Math.max(1,at-19);
-  for(let p=at;p>=last;p--)item(p===at?`Undo “${labels[p]}”`:`Undo back through “${labels[p]}”`,at-p+1,
-    `Undo ${p===at?'this change':`this change and the ${at-p} after it`}. Redo, or this menu, can put ${p===at?'it':'them'} back`,p-1);
-  if(last>1)line('more-label',`${last-1} older change${last-1===1?'':'s'}: undo back to the last one here, then open History again.`);
-}
-/** The same menu for the Perform tab: redo steps above Now, undo steps below, newest nearest. */
-function renderPrepareHistoryMenu(h){
-  const pop=$('history-pop');pop.replaceChildren();
-  const item=(text,steps,title,go)=>{const b=document.createElement('button');b.type='button';b.className='text-button';b.title=title;
-    b.append(document.createTextNode(text));const small=document.createElement('small');small.textContent=steps===1?'1 step':`${steps} steps`;b.append(small);
-    b.onclick=()=>{$('history-menu').open=false;h.go(go);};pop.append(b);};
-  const line=(className,text)=>{const p=document.createElement('p');p.className=className;p.textContent=text;pop.append(p);};
-  const undo=h.undoLabels,redo=h.redoLabels;
-  if(!undo.length&&!redo.length){line('more-label','No changes yet. Your edits to this arrangement show up here by name.');return;}
-  for(let n=Math.min(redo.length,10);n>=1;n--)item(`Redo up to “${redo[n-1]}”`,n,`Put back ${n===1?'this change':`the ${n} changes up to and including this one`}`,n);
-  line('history-now','Now');
-  for(let n=1;n<=Math.min(undo.length,20);n++)item(n===1?`Undo “${undo[0]}”`:`Undo back through “${undo[n-1]}”`,n,`Undo ${n===1?'this change':`this change and the ${n-1} after it`}. Redo, or this menu, can put ${n===1?'it':'them'} back`,-n);
-}
-$('history-menu').addEventListener('toggle',()=>{if($('history-menu').open)renderHistoryMenu();});
-async function updateTitle(){
-  if(model.titleSave){await model.titleSave;if(!model.pendingTitle)return;}
-  const song=currentSong();if(!song)return;const title=$('song-title').value.trim();if(!title)throw new Error('Give your song a title before continuing.');
-  if(title===song.title){model.pendingTitle=false;return;}
-  const songId=song.id;model.titleSave=api('/api/song',{id:songId,title});
-  try{const changed=await model.titleSave;const latest=model.state?.songs.find(item=>item.id===songId);if(latest)Object.assign(latest,changed);if(model.song===songId){model.pendingTitle=$('song-title').value.trim()!==title;renderPageHead();}renderLibrary();}
-  finally{model.titleSave=null;}
-}
-async function commitUiDrafts(){if(model.pendingTitle||model.titleSave)await updateTitle();}
-// Straight after an import: the song's name and artist (read from the file's tags, so usually right already) and whether to split the stems.
-async function setupImportedSong(song){
- const setup=await askSongSetup({title:song.title,artist:song.artist,stems:wantsStems(),stemsHint:stemsHint(),device:model.state?.settings?.device||'auto',gpu:!!model.state?.engine?.gpu});
- if(!setup)return;
- prefs.set('cb-stems',setup.stems?'1':'0');
- await api('/api/song',{id:song.id,title:setup.title,artist:setup.artist});
- if(setup.device&&setup.device!==model.state?.settings?.device)model.state.settings=await api('/api/settings',{device:setup.device});   // kept for every later analysis too
- await refreshState();
- if(!model.state.engine.ready){showError(model.state.engine.message||'Set up the transcription engine first.');return;}
- await startAnalysis(song.id,[],setup.stems);
-}
-async function importFile(file){
-  if(!file)return;if(/\.zip$/i.test(file.name))return importSongZip(file);
-  if(/\.midi?$/i.test(file.name))return midiImport.importFile(file);
-  if(!/\.mp3$/i.test(file.name)){showError('Choose an MP3 recording, or a song zip exported from Chord Buddy.');return;}if(file.size>250*1024*1024){showError('This recording is larger than the 250 MB import limit.');return;}
-  if(model.importing)return;model.importing=true;$('import-button').disabled=true;$('import-button').querySelector('em').textContent='Importing…';clearError();
-  let added=null;
-  try{const bytes=await file.arrayBuffer();const song=await api(`/api/import?filename=${encodeURIComponent(file.name)}&setlist=${encodeURIComponent(model.setlist || '')}`,undefined,{method:'POST',headers:{'Content-Type':'audio/mpeg'},body:bytes});await refreshState();await selectSong(song.id);added=song;}
-  catch(error){showError(error);}finally{model.importing=false;$('import-button').disabled=false;$('import-button').querySelector('em').textContent='Import';$('file-input').value='';renderControls();}
-  if(added)setupImportedSong(added).catch(showError);
-}
-// A song exported from another computer (Export → Whole song): it is added, or, when a song here has the same title, you choose what
-// to overwrite or import it as a new song. The zip can be gigabytes with stems, so it is sent as the file itself, never read into memory here.
-async function importSongZip(file){
-  if(model.importing)return;model.importing=true;$('import-button').disabled=true;$('import-button').querySelector('em').textContent='Importing…';clearError();
-  let left=null;
-  try{
-    const summary=await api('/api/song-import',undefined,{method:'POST',headers:{'Content-Type':'application/zip'},body:file});
-    let choice={mode:'new'};
-    if(summary.matches.length){
-      choice=await askSongImport({title:summary.matches[0].title,matches:summary.matches,incoming:summary});
-      if(!choice){await api('/api/song-import/cancel',{token:summary.token});return;}
-    }
-    // Updating the open song: let go of it first, so its stems are not playing while they are replaced.
-    if(choice.mode==='update'&&choice.target===model.song){
-      const flushed=await window.chordBuddyFlush();if(!flushed.ok){await api('/api/song-import/cancel',{token:summary.token});throw new Error('Finish saving your edits first.');}
-      left=model.song;await leaveSong();
-    }
-    const result=await api('/api/song-import/apply',{token:summary.token,...choice,setlist:model.setlist||'default'});
-    await refreshState();await selectSong(result.song_id);
-    if(result.warning)showError(result.warning);
-  }catch(error){showError(error);if(left&&!model.song)selectSong(left).catch(()=>{});}
-  finally{model.importing=false;$('import-button').disabled=false;$('import-button').querySelector('em').textContent='Import';$('file-input').value='';renderControls();}
-}
-$('import-button').onclick=$('empty-import').onclick=()=>$('file-input').click();$('file-input').onchange=()=>importFile($('file-input').files[0]);
+historyUi.wire();     // the History menu (history-ui.js)
+importFlow.wireButtons();     // the Import button (import-flow.js)
 $('all-songs').onclick=showAllSongs;
-$('new-setlist').onclick=()=>{$('setlist-form').classList.toggle('hidden');if(!$('setlist-form').classList.contains('hidden'))$('setlist-name').focus();};
-$('setlist-form').onsubmit=async event=>{event.preventDefault();try{const name=$('setlist-name').value.trim();if(!name)return;const list=await api('/api/setlist',{name});model.setlist=list.id;$('setlist-name').value='';$('setlist-form').classList.add('hidden');await refreshState();}catch(error){showError(error);}};
+setlistActions.wireForm();     // the new set list form (setlist-actions.js)
 $('song-search').oninput=renderLibrary;
-let titleTimer=null;
-$('song-title').oninput=()=>{model.pendingTitle=$('song-title').value.trim()!==currentSong()?.title;clearTimeout(titleTimer);titleTimer=setTimeout(()=>updateTitle().catch(showError),600);};
-$('song-title').onchange=()=>{clearTimeout(titleTimer);updateTitle().catch(showError);};
-// The title is written in the chart's own header (a heading you can type in); the hidden field carries it to the saving code above.
-for(const id of TITLE_NODES){
-  const node=$(id);
-  node.oninput=()=>{$('song-title').value=node.textContent.replace(/\s+/g,' ').trim();$('song-title').oninput();};
-  node.onblur=()=>{if($('song-title').value||!currentSong())$('song-title').onchange();else node.textContent=currentSong().title;};
-  node.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();event.target.blur();}else if(event.key==='Escape'){event.target.textContent=currentSong()?.title||'';$('song-title').value=currentSong()?.title||'';event.target.blur();}};
-}
+songTitle.wire();     // typing the title in a page's header (song-title.js)
 
 $('midi-setup').onclick=()=>{$('settings-menu').open=false;performanceApp.openMidiSetup();};
 // Check for updates: only when asked, and it only says what it found (update_check.py). Getting a new version stays in your hands.
@@ -1268,75 +1033,7 @@ $('transcription-history').onclick=async()=>{
     openReprocess({hasEdits:false,runs:model.detail.runs,activeRun:currentSong().active_run,canRun:false,onRestore:async runId=>{await api('/api/activate-run',{song_id:songId,run_id:runId});await refreshState();await refreshSongDetail(songId);}});
   }catch(error){showError(error);}
 };
-// ---- Export: saving and exporting live in one menu, in the same place in every view ----
-function renderExportMenu(){
-  const docs=model.detail?.documents||[],song=currentSong();
-  const has={ 'pdf-chart':docs.some(d=>d.kind==='chart'),'pdf-lead':docs.some(d=>d.kind==='abc'),midi:docs.some(d=>d.kind==='midi'),'midi-tracks':docs.some(d=>d.kind==='midi'),outputs:!!song?.active_run,song:!!song };
-  for(const button of document.querySelectorAll('[data-export]'))button.disabled=!has[button.dataset.export];
-  $('export-button').classList.toggle('disabled',!song);
-}
-const downloadUrl=url=>{const link=document.createElement('a');link.href=url;link.download='';document.body.append(link);link.click();link.remove();};
-async function runExport(kind){
-  const song=currentSong();if(!song)return;
-  const docs=model.detail?.documents||[],midi=docs.find(d=>d.kind==='midi'&&d.name==='transcription.mid')||docs.find(d=>d.kind==='midi');
-  if(kind==='pdf-chart')return exportPdf('chart');
-  if(kind==='pdf-lead')return exportPdf('lead');
-  if(kind==='midi'||kind==='midi-tracks'){if(!midi)throw new Error('This song has no MIDI yet.');return downloadUrl(mediaUrl('/api/export-midi/'+encodeURIComponent(midi.id))+'&mode='+(kind==='midi'?'single':'tracks'));}
-  if(kind==='outputs')return downloadUrl(mediaUrl('/api/export-outputs/'+encodeURIComponent(song.id)));
-  if(kind==='song')return exportSong(song);
-  if(kind==='lead-external')return openLeadElsewhere();
-}
-// Sending the lead sheet to MuseScore freezes it: Chord Buddy cannot read the changes back, so from then on it shows the copy that was
-// sent instead of following the chord chart. Say so first. ("Follow the chord chart again", above the lead sheet, undoes it.)
-async function openLeadElsewhere(){
-  if(currentRecord()?.doc.kind!=='abc'||!leadView)throw new Error('Open the Lead sheet tab first.');
-  const answer=await askChoice({title:'Open the lead sheet in MuseScore?',
-    message:['Chord Buddy saves the lead sheet as a MusicXML file and opens it in MuseScore, or whichever program opens those files.',
-      'Chord Buddy can’t read your changes back. From then on, this lead sheet stays as it was sent and stops following the chord chart. “Follow the chord chart again”, above the lead sheet, undoes that.'],
-    choices:[{id:'open',label:'Open in MuseScore',kind:'primary'}]});
-  if(answer==='open')await leadView.openExternal();
-}
-const sizeLabel=bytes=>bytes>=1e9?(bytes/1e9).toFixed(1)+' GB':Math.max(1,Math.round(bytes/1e6))+' MB';
-// The whole song in one zip named after it (recording, analysis, every edit), for Import on another computer. Stems are most of the
-// size, so they are only included when asked for.
-async function exportSong(song){
-  const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving your edits first.');
-  const info=await api('/api/song-export/info',{song_id:song.id});
-  let stems=false;
-  if(info.stems_bytes){
-    stems=prefs.get('cb-export-stems','0')==='1';
-    const answer=await askChoice({title:'Export “'+song.title+'”',message:['One zip with the recording, the analysis and every edit, ready to import on another computer.'],
-      checkbox:{label:'Include the stems',hint:'Adds about '+sizeLabel(info.stems_bytes)+'. Without them the zip is about '+sizeLabel(info.bytes)+', and the stems can be split again on the other computer.',checked:stems,onChange:value=>{stems=value;}},
-      choices:[{id:'export',label:'Export',kind:'primary'}]});
-    if(answer!=='export')return;
-    prefs.set('cb-export-stems',stems?'1':'0');
-  }
-  downloadUrl(mediaUrl('/api/song-export/'+encodeURIComponent(song.id))+'&stems='+(stems?1:0));
-}
-for(const button of document.querySelectorAll('[data-export]'))button.onclick=()=>{$('export-menu').open=false;runExport(button.dataset.export).catch(showError);};
-
-// Export PDF: print only the page that is showing, the lead sheet or the chart (print rules live in shell.css). The page is drawn in light
-// colours, without tool hints, whichever look is on screen.
-const exportChartPdf=()=>exportPdf(currentRecord()?.doc.kind==='abc'?'lead':'chart');
-async function exportPdf(which){
- try{
-  if(which==='lead'){
-   const lead=model.detail?.documents.find(doc=>doc.kind==='abc');if(!lead)throw new Error('This song has no lead sheet to export yet.');
-   await loadChartRecord();                                                 // the words come from the chart
-   if(currentRecord()?.doc.kind!=='abc'||model.document!==lead.id)await selectDocument(lead.id);
-   if(currentRecord()?.doc.kind!=='abc'||!leadView)return;
-   await new Promise(resolve=>setTimeout(resolve,150));
-   leadView.printMode(true);
-   try{await new Promise(resolve=>setTimeout(resolve,80));window.print();}finally{leadView.printMode(false);}
-   return;
-  }
-  const chart=chartDoc();if(!chart)throw new Error('This song has no chart to export yet.');
-  if(currentRecord()?.doc.kind!=='chart'||model.document!==chart.id)await selectDocument(chart.id);
-  if(currentRecord()?.doc.kind!=='chart')return;
-  practiceView.setMode('nav');await new Promise(resolve=>setTimeout(resolve,60));window.print();
- }catch(error){showError(error);}
-}
-document.addEventListener('chordbuddy:export-pdf',exportChartPdf);
+exportFlow.wire();     // the Export menu and Export PDF (export-flow.js)
 // Analyze again always runs the analysis afresh (it does not just reuse what was saved), so it can be rerun at any time. If the song has
 // edits, you choose: keep them (your edited chart and lead sheet stay in front; the fresh result fills in everything you have not
 // changed) or start over (the fresh chart and lead sheet are shown; the edited ones stay under Previous transcriptions).
@@ -1371,33 +1068,9 @@ async function leaveSong(){
  model.song=null;model.detail=null;model.document=null;practiceData=null;practiceViewport=null;player.setWaveformRun(null);player.setPractice({music:{measures:[]},projection:null,viewport:null});
  await transport.loadSong({songId:null});
 }
-// Deleting a song: first to the Trash (hidden, nothing erased, restorable), then forever only from the Trash.
-async function trashSong(id){
- try{
-  const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving your edits first.');
-  const wasCurrent=model.song===id;await api('/api/song/trash',{id});await refreshState();
-  if(wasCurrent){
-   await leaveSong();const next=model.state.songs[0];
-   if(next)await selectSong(next.id);else{renderLibrary();renderControls();renderDocument();renderLock();}
-  }
- }catch(error){showError(error);}
-}
-$('delete-song').onclick=async()=>{
- $('settings-menu').open=false;const song=currentSong();if(!song)return;
- const answer=await askChoice({title:'Delete “'+song.title+'”?',message:['It moves to the Trash. Nothing is erased yet: you can restore it, or delete it forever from the Trash.'],choices:[{id:'trash',label:'Move to Trash',kind:'danger'}]});
- if(answer==='trash')await trashSong(song.id);
-};
-$('trash-open').onclick=()=>openTrash({
- getItems:()=>model.state?.trash||[],
- onRestore:async item=>{try{await api('/api/song/restore',{id:item.id});await refreshState();}catch(error){showError(error);}},
- onPurge:async item=>{
-  const answer=await askChoice({title:'Delete “'+item.title+'” forever?',message:['This permanently deletes the recording, its chart and every edit, and its stems from this computer.','It cannot be undone.'],choices:[{id:'purge',label:'Delete forever',kind:'danger'}]});
-  if(answer!=='purge')return;
-  try{const result=await api('/api/song/purge',{id:item.id});await refreshState();if(result.warning)showError(result.warning);}catch(error){showError(error);}
- },
-});
-$('lock-cta').onclick=()=>{const job=analysisJobFor(currentSong());(job&&isJobActive(job)?$('cancel-job'):$('transcribe')).click();};
-$('cancel-job').onclick=async()=>{try{const job=model.state?.job;if(job&&!isJobActive(job)){model.dismissedJob=jobKey(job);renderJob();return;}const path=['analysis','rhythm'].includes(job?.kind)?'/api/analysis/'+job.id+'/cancel':job?.kind==='separation'?'/api/separation/cancel':'/api/cancel';await api(path,job?.kind==='separation'?{job_id:job.id}:{});await refreshState();}catch(error){showError(error);}};
+trashFlow.wire();     // Delete song and the Trash (trash-flow.js)
+lockPanel.wire();     // the locked panel's button (lock-panel.js)
+jobPanel.wire();     // the job panel's Cancel (job-panel.js)
 $('song-folder').onclick=()=>api('/api/open-folder',{song_id:model.song}).catch(showError);
 $('undo').onclick=()=>{if(performanceApp.history)performanceApp.history.undo();else historyAction('undo');};$('redo').onclick=()=>{if(performanceApp.history)performanceApp.history.redo();else historyAction('redo');};$('restore').onclick=async()=>{
  $('settings-menu').open=false;const record=currentRecord();if(!record)return;
@@ -1408,7 +1081,7 @@ $('undo').onclick=()=>{if(performanceApp.history)performanceApp.history.undo();e
 };
 $('save-status').onclick=()=>{const r=currentRecord();if(r?.error)saveDocument(model.document);else if(r?.doc.export_warning)retryDocumentExport(r,api,()=>{if(currentRecord()===r){renderSaveStatus();if(!r.exporting&&!r.doc.export_warning&&$('alert').textContent.startsWith('Edit saved;'))clearError();}});};$('save-status').onkeydown=event=>{if(event.key==='Enter')$('save-status').click();};
 // Playback views subscribe to the transport; the audio element no longer owns chart time.
-let dragDepth=0;window.addEventListener('dragenter',event=>{if(event.dataTransfer.types.includes('Files')){event.preventDefault();dragDepth++;$('drop-overlay').classList.remove('hidden');}});window.addEventListener('dragover',event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();});window.addEventListener('dragleave',()=>{dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)$('drop-overlay').classList.add('hidden');});window.addEventListener('drop',event=>{event.preventDefault();dragDepth=0;$('drop-overlay').classList.add('hidden');importFile(event.dataTransfer.files[0]);});
+importFlow.wireDrop();     // files dropped on the window (import-flow.js)
 window.chordBuddyHasPendingEdits=()=>practiceView.hasPendingSave()||!!document.querySelector('[data-edit-dialog]')||model.pendingTitle || !!model.titleSave || !!model.pendingChart || [...model.documents.values()].some(record=>record.dirty||record.saving||record.practiceSaveError);
 window.addEventListener('beforeunload',event=>{if(window.chordBuddyHasPendingEdits()){event.preventDefault();event.returnValue='';}});
 window.chordBuddyShowCloseError=message=>showError(message || 'Your edits could not finish saving. Keep this window open and retry the failed save before closing.');

@@ -71,7 +71,7 @@ $('scheme-toggle').onclick = () => softly(() => setScheme(root.dataset.scheme ==
 $('side-toggle').onclick = () => setSide(false);
 $('side-open').onclick = () => setSide(true);
 
-// Everything in the Export menu is handled by the app, which knows what each view needs (see runExport in app.js).
+// Everything in the Export menu is handled by the app, which knows what each view needs (see runExport in export-flow.js).
 
 // Close the menus at the top (details.more) when clicking elsewhere.
 document.addEventListener('click', event => {

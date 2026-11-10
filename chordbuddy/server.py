@@ -385,11 +385,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if not same:self.wfile.write(body)
 
+    def _body_size(self):
+        try:return int(self.headers.get('Content-Length','0'))
+        except ValueError:raise ValueError('Invalid request size')
+
     def _read(self,limit):
-        try:
-            size=int(self.headers.get('Content-Length','0'))
-        except ValueError:
-            raise ValueError('Invalid request size')
+        size=self._body_size()
         if not 0<size<=limit:
             raise ValueError('The file or request is empty or too large')
         self.connection.settimeout(120)
@@ -400,7 +401,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _models_import(self,query):
         # A model file the user already has: streamed to disk (they are large), then accepted only if its fingerprint is exactly right.
-        size=int(self.headers.get('Content-Length','0'))
+        size=int(self.headers.get('Content-Length','0'))     # not _body_size: a size that is no number is refused in Python's own words. loose on purpose? see report
         if not 0<size<=2*1024**3:raise ValueError('Expected a model file')
         folder=PROJECT/'.models'/'uploads';folder.mkdir(parents=True,exist_ok=True)
         temp=folder/('upload-'+secrets.token_hex(6)+'.partial')
@@ -411,7 +412,7 @@ class Handler(BaseHTTPRequestHandler):
                     block=self.rfile.read(min(1<<20,left))
                     if not block:raise ValueError('The upload was interrupted')
                     out.write(block);left-=len(block)
-            return self.app.models.adopt(query.get('name',[''])[0],temp,move=True)
+            return self.app.models.adopt(_first(query,'name'),temp,move=True)
         finally:
             temp.unlink(missing_ok=True)
 
@@ -432,35 +433,8 @@ class Handler(BaseHTTPRequestHandler):
             if not self._allowed(path,query,method):
                 self._json({'error':'This request is not authorized'},403)
                 return
-            if method=='GET' and path=='/visual-stream':
-                key=stream_key(self.app.stream_key_path)
-                if not key or not secrets.compare_digest(query.get('key',[''])[0],key):
-                    self._json({'error':'This stream address is not valid. Copy it again from Chord Buddy (More options, Visualizer for OBS).'},403)
-                    return
-                self._event_stream('viewer')
-            elif method=='GET':
-                self._get(path)
-            elif path=='/api/models/import':
-                self._json(self._models_import(query))
-            elif path=='/api/song-import':
-                # A song zip from another computer can be gigabytes: it is streamed to disk, never held in memory.
-                try:size=int(self.headers.get('Content-Length','0'))
-                except ValueError:raise ValueError('Invalid request size')
-                self.connection.settimeout(120)
-                self._json(self.app.transfer.receive(self.rfile.read,size))
-            elif path=='/api/import':
-                self._json(self.app.library.import_audio(query.get('filename',[''])[0],self._read(250*1024*1024),query.get('setlist',['default'])[0]))
-            elif path=='/api/cue-track/upload':
-                self._json(self.app.cue_tracks.add(query.get('song',[''])[0],query.get('name',[''])[0],self._read(250*1024*1024)))
-            elif path=='/api/user-midi/upload':
-                midi=self.app.user_midi;song=query.get('song',[''])[0];name=query.get('name',[''])[0]
-                if query.get('unique',[''])[0]=='1':name=midi.next_name(song,name or 'Custom MIDI')   # generated files never collide with or overwrite anything
-                self._json(midi.add(song,name,self._read(16*1024*1024),query.get('replace',[None])[0]))
-            else:
-                payload=json.loads(self._read(24*1024*1024))
-                if not isinstance(payload,dict):
-                    raise ValueError('Expected an object')
-                self._post(path,payload)
+            if method=='GET':self._get(path,query)
+            else:self._post(path,query)
         except RevisionConflict as exc:
             self._json({'error':str(exc)},409)
         except KeyError as exc:
@@ -473,6 +447,27 @@ class Handler(BaseHTTPRequestHandler):
             self._fail(f'Unable to read or save the file: {exc}',500)
         except Exception as exc:
             self._fail(f'Chord Buddy could not complete this action: {exc}',500)
+
+    def _get(self,path,query=None):
+        kind,handler,pieces=find_route(GET_ROUTES,path) or (None,None,())
+        if kind is None:
+            if path.startswith('/api/'):raise KeyError('Unknown action')
+            return self._static(path)
+        answer=handler(self,query or {},*pieces)
+        if kind==OWN:return answer          # the handler wrote the whole answer itself
+        return self._json_if_changed(answer) if kind==POLLED else self._json(answer)
+
+    def _post(self,path,query):
+        # Only /api/ addresses need the session token (_allowed), so anything else is turned away here, before a body of up to 24 MB is read for nobody.
+        if not path.startswith('/api/'):raise KeyError('Unknown action')
+        kind,handler,pieces=find_route(POST_ROUTES,path) or (None,None,())
+        if kind==UPLOAD:return self._json(handler(self,query))
+        # The body is read and checked before the address is: an unknown address with a bad body is told about the body, as it always was.
+        body=json.loads(self._read(24*1024*1024))
+        if not isinstance(body,dict):
+            raise ValueError('Expected an object')
+        if kind is None:raise KeyError('Unknown action')
+        return self._json(handler(self,body,*pieces))
 
     def _fail(self,message,status):
         try:self._json({'error':message},status)
@@ -489,148 +484,105 @@ class Handler(BaseHTTPRequestHandler):
         try:self.app.visual_relay.stream(role,write)
         except OSError:pass                              # the page closed or reloaded (Windows reports it as aborted, not reset)
 
-    def _get(self,path):
-        if path=='/api/visual-relay/address':
-            key=stream_key(self.app.stream_key_path,True)
-            return self._json({'url':f'http://127.0.0.1:{self.server.server_port}/visualizer.html?stream={key}','port':self.server.server_port})
-        if path=='/api/visual-relay/player':return self._event_stream('player')
-        if path=='/api/update-check':return self._json(update_check.check())
-        if path=='/api/monitor/status':return self._json(self.app.monitor.status())
-        if path.startswith('/api/cue-track/'):return self._json({'track':self.app.cue_tracks.get(path.removeprefix('/api/cue-track/'))})
-        if path=='/api/midi/ports':return self._json(self.app.midi.ports())
-        if path=='/api/midi/status':return self._json(self.app.midi.status())
-        if path=='/api/midi/log':return self._json(list(self.app.midi.log))
-        if path=='/api/midi/events':
-            query=parse_qs(urlparse(self.path).query)
-            return self._json(self.app.midi.read_events(int(query.get('after',['0'])[0]),float(query.get('wait',['0'])[0])))
-        if path=='/api/power':return self._json(self.app.power.status())
-        if path=='/api/shows':return self._json(self.app.performances.shows())
-        if path.startswith('/api/performances/'):return self._json(self.app.performances.performances_for_song(path.removeprefix('/api/performances/')))
-        if re.fullmatch(r'/api/show/[^/]+/export',path):return self._json(self.app.performances.export_show(path.split('/')[3],self.app.visual_patches))
-        if path.startswith('/api/performance/') or path.startswith('/api/show/'):
-            revision=parse_qs(urlparse(self.path).query).get('revision',[None])[0]
-            revision=int(revision) if revision is not None else None
-            if path.startswith('/api/performance/'):return self._json(self.app.performances.performance(path.removeprefix('/api/performance/'),revision))
-            return self._json(self.app.performances.show(path.removeprefix('/api/show/'),revision))
-        if path=='/api/visual-patches':return self._json(self.app.visual_patches.read())
-        if path.startswith('/api/visual-patches/'):return self._json(self.app.visual_patches.read(path.removeprefix('/api/visual-patches/')))
-        if path.startswith('/api/user-midi/'):
-            parts=path.removeprefix('/api/user-midi/').split('/')
-            if len(parts)==1:return self._json({'files':self.app.user_midi.list(parts[0])})
-            if len(parts)==2:
-                data=self.app.user_midi.read(parts[0],parts[1])
-                self.send_response(200)
-                self.send_header('Content-Type','audio/midi')
-                self.send_header('Content-Length',str(len(data)))
-                self.end_headers()
-                return self.wfile.write(data)
-            raise KeyError('Page not found')
-        if re.fullmatch(r'/api/documents/[^/]+/rhythm/proposals/[^/]+',path):
-            parts=path.split('/');doc=self.app.documents.get(parts[3]);version=self.app.documents.timing.version(parts[6])
-            stamp=self.app.documents.revision_stamp(doc['id'])
-            if version['transcription_id']!=doc['run_id'] or version['source_sha256']!=stamp['source_sha256']:raise ValueError('Proposal belongs to another source')
-            return self._json(version)
-        if path.startswith('/api/waveform/'):
-            run_id=path.removeprefix('/api/waveform/')
-            if original_playback.song_of(run_id):
-                description=self.app.playback.original_run(original_playback.song_of(run_id));root,manifest=description['root'],description['manifest']
-            else:
-                root,manifest=self.app.separation_store.get_published_run(run_id)
-            asset=next(a for a in manifest['assets'] if a['role']=='original')
-            key=(run_id,asset['file_sha256'])
-            with self.app.waveform_lock:
-                if key not in self.app.waveform_cache:
-                    value=waveform_peaks(asset,lambda start,count:read_frames(root/asset['relative_path'],asset,start,count))
-                    if len(self.app.waveform_cache)>=2:self.app.waveform_cache.pop(next(iter(self.app.waveform_cache)))
-                    self.app.waveform_cache[key]=dict(value,run_id=run_id)
-                value=self.app.waveform_cache[key]
-            return self._json(value)
-        if path.startswith('/api/mix-export/'):
-            run_id=path.removeprefix('/api/mix-export/');query=parse_qs(urlparse(self.path).query)
-            levels,master=parse_levels(query.get('levels',[''])[0],query.get('master',['1'])[0])
-            root,manifest=self.app.separation_store.get_published_run(run_id)
-            name=re.sub(r'[\\/:*?"<>|\x00-\x1f]+',' ',query.get('name',['Chord Buddy mix'])[0]).strip()[:120] or 'Chord Buddy mix'
+    def _attachment(self,kind,name,size=None):
+        # The headers of a download. Without a size it is a stream: its end is the connection closing.
+        self.send_response(200)
+        self.send_header('Content-Type',kind)
+        self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote(name))
+        if size is not None:self.send_header('Content-Length',str(size))
+        self.close_connection=True
+        self.end_headers()
+
+    def _download(self,data,name):
+        self._attachment('application/octet-stream',name,len(data))
+        self.wfile.write(data)
+
+    def _run_files(self,run_id):
+        # where a run's audio is: the song's own recording (playable before any stems exist), or a finished separation
+        if original_playback.song_of(run_id):
+            description=self.app.playback.original_run(original_playback.song_of(run_id));return description['root'],description['manifest']
+        return self.app.separation_store.get_published_run(run_id)
+
+    def _idle(self,song_id):
+        # the same id back, once the song is known not to be mid-analysis: its files would change under an export
+        if self.app._song_busy(song_id):raise RevisionConflict('This song is being analyzed. Wait for it to finish, then export it.')
+        return song_id
+
+    # --- GET routes that take more than a line (GET_ROUTES below points here) ---
+
+    def _viewer_stream(self,query):
+        key=stream_key(self.app.stream_key_path)
+        if not key or not secrets.compare_digest(_first(query,'key'),key):
+            return self._json({'error':'This stream address is not valid. Copy it again from Chord Buddy (More options, Visualizer for OBS).'},403)
+        self._event_stream('viewer')
+
+    def _relay_address(self,query):
+        key=stream_key(self.app.stream_key_path,True)
+        return {'url':f'http://127.0.0.1:{self.server.server_port}/visualizer.html?stream={key}','port':self.server.server_port}
+
+    def _user_midi(self,query,rest):
+        parts=rest.split('/')
+        if len(parts)==1:return self._json({'files':self.app.user_midi.list(parts[0])})
+        if len(parts)==2:
+            data=self.app.user_midi.read(parts[0],parts[1])
             self.send_response(200)
-            self.send_header('Content-Type','audio/mpeg')
-            self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote(name+'.mp3'))
-            self.close_connection=True
-            self.end_headers()
-            encode_mix(PROJECT,root,manifest,levels,master,self.wfile.write);return
-        if path.startswith('/api/stems-export/'):
-            run_id=path.removeprefix('/api/stems-export/');query=parse_qs(urlparse(self.path).query)
-            root,manifest=self.app.separation_store.get_published_run(run_id)
-            name=re.sub(r'[\\/:*?"<>|\x00-\x1f]+',' ',query.get('name',['Chord Buddy'])[0]).strip()[:100] or 'Chord Buddy'
-            self.send_response(200)
-            self.send_header('Content-Type','application/zip')
-            self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote(name+' - stems.zip'))
-            self.close_connection=True
-            self.end_headers()
-            export_stems(PROJECT,root,manifest,name,self.wfile.write);return
-        if path.startswith('/api/song-export/'):
-            # The whole song (recording, analysis, edits and, if asked, stems) as one zip named after the song.
-            song_id=path.removeprefix('/api/song-export/');query=parse_qs(urlparse(self.path).query)
-            if self.app._song_busy(song_id):raise RevisionConflict('This song is being analyzed. Wait for it to finish, then export it.')
-            manifest,files,name=self.app.transfer.export_plan(song_id,query.get('stems',['0'])[0]=='1')
-            self.send_response(200)
-            self.send_header('Content-Type','application/zip')
-            self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote(name))
-            self.close_connection=True
-            self.end_headers()
-            self.app.transfer.write_zip(manifest,files,self.wfile.write);return
-        if path.startswith('/api/separation-audio/'):
-            run_id=path.removeprefix('/api/separation-audio/')
-            query=parse_qs(urlparse(self.path).query)
-            if set(query)!={'start_frame','frame_count'} or any(len(v)!=1 for v in query.values()):raise ValueError('Expected frame bounds')
-            start=int(query['start_frame'][0]);count=int(query['frame_count'][0])
-            if original_playback.song_of(run_id):
-                payload,actual=original_playback.wire_chunk(self.app.playback.original_run(original_playback.song_of(run_id)),start,count)
-            else:
-                root,manifest=self.app.separation_store.get_published_run(run_id)
-                payload,actual=wire_chunk(root,manifest,start,count)
-            self.send_response(200)
-            self.send_header('Content-Type','application/octet-stream')
-            self.send_header('Content-Length',str(len(payload)))
-            for name,value in [('Run-Id',run_id),('Start-Frame',start),('Frame-Count',actual),('Sample-Rate',44100)]:
-                self.send_header('X-Stem-'+name,str(value))
-            self.end_headers();self.wfile.write(payload);return
-        if path.startswith('/api/visual-features/'):
-            run_id=path.removeprefix('/api/visual-features/')
-            if original_playback.song_of(run_id):
-                description=self.app.playback.original_run(original_playback.song_of(run_id));root,manifest=description['root'],description['manifest']
-            else:
-                root,manifest=self.app.separation_store.get_published_run(run_id)
-            return self._json(visual_features.load_or_compute(root,manifest))
-        if path.startswith('/api/playback/'):
-            return self._json_if_changed(self.app.playback_state(path.removeprefix('/api/playback/')))
-        if path.startswith('/api/separation/'):
-            return self._json_if_changed(self.app.separation_store.get_song_state(path.removeprefix('/api/separation/')))
-        if path=='/api/prefs':
-            return self._json(self.app.library.read_prefs())
-        if path=='/api/models':
-            return self._json(self.app.models.status())
-        if path=='/api/chord-model':
-            return self._json(self.app.chord_model.status())
-        if path=='/api/state':
-            return self._json_if_changed(self.app.state())
-        if path.startswith('/api/song/'):
-            return self._json(self.app.documents.song_detail(path.removeprefix('/api/song/')))
-        if path.startswith('/api/document/'):
-            return self._json(self.app.documents.get(path.removeprefix('/api/document/')))
-        if path.startswith('/api/audio/'):
-            return self._audio(self.app.library.source_path(path.removeprefix('/api/audio/')))
-        if path.startswith(('/api/export/','/api/export-midi/','/api/export-outputs/')):
-            if path.startswith('/api/export-midi/'):data,name=self.app.documents.midi_download(path.removeprefix('/api/export-midi/'),parse_qs(urlparse(self.path).query).get('mode',['single'])[0])
-            elif path.startswith('/api/export-outputs/'):data,name=self.app.documents.outputs_zip(path.removeprefix('/api/export-outputs/'))
-            else:data,name=self.app.documents.export(path.removeprefix('/api/export/'))
-            self.send_response(200)
-            self.send_header('Content-Type','application/octet-stream')
-            self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote(name))
+            self.send_header('Content-Type','audio/midi')
             self.send_header('Content-Length',str(len(data)))
             self.end_headers()
-            self.wfile.write(data)
-            return
-        if path.startswith('/api/'):
-            raise KeyError('Unknown action')
+            return self.wfile.write(data)
+        raise KeyError('Page not found')
+
+    def _rhythm_proposal(self,query,document_id,version_id):
+        doc=self.app.documents.get(document_id);version=self.app.documents.timing.version(version_id)
+        stamp=self.app.documents.revision_stamp(doc['id'])
+        if version['transcription_id']!=doc['run_id'] or version['source_sha256']!=stamp['source_sha256']:raise ValueError('Proposal belongs to another source')
+        return version
+
+    def _waveform(self,query,run_id):
+        root,manifest=self._run_files(run_id)
+        asset=next(a for a in manifest['assets'] if a['role']=='original')
+        key=(run_id,asset['file_sha256'])
+        with self.app.waveform_lock:
+            if key not in self.app.waveform_cache:
+                value=waveform_peaks(asset,lambda start,count:read_frames(root/asset['relative_path'],asset,start,count))
+                if len(self.app.waveform_cache)>=2:self.app.waveform_cache.pop(next(iter(self.app.waveform_cache)))
+                self.app.waveform_cache[key]=dict(value,run_id=run_id)
+            return self.app.waveform_cache[key]
+
+    def _mix_export(self,query,run_id):
+        levels,master=parse_levels(_first(query,'levels'),_first(query,'master','1'))
+        root,manifest=self.app.separation_store.get_published_run(run_id)
+        self._attachment('audio/mpeg',_download_name(query,'Chord Buddy mix',120)+'.mp3')
+        encode_mix(PROJECT,root,manifest,levels,master,self.wfile.write)
+
+    def _stems_export(self,query,run_id):
+        root,manifest=self.app.separation_store.get_published_run(run_id)
+        name=_download_name(query,'Chord Buddy',100)
+        self._attachment('application/zip',name+' - stems.zip')
+        export_stems(PROJECT,root,manifest,name,self.wfile.write)
+
+    def _song_export(self,query,song_id):
+        # The whole song (recording, analysis, edits and, if asked, stems) as one zip named after the song.
+        manifest,files,name=self.app.transfer.export_plan(self._idle(song_id),_first(query,'stems','0')=='1')
+        self._attachment('application/zip',name)
+        self.app.transfer.write_zip(manifest,files,self.wfile.write)
+
+    def _separation_audio(self,query,run_id):
+        if set(query)!={'start_frame','frame_count'} or any(len(v)!=1 for v in query.values()):raise ValueError('Expected frame bounds')
+        start=int(query['start_frame'][0]);count=int(query['frame_count'][0])     # any whole number, negative too. loose on purpose? see report
+        if original_playback.song_of(run_id):
+            payload,actual=original_playback.wire_chunk(self.app.playback.original_run(original_playback.song_of(run_id)),start,count)
+        else:
+            root,manifest=self.app.separation_store.get_published_run(run_id)
+            payload,actual=wire_chunk(root,manifest,start,count)
+        self.send_response(200)
+        self.send_header('Content-Type','application/octet-stream')
+        self.send_header('Content-Length',str(len(payload)))
+        for name,value in [('Run-Id',run_id),('Start-Frame',start),('Frame-Count',actual),('Sample-Rate',44100)]:
+            self.send_header('X-Stem-'+name,str(value))
+        self.end_headers();self.wfile.write(payload)
+
+    def _static(self,path):
         web=(PROJECT/'chordbuddy'/'web').resolve()
         if path=='/visualizations/index.json':
             # the visualizer's scenes: every .js file in web/visualizations whose name does not start with _ (templates, drafts)
@@ -681,154 +633,69 @@ class Handler(BaseHTTPRequestHandler):
         if not same:self.wfile.write(body)
         self.connection.settimeout(15)       # an idle kept-open connection is closed after a moment
 
-    def _post(self,path,body):
-        lib=self.app.library
-        if path=='/api/visual-relay/send':
-            return self._json({'viewers':self.app.visual_relay.send(body.get('messages'))})
-        if re.fullmatch(r'/api/documents/[^/]+/timing',path):
-            result=self.app.documents.set_chart_timing(path.split('/')[3],body['timing'],body['revision'])
-        elif re.fullmatch(r'/api/documents/[^/]+/cleanup/(preview|apply)',path):
-            document_id=path.split('/')[3]
-            if path.endswith('/preview'):result=self.app.documents.preview_cleanup(document_id)
-            else:result=self.app.documents.apply_cleanup(document_id,body['preview'],body['revision'])
-        elif re.fullmatch(r'/api/documents/[^/]+/rhythm/(propose|preview|apply)',path):
-            document_id=path.split('/')[3];action=path.split('/')[-1]
-            if action=='propose':
-                result=self.app.propose_rhythm(document_id)
-            elif action=='preview':result=self.app.rhythm.preview(document_id,body['proposal_id'],body['policy'])
-            else:result=self.app.rhythm.apply(document_id,body['preview_id'],body['stamp'],body['policy'])
-        elif re.fullmatch(r'/api/songs/[^/]+/analyze',path):
-            result=self.app.analyze(path.split('/')[3],body.get('invalidate',[]),body.get('stems',True),body.get('edit_policy','keep'))
-        elif re.fullmatch(r'/api/analysis/[^/]+/cancel',path):
-            result=self.app.analysis.cancel(path.split('/')[3])
-        elif path=='/api/separate':
-            result=self.app.separate(body['song_id'],body.get('rerun',False))
-        elif path=='/api/separation/cancel':
-            result=self.app.separation.cancel(body['job_id'])
-        elif path=='/api/song':
-            result=lib.rename_song(body['id'],body['title'],body.get('artist'))
-        elif path=='/api/song/trash':
-            result=self.app.trash_song(body['id'])
-        elif path=='/api/song/restore':
-            result=lib.restore_song(body['id'])
-        elif path=='/api/song/purge':
-            result=self.app.purge_song(body['id'])
-        elif path=='/api/song-export/info':
-            if self.app._song_busy(body['song_id']):raise RevisionConflict('This song is being analyzed. Wait for it to finish, then export it.')
-            result=self.app.transfer.sizes(body['song_id'])
-        elif path=='/api/song-import/apply':
-            result=self.app.transfer.apply(body['token'],body.get('mode'),body.get('analysis',False),body.get('stems',False),body.get('setlist') or 'default',body.get('target'))
-        elif path=='/api/song-import/cancel':
-            result=self.app.transfer.cancel(body['token'])
-        elif path=='/api/setlist':
-            result=lib.create_setlist(body['name'])
-        elif path=='/api/setlist/rename':
-            result=lib.rename_setlist(body['id'],body['name'])
-        elif path=='/api/setlist/delete':
-            result=lib.delete_setlist(body['id'])
-        elif path=='/api/setlist/order':
-            result=lib.reorder_setlist(body['id'],body['song_ids'])
-        elif path=='/api/setlist/add':
-            result=lib.add_to_setlist(body['id'],body['song_id'])
-        elif path=='/api/setlist/remove':
-            result=lib.remove_from_setlist(body['id'],body['song_id'])
-        elif path=='/api/prefs':
-            result=lib.write_prefs(body)
-        elif path=='/api/models/download':
-            result=self.app.models.start()
-        elif path=='/api/models/cancel':
-            result=self.app.models.cancel()
-        elif path=='/api/chord-model/download':
-            result=self.app.chord_model.start()
-        elif path=='/api/chord-model/cancel':
-            result=self.app.chord_model.cancel()
-        elif path=='/api/settings':
-            result=lib.settings(body)
-        elif path=='/api/song-metadata':
-            song_id=body.get('song_id',body.get('id'))
-            metadata=body.get('metadata')
-            if metadata is None:
-                metadata={k:body[k] for k in ('timing','chord_overrides') if k in body}
-            result=self.app.documents.apply_song_metadata(song_id,metadata,body.get('revision'))
-        elif path=='/api/confirm-chord':
-            song_id=body.get('song_id',body.get('id'))
-            current=lib.song_metadata(song_id)
-            overrides=[item for item in current['chord_overrides'] if item['id']!=body.get('id')]
-            override={k:body[k] for k in ('id','start','end','label') if k in body}
-            override['confirmed']=True
-            overrides.append(override)
-            result=self.app.documents.apply_song_metadata(song_id,{'timing':current['timing'],'chord_overrides':overrides},body.get('revision'))
-        elif path=='/api/start-chord-at-measure':
-            result=self.app.documents.start_chord_at_measure(
-                body['song_id'],body['chord_id'],body['measure_id'],body.get('revision'),body.get('document_id'))
-        elif path=='/api/transcribe':
-            result=self.app.transcribe(body['song_id'],body.get('edit_policy'))
-        elif path=='/api/activate-run':
-            result=self.app.activate_run(body['song_id'],body['run_id'])
-        elif path=='/api/cancel':
-            result=self.app.engine.cancel()
-        elif path=='/api/lead-sheet/external':
-            result=self.app.open_external_score(body['song_id'],body.get('filename'),body.get('xml'))
-        elif path=='/api/midi/external':
-            result=self.app.open_external_midi(body['song_id'],body['document_id'])
-        elif path=='/api/open-folder':
-            folder=lib.folder(body['song_id'])
-            if os.name=='nt':
-                os.startfile(str(folder))
-            result={'ok':True}
-        elif path=='/api/update-page':
-            webbrowser.open(update_check.PAGE_URL)     # always this one address: nothing in the request can change where it goes
-            result={'opened':True}
-        elif path=='/api/monitor/schedule':result=self.app.monitor.schedule(body['events'])
-        elif path=='/api/monitor/cancel':result=self.app.monitor.cancel(body.get('from'))
-        elif path=='/api/monitor/gains':result=self.app.monitor.set_gains(body.get('click'),body.get('cue'))
-        elif path=='/api/monitor/load':
-            track=self.app.cue_tracks.get(body['song_id'])
-            if not track:raise KeyError('This song has no cue track')
-            result={**self.app.monitor.load_track(track['version'],self.app.cue_tracks.path(body['song_id'])),'key':track['version']}
-        elif path=='/api/cue-track/remove':
-            self.app.cue_tracks.remove(body['song_id']);result={'ok':True}
-        elif path=='/api/midi/connect':result=self.app.midi.connect(body['name'],output=body.get('output',True) is not False,input=body.get('input',True) is not False)
-        elif path=='/api/midi/disconnect':result=self.app.midi.disconnect(body['name'])
-        elif path=='/api/midi/schedule':result=self.app.midi.schedule(body['device'],body['events'],body.get('generation',0))
-        elif path=='/api/midi/cancel':result=self.app.midi.cancel(body.get('device'),body.get('from'),body.get('generation'))
-        elif path=='/api/midi/cleanup':result=self.app.midi.cleanup(body.get('device'))
-        elif path=='/api/power/acquire':result=self.app.power.acquire(body['holder'])
-        elif path=='/api/power/release':result=self.app.power.release(body['holder'])
-        elif path=='/api/performance/save':result=self.app.performances.save_performance(body['body'],body['base'])
-        elif path=='/api/performance/draft':result=self.app.performances.save_performance_draft(body['body'],body['base'])
-        elif path=='/api/performance/delete':result=self.app.performances.delete_performance(body['id'])
-        elif path=='/api/show/save':result=self.app.performances.save_show(body['body'],body['base'])
-        elif path=='/api/show/draft':result=self.app.performances.save_show_draft(body['body'],body['base'])
-        elif path=='/api/show/import':result=self.app.performances.import_show(body['bundle'],self.app.visual_patches)
-        elif path=='/api/show/delete':result=self.app.performances.delete_show(body['id'])
-        elif path=='/api/visual-patches':
-            result=self.app.visual_patches.save(body['visual'],body.get('patch'),body.get('song_id'))
-        elif path=='/api/user-midi/settings':
-            result=self.app.user_midi.save_settings(body['song_id'],body['id'],body['settings'])
-        elif path=='/api/user-midi/rename':
-            result=self.app.user_midi.rename(body['song_id'],body['id'],body['name'])
-        elif path=='/api/user-midi/remove':
-            self.app.user_midi.remove(body['song_id'],body['id']);result={'ok':True}
-        elif path=='/api/user-midi/open':
-            result=self.app.open_user_midi(body['song_id'],body['id'])
-        elif path=='/api/user-midi/folder':
-            folder=self.app.user_midi.folder_path(body['song_id'])
-            if os.name=='nt':os.startfile(str(folder))
-            result={'ok':True,'path':str(folder)}
-        elif path.startswith('/api/document/'):
-            tail=path.removeprefix('/api/document/').split('/')
-            if len(tail)==1:
-                result=self.app.documents.save(tail[0],body['content'],body.get('label','Edit document'),body['revision'])
-            elif len(tail)==2 and tail[1]=='export':
-                result=self.app.documents.retry_export(tail[0],body['revision'])
-            elif len(tail)==2:
-                result=self.app.documents.history(tail[0],tail[1],body['revision'],body.get('position'))
-            else:
-                raise KeyError('Unknown document action')
-        else:
-            raise KeyError('Unknown action')
-        self._json(result)
+    # --- POST routes that take more than a line (POST_ROUTES below points here) ---
+
+    def _song_import(self,query):
+        # A song zip from another computer can be gigabytes: it is streamed to disk, never held in memory.
+        size=self._body_size()
+        self.connection.settimeout(120)
+        return self.app.transfer.receive(self.rfile.read,size)
+
+    def _user_midi_upload(self,query):
+        midi=self.app.user_midi;song=_first(query,'song');name=_first(query,'name')
+        if _first(query,'unique')=='1':name=midi.next_name(song,name or 'Custom MIDI')   # generated files never collide with or overwrite anything
+        return midi.add(song,name,self._read(16*1024*1024),_first(query,'replace',None))
+
+    def _song_metadata(self,body):
+        song_id=body.get('song_id',body.get('id'))     # no song at all goes on as None, for the document store to refuse. loose on purpose? see report
+        metadata=body.get('metadata')
+        if metadata is None:
+            metadata={k:body[k] for k in ('timing','chord_overrides') if k in body}
+        return self.app.documents.apply_song_metadata(song_id,metadata,body.get('revision'))
+
+    def _confirm_chord(self,body):
+        song_id=body.get('song_id',body.get('id'))
+        current=self.app.library.song_metadata(song_id)
+        overrides=[item for item in current['chord_overrides'] if item['id']!=body.get('id')]
+        override={k:body[k] for k in ('id','start','end','label') if k in body}
+        override['confirmed']=True
+        overrides.append(override)
+        return self.app.documents.apply_song_metadata(song_id,{'timing':current['timing'],'chord_overrides':overrides},body.get('revision'))
+
+    def _open_folder(self,body):
+        folder=self.app.library.folder(body['song_id'])
+        if os.name=='nt':os.startfile(str(folder))
+        return {'ok':True}
+
+    def _update_page(self,body):
+        webbrowser.open(update_check.PAGE_URL)     # always this one address: nothing in the request can change where it goes
+        return {'opened':True}
+
+    def _monitor_load(self,body):
+        track=self.app.cue_tracks.get(body['song_id'])
+        if not track:raise KeyError('This song has no cue track')
+        return {**self.app.monitor.load_track(track['version'],self.app.cue_tracks.path(body['song_id'])),'key':track['version']}
+
+    def _cue_track_remove(self,body):
+        self.app.cue_tracks.remove(body['song_id']);return {'ok':True}
+
+    def _user_midi_remove(self,body):
+        self.app.user_midi.remove(body['song_id'],body['id']);return {'ok':True}
+
+    def _user_midi_folder(self,body):
+        folder=self.app.user_midi.folder_path(body['song_id'])
+        if os.name=='nt':os.startfile(str(folder))
+        return {'ok':True,'path':str(folder)}
+
+    def _document(self,body,rest):
+        tail=rest.split('/')
+        if len(tail)==1:
+            return self.app.documents.save(tail[0],body['content'],body.get('label','Edit document'),body['revision'])
+        if len(tail)==2 and tail[1]=='export':
+            return self.app.documents.retry_export(tail[0],body['revision'])
+        if len(tail)==2:
+            return self.app.documents.history(tail[0],tail[1],body['revision'],body.get('position'))
+        raise KeyError('Unknown document action')
 
     def _audio(self,path):
         size=path.stat().st_size
@@ -867,6 +734,165 @@ class Handler(BaseHTTPRequestHandler):
                     break
                 self.wfile.write(data)
                 remaining-=len(data)
+
+
+# --- The routes -------------------------------------------------------------------------------------------------------------------------
+# One line per address: (address, how it is answered, what answers it). In an address {id} stands for one piece between slashes (never empty)
+# and {rest} for everything after a prefix (slashes and all, possibly nothing); they reach the handler as its last arguments, in order.
+# The FIRST line that matches wins, so a {rest} comes after any longer address it would swallow. How a route is answered:
+#   JSON     the handler returns a value, sent as JSON. GET: handler(h,query,*pieces). POST: handler(h,body,*pieces), body a JSON object.
+#   POLLED   the same for a GET the page repeats: tagged, so an unchanged answer is a 304 (see _json_if_changed)
+#   OWN      a GET whose handler writes the whole answer itself: a stream, a download, an error of its own
+#   UPLOAD   a POST whose body is a file, not JSON: handler(h,query) reads it and returns a value, sent as JSON
+# A handler raises to refuse (see _dispatch for which error is which status). Nothing here checks the type of a body field: each service
+# checks its own, and a missing field ends as a 404 that names it. loose on purpose? see report
+JSON,POLLED,OWN,UPLOAD='json','polled','own','upload'
+
+
+def _first(query,name,default=''):
+    return query.get(name,[default])[0]
+
+
+def _revision(query):
+    revision=_first(query,'revision',None)
+    return int(revision) if revision is not None else None
+
+
+def _download_name(query,default,limit):
+    # the name a download is saved under: nothing Windows refuses in a file name, and never empty
+    return re.sub(r'[\\/:*?"<>|\x00-\x1f]+',' ',_first(query,'name',default)).strip()[:limit] or default
+
+
+def _routes(rows):
+    def pattern(address):
+        pieces=re.split(r'(\{id\}|\{rest\})',address)
+        return re.compile(''.join('([^/]+)' if p=='{id}' else '(.*)' if p=='{rest}' else re.escape(p) for p in pieces),re.DOTALL)
+    return [(pattern(address),kind,handler) for address,kind,handler in rows]
+
+
+def find_route(table,path):
+    """(kind, handler, pieces) of the first route whose address is this path, or None."""
+    for pattern,kind,handler in table:
+        match=pattern.fullmatch(path)
+        if match:return kind,handler,match.groups()
+    return None
+
+
+# The OBS stream key may read /api/document/, /api/visual-features/ and one file of /api/user-midi/ (STREAM_READS above): keep the two in step.
+GET_ROUTES=_routes([
+    ('/visual-stream',OWN,Handler._viewer_stream),
+    ('/api/visual-relay/address',JSON,Handler._relay_address),
+    ('/api/visual-relay/player',OWN,lambda h,q:h._event_stream('player')),
+    ('/api/update-check',JSON,lambda h,q:update_check.check()),
+    ('/api/monitor/status',JSON,lambda h,q:h.app.monitor.status()),
+    ('/api/cue-track/{rest}',JSON,lambda h,q,song:{'track':h.app.cue_tracks.get(song)}),
+    ('/api/midi/ports',JSON,lambda h,q:h.app.midi.ports()),
+    ('/api/midi/status',JSON,lambda h,q:h.app.midi.status()),
+    ('/api/midi/log',JSON,lambda h,q:list(h.app.midi.log)),
+    ('/api/midi/events',JSON,lambda h,q:h.app.midi.read_events(int(_first(q,'after','0')),float(_first(q,'wait','0')))),     # "nan" and "inf" get through here; read_events copes. loose on purpose? see report
+    ('/api/power',JSON,lambda h,q:h.app.power.status()),
+    ('/api/shows',JSON,lambda h,q:h.app.performances.shows()),
+    ('/api/performances/{rest}',JSON,lambda h,q,song:h.app.performances.performances_for_song(song)),
+    ('/api/show/{id}/export',JSON,lambda h,q,show:h.app.performances.export_show(show,h.app.visual_patches)),
+    ('/api/performance/{rest}',JSON,lambda h,q,performance:h.app.performances.performance(performance,_revision(q))),
+    ('/api/show/{rest}',JSON,lambda h,q,show:h.app.performances.show(show,_revision(q))),
+    ('/api/visual-patches',JSON,lambda h,q:h.app.visual_patches.read()),
+    ('/api/visual-patches/{rest}',JSON,lambda h,q,song:h.app.visual_patches.read(song)),
+    ('/api/user-midi/{rest}',OWN,Handler._user_midi),
+    ('/api/documents/{id}/rhythm/proposals/{id}',JSON,Handler._rhythm_proposal),
+    ('/api/waveform/{rest}',JSON,Handler._waveform),
+    ('/api/mix-export/{rest}',OWN,Handler._mix_export),
+    ('/api/stems-export/{rest}',OWN,Handler._stems_export),
+    ('/api/song-export/{rest}',OWN,Handler._song_export),
+    ('/api/separation-audio/{rest}',OWN,Handler._separation_audio),
+    ('/api/visual-features/{rest}',JSON,lambda h,q,run:visual_features.load_or_compute(*h._run_files(run))),
+    ('/api/playback/{rest}',POLLED,lambda h,q,song:h.app.playback_state(song)),
+    ('/api/separation/{rest}',POLLED,lambda h,q,song:h.app.separation_store.get_song_state(song)),
+    ('/api/prefs',JSON,lambda h,q:h.app.library.read_prefs()),
+    ('/api/models',JSON,lambda h,q:h.app.models.status()),
+    ('/api/chord-model',JSON,lambda h,q:h.app.chord_model.status()),
+    ('/api/state',POLLED,lambda h,q:h.app.state()),
+    ('/api/song/{rest}',JSON,lambda h,q,song:h.app.documents.song_detail(song)),
+    ('/api/document/{rest}',JSON,lambda h,q,document:h.app.documents.get(document)),
+    ('/api/audio/{rest}',OWN,lambda h,q,song:h._audio(h.app.library.source_path(song))),
+    ('/api/export/{rest}',OWN,lambda h,q,document:h._download(*h.app.documents.export(document))),
+    ('/api/export-midi/{rest}',OWN,lambda h,q,document:h._download(*h.app.documents.midi_download(document,_first(q,'mode','single')))),
+    ('/api/export-outputs/{rest}',OWN,lambda h,q,document:h._download(*h.app.documents.outputs_zip(document))),
+])
+
+POST_ROUTES=_routes([
+    ('/api/models/import',UPLOAD,Handler._models_import),
+    ('/api/song-import',UPLOAD,Handler._song_import),
+    ('/api/import',UPLOAD,lambda h,q:h.app.library.import_audio(_first(q,'filename'),h._read(250*1024*1024),_first(q,'setlist','default'))),
+    ('/api/cue-track/upload',UPLOAD,lambda h,q:h.app.cue_tracks.add(_first(q,'song'),_first(q,'name'),h._read(250*1024*1024))),
+    ('/api/user-midi/upload',UPLOAD,Handler._user_midi_upload),
+    ('/api/visual-relay/send',JSON,lambda h,b:{'viewers':h.app.visual_relay.send(b.get('messages'))}),
+    ('/api/documents/{id}/timing',JSON,lambda h,b,document:h.app.documents.set_chart_timing(document,b['timing'],b['revision'])),
+    ('/api/documents/{id}/cleanup/preview',JSON,lambda h,b,document:h.app.documents.preview_cleanup(document)),
+    ('/api/documents/{id}/cleanup/apply',JSON,lambda h,b,document:h.app.documents.apply_cleanup(document,b['preview'],b['revision'])),
+    ('/api/documents/{id}/rhythm/propose',JSON,lambda h,b,document:h.app.propose_rhythm(document)),
+    ('/api/documents/{id}/rhythm/preview',JSON,lambda h,b,document:h.app.rhythm.preview(document,b['proposal_id'],b['policy'])),
+    ('/api/documents/{id}/rhythm/apply',JSON,lambda h,b,document:h.app.rhythm.apply(document,b['preview_id'],b['stamp'],b['policy'])),
+    ('/api/songs/{id}/analyze',JSON,lambda h,b,song:h.app.analyze(song,b.get('invalidate',[]),b.get('stems',True),b.get('edit_policy','keep'))),
+    ('/api/analysis/{id}/cancel',JSON,lambda h,b,job:h.app.analysis.cancel(job)),
+    ('/api/separate',JSON,lambda h,b:h.app.separate(b['song_id'],b.get('rerun',False))),
+    ('/api/separation/cancel',JSON,lambda h,b:h.app.separation.cancel(b['job_id'])),
+    ('/api/song',JSON,lambda h,b:h.app.library.rename_song(b['id'],b['title'],b.get('artist'))),
+    ('/api/song/trash',JSON,lambda h,b:h.app.trash_song(b['id'])),
+    ('/api/song/restore',JSON,lambda h,b:h.app.library.restore_song(b['id'])),
+    ('/api/song/purge',JSON,lambda h,b:h.app.purge_song(b['id'])),
+    ('/api/song-export/info',JSON,lambda h,b:h.app.transfer.sizes(h._idle(b['song_id']))),
+    ('/api/song-import/apply',JSON,lambda h,b:h.app.transfer.apply(b['token'],b.get('mode'),b.get('analysis',False),b.get('stems',False),b.get('setlist') or 'default',b.get('target'))),
+    ('/api/song-import/cancel',JSON,lambda h,b:h.app.transfer.cancel(b['token'])),
+    ('/api/setlist',JSON,lambda h,b:h.app.library.create_setlist(b['name'])),
+    ('/api/setlist/rename',JSON,lambda h,b:h.app.library.rename_setlist(b['id'],b['name'])),
+    ('/api/setlist/delete',JSON,lambda h,b:h.app.library.delete_setlist(b['id'])),
+    ('/api/setlist/order',JSON,lambda h,b:h.app.library.reorder_setlist(b['id'],b['song_ids'])),
+    ('/api/setlist/add',JSON,lambda h,b:h.app.library.add_to_setlist(b['id'],b['song_id'])),
+    ('/api/setlist/remove',JSON,lambda h,b:h.app.library.remove_from_setlist(b['id'],b['song_id'])),
+    ('/api/prefs',JSON,lambda h,b:h.app.library.write_prefs(b)),
+    ('/api/models/download',JSON,lambda h,b:h.app.models.start()),
+    ('/api/models/cancel',JSON,lambda h,b:h.app.models.cancel()),
+    ('/api/chord-model/download',JSON,lambda h,b:h.app.chord_model.start()),
+    ('/api/chord-model/cancel',JSON,lambda h,b:h.app.chord_model.cancel()),
+    ('/api/settings',JSON,lambda h,b:h.app.library.settings(b)),
+    ('/api/song-metadata',JSON,Handler._song_metadata),
+    ('/api/confirm-chord',JSON,Handler._confirm_chord),
+    ('/api/start-chord-at-measure',JSON,lambda h,b:h.app.documents.start_chord_at_measure(b['song_id'],b['chord_id'],b['measure_id'],b.get('revision'),b.get('document_id'))),
+    ('/api/transcribe',JSON,lambda h,b:h.app.transcribe(b['song_id'],b.get('edit_policy'))),
+    ('/api/activate-run',JSON,lambda h,b:h.app.activate_run(b['song_id'],b['run_id'])),
+    ('/api/cancel',JSON,lambda h,b:h.app.engine.cancel()),
+    ('/api/lead-sheet/external',JSON,lambda h,b:h.app.open_external_score(b['song_id'],b.get('filename'),b.get('xml'))),
+    ('/api/midi/external',JSON,lambda h,b:h.app.open_external_midi(b['song_id'],b['document_id'])),
+    ('/api/open-folder',JSON,Handler._open_folder),
+    ('/api/update-page',JSON,Handler._update_page),
+    ('/api/monitor/schedule',JSON,lambda h,b:h.app.monitor.schedule(b['events'])),
+    ('/api/monitor/cancel',JSON,lambda h,b:h.app.monitor.cancel(b.get('from'))),
+    ('/api/monitor/gains',JSON,lambda h,b:h.app.monitor.set_gains(b.get('click'),b.get('cue'))),
+    ('/api/monitor/load',JSON,Handler._monitor_load),
+    ('/api/cue-track/remove',JSON,Handler._cue_track_remove),
+    ('/api/midi/connect',JSON,lambda h,b:h.app.midi.connect(b['name'],output=b.get('output',True) is not False,input=b.get('input',True) is not False)),     # only a real false turns one off: 0 or "no" leave it on. loose on purpose? see report
+    ('/api/midi/disconnect',JSON,lambda h,b:h.app.midi.disconnect(b['name'])),
+    ('/api/midi/schedule',JSON,lambda h,b:h.app.midi.schedule(b['device'],b['events'],b.get('generation',0))),
+    ('/api/midi/cancel',JSON,lambda h,b:h.app.midi.cancel(b.get('device'),b.get('from'),b.get('generation'))),
+    ('/api/midi/cleanup',JSON,lambda h,b:h.app.midi.cleanup(b.get('device'))),
+    ('/api/power/acquire',JSON,lambda h,b:h.app.power.acquire(b['holder'])),
+    ('/api/power/release',JSON,lambda h,b:h.app.power.release(b['holder'])),
+    ('/api/performance/save',JSON,lambda h,b:h.app.performances.save_performance(b['body'],b['base'])),
+    ('/api/performance/draft',JSON,lambda h,b:h.app.performances.save_performance_draft(b['body'],b['base'])),
+    ('/api/performance/delete',JSON,lambda h,b:h.app.performances.delete_performance(b['id'])),
+    ('/api/show/save',JSON,lambda h,b:h.app.performances.save_show(b['body'],b['base'])),
+    ('/api/show/draft',JSON,lambda h,b:h.app.performances.save_show_draft(b['body'],b['base'])),
+    ('/api/show/import',JSON,lambda h,b:h.app.performances.import_show(b['bundle'],h.app.visual_patches)),
+    ('/api/show/delete',JSON,lambda h,b:h.app.performances.delete_show(b['id'])),
+    ('/api/visual-patches',JSON,lambda h,b:h.app.visual_patches.save(b['visual'],b.get('patch'),b.get('song_id'))),
+    ('/api/user-midi/settings',JSON,lambda h,b:h.app.user_midi.save_settings(b['song_id'],b['id'],b['settings'])),
+    ('/api/user-midi/rename',JSON,lambda h,b:h.app.user_midi.rename(b['song_id'],b['id'],b['name'])),
+    ('/api/user-midi/remove',JSON,Handler._user_midi_remove),
+    ('/api/user-midi/open',JSON,lambda h,b:h.app.open_user_midi(b['song_id'],b['id'])),
+    ('/api/user-midi/folder',JSON,Handler._user_midi_folder),
+    ('/api/document/{rest}',JSON,Handler._document),
+])
 
 
 def make_server(root,port=0,project_dir=PROJECT):

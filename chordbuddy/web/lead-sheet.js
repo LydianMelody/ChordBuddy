@@ -275,7 +275,7 @@ function createView(container){
     if(!options.dock)return;
     options.dock.dataset.owner='lead';
     // Opening the score in another editor is not a tool: it is in the Export menu, behind a warning (it stops the lead sheet following
-    // the chart), see openLeadElsewhere in app.js
+    // the chart), see openLeadElsewhere in export-flow.js
     if(options.performing?.()&&tool!=='select'){tool='select';options.onTool?.(tool);}
     renderRail(options.dock,{groups:options.performing?.()?[['select']]:LEAD_GROUPS,active:tool,onPick:setTool,disabled:LEAD_NAMES.filter(name=>!editable(name))});
   }
