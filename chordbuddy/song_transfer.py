@@ -127,6 +127,15 @@ def _float_wav(path):
             'frames': info['frames'], 'scale': peak if peak > 1 else 1.0}
 
 
+# Names Windows treats as a device, whatever the extension ("con.txt" is the console): a zip must not make a file called that.
+DEVICE = re.compile(r'(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?')
+
+
+def unsafe_part(part):
+    """True for a path piece Windows would misread: a device name, or one ending in a dot or a space (it silently drops them)."""
+    return bool(DEVICE.fullmatch(part)) or part != part.rstrip('. ')
+
+
 class SongTransfer:
     def __init__(self, app):
         self.app = app
@@ -274,6 +283,7 @@ class SongTransfer:
                     out.write(block)
                     left -= len(block)
             manifest = self._read(path)
+            self._check_room(path)
             summary = self.describe(manifest)
         except BaseException:
             path.unlink(missing_ok=True)
@@ -283,6 +293,17 @@ class SongTransfer:
                 self.cancel(next(iter(self.pending)))
             self.pending[token] = (path, manifest)
         return dict(summary, token=token)
+
+    def _check_room(self, path):
+        """The zip is already on disk; what it unpacks to may be many times bigger. Refuse now, with a plain message, rather than fill the disk halfway."""
+        try:
+            with zipfile.ZipFile(path) as archive:
+                needed = sum(info.file_size for info in archive.infolist())
+            free = shutil.disk_usage(self.staging).free
+        except (OSError, zipfile.BadZipFile):
+            return
+        if needed > free - (256 << 20):
+            raise ValueError(f'There is not enough free space to unpack this song: it needs about {needed / 1e9:.1f} GB and this drive has {free / 1e9:.1f} GB free.')
 
     def cancel(self, token):
         entry = self.pending.pop(token, None)
@@ -301,7 +322,7 @@ class SongTransfer:
             for info in archive.infolist():
                 name = info.filename
                 parts = PurePosixPath(name).parts
-                if (not name or name.startswith('/') or '\\' in name or ':' in name or '..' in parts or name in names
+                if (not name or name.startswith('/') or '\\' in name or ':' in name or '..' in parts or name in names or any(unsafe_part(x) for x in parts)
                         or not (name == MANIFEST or (len(parts) > 1 and parts[0] == 'song'))):
                     raise ValueError('This zip contains a file Chord Buddy will not unpack: ' + name[:120])
                 names.add(name)
@@ -334,7 +355,7 @@ class SongTransfer:
         for entry in files:
             path = entry.get('path')
             parts = PurePosixPath(path).parts if isinstance(path, str) else ()
-            if (not parts or path.startswith('/') or '\\' in path or ':' in path or '..' in parts or path in paths
+            if (not parts or path.startswith('/') or '\\' in path or ':' in path or '..' in parts or path in paths or any(unsafe_part(x) for x in parts)
                     or (entry.get('zip') is None) == (entry.get('same') is None)
                     or (entry.get('zip') is not None and entry['zip'] not in names)
                     or (entry.get('sha256') is not None and not (isinstance(entry['sha256'], str) and HASH.fullmatch(entry['sha256'])))):

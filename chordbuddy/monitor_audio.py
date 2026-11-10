@@ -8,6 +8,7 @@ This never touches the music, and if it can't play, the music carries on without
 """
 from __future__ import annotations
 import heapq
+import math
 import subprocess
 import threading
 import time
@@ -262,7 +263,11 @@ class MonitorAudio:
         """events: [{'at': seconds on this clock, 'kind': click, cue, cue-stop, cue-on or cue-off, ...}]. Opens the stream if it needs to."""
         if not isinstance(events,list) or len(events)>MAX_QUEUE:raise ValueError('Those monitor sounds aren’t valid.')
         for event in events:
-            if not isinstance(event,dict) or type(event.get('at')) not in (int,float) or event.get('kind') not in EVENT_KINDS:raise ValueError('Those monitor sounds aren’t valid.')
+            if not isinstance(event,dict) or type(event.get('at')) not in (int,float) or not math.isfinite(event['at']) or event.get('kind') not in EVENT_KINDS:raise ValueError('Those monitor sounds aren’t valid.')
+            # checked here, not in the audio callback, where one bad number would silence a whole buffer and lose the event with it
+            for key,low,high in (('speed',.1,10),('source',0,1e6)):
+                if key in event and (type(event[key]) not in (int,float) or not math.isfinite(event[key]) or not low<=event[key]<=high):raise ValueError('Those monitor sounds aren’t valid.')
+            if 'song' in event and not isinstance(event['song'],str):raise ValueError('Those monitor sounds aren’t valid.')
         self.last_used=self.clock()
         self._open()
         for event in events:self.mixer.post('event',float(event['at']),event['kind'],event)

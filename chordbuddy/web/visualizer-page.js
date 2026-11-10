@@ -19,7 +19,7 @@ if(streamKey){
   document.body.classList.add('streaming');
   let lost=0;
   const link=up=>{clearTimeout(lost);if(up)document.body.classList.remove('offline');else lost=setTimeout(()=>document.body.classList.add('offline'),2000);};
-  mountVisualizer(stage,{open:()=>viewerRelay(streamKey,{onLink:link}),stream:true});
+  mountVisualizer(stage,{open:()=>viewerRelay(streamKey,{onLink:link}),stream:true,streamKey});
 }
 else popOut();
 function popOut(){

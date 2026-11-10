@@ -56,6 +56,48 @@ def test_upload_range_and_unknown_ids(service,mp3_bytes):
     assert exc.value.code==416
 
 
+@pytest.mark.parametrize('path',['/%5C%5Cexample.invalid%5Cshare%5Cx.js','/C:/Windows/win.ini','/%5Cindex.html','/index.html%00.js','/my-visuals/%5C%5Cexample.invalid%5Cs%5Cx.js'])
+def test_windows_style_absolute_paths_never_reach_the_disk(service,path):
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        request(service,path)
+    assert exc.value.code==404
+
+
+def test_pages_cannot_be_embedded_or_read_by_other_sites(service):
+    with request(service,'/') as response:
+        assert response.headers['Cross-Origin-Resource-Policy']=='same-origin'
+
+
+def test_the_stream_key_opens_only_the_reads_a_visualizer_needs(service):
+    key=json.load(request(service,'/api/visual-relay/address'))['url'].split('stream=')[1]
+    def as_stream(path,method='GET'):
+        req=urllib.request.Request(f'http://127.0.0.1:{service.server_port}'+path,method=method,data=b'{}' if method=='POST' else None,headers={'X-ChordBuddy-Stream':key})
+        return urllib.request.urlopen(req)
+    for path in ['/api/state','/api/midi/ports','/api/visual-relay/address']:
+        with pytest.raises(urllib.error.HTTPError) as exc:as_stream(path)
+        assert exc.value.code==403
+    with pytest.raises(urllib.error.HTTPError) as exc:as_stream('/api/visual-relay/send','POST')
+    assert exc.value.code==403
+    for path in ['/api/document/nothing','/api/visual-features/nothing']:      # allowed through the door: the answer is "no such thing", not "not authorized"
+        with pytest.raises(urllib.error.HTTPError) as exc:as_stream(path)
+        assert exc.value.code in (404,400)
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        urllib.request.urlopen(urllib.request.Request(f'http://127.0.0.1:{service.server_port}/api/document/x',headers={'X-ChordBuddy-Stream':'wrong'}))
+    assert exc.value.code==403
+
+
+def test_static_files_are_revalidated_with_a_tag_and_answer_304(service):
+    with request(service,'/') as first:
+        tag=first.headers['ETag'];assert first.headers['Cache-Control']=='no-cache' and tag
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        request(service,'/',headers={'If-None-Match':tag})
+    assert exc.value.code==304
+    with request(service,'/',headers={'If-None-Match':'"other"'}) as again:
+        assert again.status==200
+    with request(service,'/api/state') as api:
+        assert api.headers['Cache-Control']=='no-store'                       # an answer from the app is never reused
+
+
 def test_static_traversal_is_rejected_and_import_errors_are_json(service):
     with pytest.raises(urllib.error.HTTPError) as exc:
         request(service,'/../library.sqlite3')

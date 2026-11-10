@@ -1,0 +1,37 @@
+/* Small touches of life. Nothing here changes layout, and everything stops for people who ask their computer for less motion
+   (shell.css already shortens every animation then; the block at the end also removes these outright). */
+
+/* A question or a list opens with a little settle, and the room behind it dims in rather than switching on. */
+dialog[open]{animation:dialog-settle .2s ease-out}
+dialog[open]::backdrop{animation:backdrop-in .2s ease-out}
+@keyframes dialog-settle{from{opacity:0;transform:translateY(10px) scale(.97)}}
+@keyframes backdrop-in{from{opacity:0}}
+
+/* A message slides down from the top edge of the page instead of appearing. (Only when it appears, not each time its words change.) */
+.alert:not(.hidden){animation:alert-in .22s ease-out}
+@keyframes alert-in{from{opacity:0;transform:translateY(-8px)}}
+
+/* The big icon on an empty page floats, slowly, keeping its tilt. */
+.empty-state .big{animation:big-float 4.5s ease-in-out infinite}
+@keyframes big-float{50%{transform:rotate(-5deg) translateY(-5px)}}
+
+/* A cassette turns its reels slowly while the pointer rests on it (one being analyzed already turns them faster). */
+.tape:not([data-status="busy"]):hover .reel{animation:reel-spin 3.6s linear infinite}
+
+/* A song that has just arrived drops onto the shelf; one that has just finished its analysis gives a single soft pulse (classes from app.js). */
+.song-row.just-added,.library-song.just-added{animation:tape-drop .55s cubic-bezier(.3,1.6,.5,1)}
+@keyframes tape-drop{from{opacity:0;transform:translateY(-16px) rotate(-2.5deg)}}
+.song-row.just-ready,.library-song.just-ready{animation:tape-ready 1.2s ease-out}
+@keyframes tape-ready{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--a2) 75%,transparent)}70%,100%{box-shadow:0 0 0 12px transparent}}
+
+/* The progress bar fills smoothly between the app's checks instead of jumping, and its stripes already slide. */
+#job-progress{transition:width .8s ease-out}
+
+/* Changing the look fades between the two pictures (shell.js) rather than snapping. */
+::view-transition-old(root),::view-transition-new(root){animation-duration:.28s}
+
+@media (prefers-reduced-motion:reduce){
+  dialog[open],dialog[open]::backdrop,.alert:not(.hidden),.empty-state .big,.tape:hover .reel,.just-added,.just-ready{animation:none}
+  #job-progress{transition:none}
+  ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none}
+}

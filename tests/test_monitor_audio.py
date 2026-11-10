@@ -295,3 +295,12 @@ def test_the_idle_timer_and_quitting_close_the_stream_without_hanging():
     assert len(sd.streams)==2 and audio.status()['open']
     audio.close();assert sd.streams[1].closed
     sd.streams[0].kw['finished_callback']()                    # a late call from the old stream leaves the new one alone
+
+
+def test_sounds_with_bad_numbers_are_refused_before_they_reach_the_audio_callback():
+    sd=FakeSd();audio=MonitorAudio(backend=sd,idle_close=999)
+    for bad in ({'at':float('nan'),'kind':'click'},{'at':float('inf'),'kind':'click'},{'at':1,'kind':'cue','speed':float('nan')},
+                {'at':1,'kind':'cue','speed':0},{'at':1,'kind':'cue','source':-1},{'at':1,'kind':'cue','song':['a']},{'at':1,'kind':'cue','speed':'fast'}):
+        with pytest.raises(ValueError):audio.schedule([bad])
+    audio.schedule([{'at':1,'kind':'cue','speed':.5,'source':12.5,'song':'abc'}])
+    audio.close()

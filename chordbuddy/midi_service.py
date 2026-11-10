@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import heapq
+import math
 import re
 import threading
 import time
@@ -197,12 +198,13 @@ class MidiService:
             routes=getattr(self._backend,'routes',{}) if self._backend else {}
             return {'clock':self.clock(),'outputs':sorted(self.outputs),'inputs':sorted(self.inputs),'queued':len(self.queue),'missed':self.missed,
                     'routes':{name:routes.get(name) for name in self.inputs},
-                    'clock_in':{name:{'pulses':count,'seconds_ago':self.clock()-when,'bpm':self._clock_bpm(name)} for name,(count,when) in self.clock_in.items()},
+                    'clock_in':{name:{'pulses':count,'seconds_ago':self.clock()-when,'bpm':self._clock_bpm(name)} for name,(count,when) in list(self.clock_in.items())},
                     'late_ms':{'p50':pick(.5),'p95':pick(.95),'p99':pick(.99),'max':seen[-1] if seen else None,'count':len(seen)}}
 
     def _clock_bpm(self,name):
         """The tempo a device's own clock says it's at, or None until a beat's worth has come."""
-        times=list(self.clock_times.get(name,()))
+        try:times=list(self.clock_times.get(name,()))    # filled by the device's own thread: if it adds one mid-copy, there is just no tempo this time
+        except RuntimeError:return None
         if len(times)<25 or times[-1]<=times[0]:return None
         return (len(times)-1)/24/(times[-1]-times[0])*60
 
@@ -223,7 +225,9 @@ class MidiService:
 
     def read_events(self,after=0,wait=0.0):
         """Input since event `after`. wait: seconds to hold the request open for the next one."""
-        deadline=self.clock()+min(float(wait),5.0)
+        wait=float(wait)
+        if not 0<=wait:wait=0.0                          # negative, or "nan": a number that would otherwise never reach the deadline
+        deadline=self.clock()+min(wait,5.0)
         with self.lock:
             while not self.closed:
                 new=[e for e in self.events if e['id']>after]
@@ -234,8 +238,10 @@ class MidiService:
     def schedule(self,device,events,generation=0):
         """events: [{'at': seconds on this clock, 'bytes': [...], 'id'?, 'note_off_at'?}]. Late ones go at once, and are counted."""
         if not isinstance(events,list):raise ValueError('MIDI events must be a list.')
+        if not isinstance(device,str):raise ValueError('Choose a MIDI device.')
         for event in events:
-            if not isinstance(event,dict) or type(event.get('at')) not in (int,float) or not valid_bytes(event.get('bytes')):raise ValueError('That MIDI message isn’t valid.')
+            # a time that is not a real number would corrupt the queue's order, and every message behind it would go out of turn
+            if not isinstance(event,dict) or type(event.get('at')) not in (int,float) or not math.isfinite(event['at']) or not valid_bytes(event.get('bytes')):raise ValueError('That MIDI message isn’t valid.')
         with self.lock:
             if len(self.queue)+len(events)>MAX_QUEUE:raise ValueError('Too many MIDI messages are waiting.')
             for event in events:
@@ -299,7 +305,9 @@ class MidiService:
             with self.lock:
                 if self.closed:return
                 if not self.queue:self.lock.wait(0.25);continue
-            wait=self.run_once()
+            try:wait=self.run_once()
+            except Exception as exc:                     # nothing may end this thread: with it gone, no pedal message would ever go out again until a restart
+                self._note('scheduler-error',error=str(exc));self.sleep(0.01);continue
             if wait is None or wait<=0:continue
             if wait>SPIN:self.sleep(min(wait-SPIN,0.05))
             # within SPIN of the next message: go round again, watching the clock

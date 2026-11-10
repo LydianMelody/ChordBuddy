@@ -310,8 +310,21 @@ class Server(ThreadingHTTPServer):
         if hasattr(self,'app'):self.app.close()       # a port that could not be bound closes before there is an app
 
 
+# What the OBS stream key may read: the three things a visualizer fetches to draw a song, nothing that changes anything or reaches elsewhere.
+STREAM_READS=re.compile(r'/api/(document/[^/]+|visual-features/[^/]+|user-midi/[^/]+/[^/]+)')
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version='ChordBuddy'
+    # HTTP/1.1 so the page's many small files can share a connection. Only a finished static file keeps it open (see _static): everything else
+    # (uploads that may stop early, streams without a length) closes as it always did, so a leftover body can never be read as the next request.
+    protocol_version='HTTP/1.1'
+    cache_policy='no-store'
+
+    def handle(self):
+        # A page that closes a kept-open connection (every tab close, every reload) is normal; on Windows it arrives as an abort or a reset.
+        try:super().handle()
+        except ConnectionError:pass
 
     def log_message(self,*args):
         # URLs can contain the private session token; do not print them.
@@ -324,12 +337,14 @@ class Handler(BaseHTTPRequestHandler):
     def end_headers(self):
         self.send_header('X-Content-Type-Options','nosniff')
         self.send_header('Referrer-Policy','no-referrer')
-        self.send_header('Cache-Control','no-store')
+        self.send_header('Cross-Origin-Resource-Policy','same-origin')   # another website cannot embed or read anything this app serves
+        self.send_header('Cache-Control',self.cache_policy)
+        if self.close_connection:self.send_header('Connection','close')
         # 'wasm-unsafe-eval' lets the page compile WebAssembly (Signalsmith Stretch, for practice speed) and nothing else: eval stays blocked.
-        self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+        self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; worker-src 'self' blob:; frame-ancestors 'none'")
         super().end_headers()
 
-    def _allowed(self,path,query):
+    def _allowed(self,path,query,method='POST'):
         expected=f'127.0.0.1:{self.server.server_port}'
         if self.headers.get('Host')!=expected:
             return False
@@ -340,7 +355,11 @@ class Handler(BaseHTTPRequestHandler):
             token=self.headers.get('X-ChordBuddy-Token','')
             if path.startswith(('/api/audio/','/api/export/','/api/mix-export/','/api/stems-export/','/api/export-midi/','/api/export-outputs/','/api/song-export/','/api/visual-relay/player')):
                 token=token or query.get('token',[''])[0]
-            return secrets.compare_digest(token,self.app.token)
+            if secrets.compare_digest(token,self.app.token):return True
+            # A visualizer in OBS holds only the stream key, never the session token: the key opens just the reads that draw a song.
+            offered=self.headers.get('X-ChordBuddy-Stream','')
+            key=stream_key(self.app.stream_key_path) if offered and method=='GET' and STREAM_READS.fullmatch(path) else None
+            return bool(key) and secrets.compare_digest(offered,key)
         return True
 
     def _json(self,value,status=200):
@@ -388,11 +407,14 @@ class Handler(BaseHTTPRequestHandler):
         self._dispatch('POST')
 
     def _dispatch(self,method):
+        self.close_connection=True           # until a static file says otherwise
+        self.cache_policy='no-store'
+        self.connection.settimeout(None)     # the short wait between a kept-open connection's requests is over
         url=urlparse(self.path)
         path=unquote(url.path)
         query=parse_qs(url.query)
         try:
-            if not self._allowed(path,query):
+            if not self._allowed(path,query,method):
                 self._json({'error':'This request is not authorized'},403)
                 return
             if method=='GET' and path=='/visual-stream':
@@ -430,12 +452,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json({'error':str(exc).strip("'")},404)
         except (ValueError,TypeError) as exc:
             self._json({'error':str(exc)},400)
-        except (BrokenPipeError,ConnectionResetError):
-            pass
+        except ConnectionError:
+            pass          # the page went away mid-answer (a seek in the audio, a closed tab); Windows reports it as aborted as often as reset
         except OSError as exc:
-            self._json({'error':f'Unable to read or save the file: {exc}'},500)
+            self._fail(f'Unable to read or save the file: {exc}',500)
         except Exception as exc:
-            self._json({'error':f'Chord Buddy could not complete this action: {exc}'},500)
+            self._fail(f'Chord Buddy could not complete this action: {exc}',500)
+
+    def _fail(self,message,status):
+        try:self._json({'error':message},status)
+        except OSError:pass       # the page is gone, or the answer had already begun: nothing left to tell it
 
     def _event_stream(self,role):
         # server-sent events from the visual relay, until the browser goes away
@@ -512,7 +538,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type','audio/mpeg')
             self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote(name+'.mp3'))
-            self.send_header('Connection','close');self.close_connection=True
+            self.close_connection=True
             self.end_headers()
             encode_mix(PROJECT,root,manifest,levels,master,self.wfile.write);return
         if path.startswith('/api/stems-export/'):
@@ -522,7 +548,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type','application/zip')
             self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote(name+' - stems.zip'))
-            self.send_header('Connection','close');self.close_connection=True
+            self.close_connection=True
             self.end_headers()
             export_stems(PROJECT,root,manifest,name,self.wfile.write);return
         if path.startswith('/api/song-export/'):
@@ -533,7 +559,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-Type','application/zip')
             self.send_header('Content-Disposition',"attachment; filename*=UTF-8''"+quote(name))
-            self.send_header('Connection','close');self.close_connection=True
+            self.close_connection=True
             self.end_headers()
             self.app.transfer.write_zip(manifest,files,self.wfile.write);return
         if path.startswith('/api/separation-audio/'):
@@ -612,15 +638,33 @@ class Handler(BaseHTTPRequestHandler):
             web=self.app.my_visuals.resolve();relative=path.removeprefix('/my-visuals/')
         else:
             relative='index.html' if path=='/' else path.lstrip('/')
+        # Looked at before anything touches the disk: on Windows a name with a drive letter or a leading backslash ("\\host\share") is an
+        # absolute path, and merely resolving a network one makes the computer try to sign in to that host.
+        if any(c in relative for c in '\\:\x00') or relative.startswith('/'):
+            raise KeyError('Page not found')
         target=(web/relative).resolve()
         if not target.is_relative_to(web) or not target.is_file():
             raise KeyError('Page not found')
-        body=target.read_bytes()
-        self.send_response(200)
-        self.send_header('Content-Type',mimetypes.guess_type(target.name)[0] or 'application/octet-stream')
-        self.send_header('Content-Length',str(len(body)))
+        stat=target.stat()
+        # Always asked about, never trusted blindly: "no-cache" plus a tag from the file's own time and size means an unchanged file costs one
+        # tiny answer (304), and an updated app or an edited visualization is still seen at once.
+        tag='"%x-%x"'%(stat.st_mtime_ns,stat.st_size)
+        self.cache_policy='no-cache'
+        same=tag in [t.strip() for t in self.headers.get('If-None-Match','').split(',')]
+        if same:
+            self.send_response(304)
+            self.send_header('ETag',tag)
+            self.send_header('Content-Length','0')
+        else:
+            body=target.read_bytes()
+            self.send_response(200)
+            self.send_header('Content-Type',mimetypes.guess_type(target.name)[0] or 'application/octet-stream')
+            self.send_header('Content-Length',str(len(body)))
+            self.send_header('ETag',tag)
+        self.close_connection=False
         self.end_headers()
-        self.wfile.write(body)
+        if not same:self.wfile.write(body)
+        self.connection.settimeout(15)       # an idle kept-open connection is closed after a moment
 
     def _post(self,path,body):
         lib=self.app.library

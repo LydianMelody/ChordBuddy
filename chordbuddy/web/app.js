@@ -45,7 +45,16 @@ import {createPerformanceApp} from './performance-app.js';
 
 const $ = id => document.getElementById(id);
 document.querySelector('.chart-intro h2')?.remove();
-const token = new URLSearchParams(location.hash.slice(1)).get('token') || '';
+// The session token arrives in the address (#token=...). Keep it for this tab only and take it out of the address, so it is not left in the
+// browser's history or in a copied link; a reload finds it again in the tab's own storage.
+const token = (() => {
+  let found = new URLSearchParams(location.hash.slice(1)).get('token') || '';
+  try {
+    if (found) { sessionStorage.setItem('chordbuddy-token', found); history.replaceState(null, '', location.pathname + location.search); }
+    else found = sessionStorage.getItem('chordbuddy-token') || '';
+  } catch { /* storage blocked: the token in the address still works for this load */ }
+  return found;
+})();
 const model = {view:'song',libraryQuery:'',libraryKey:'',state:null,setlist:null,song:null,detail:null,document:null,documents:new Map(),loadingSong:0,polling:false,importing:false,pendingTitle:false,titleSave:null,dragSong:null,chartSection:null,chartChord:null,pendingChart:null};
 const clone = value => structuredClone(value);
 const mediaUrl = path => `${path}?token=${encodeURIComponent(token)}`;
@@ -556,10 +565,30 @@ function songLine(song,busy){
   return label==='Transcribed'?factBadges(song):element('small','song-note',label);
 }
 const listLength=songs=>songs.reduce((sum,song)=>sum+(Number(song.duration)||0),0);
-function renderLibrary({force=false}={}) {
+// Everything the sidebar and its status line show. The timer that checks on the app every few seconds draws again only when this has changed:
+// rebuilding every song row on each tick wasted work, and restarted the spinning reel of a song being analyzed each time.
+let drawnLibrary='';
+// A song that just arrived drops in once, and one that just finished its analysis glows once (touches.css). What each song was last seen as is
+// remembered here; the first drawing of the page only records it, so nothing animates just because the app was opened.
+let knownSongs=null;
+function noteArrivals(state){
+  const busy=isJobActive(state.job)?state.job.song_id:null;
+  const now=new Map(state.songs.map(song=>[song.id,song.id===busy?'busy':song.active_run?'ready':'new']));
+  if(knownSongs)for(const [id,status] of now){
+    const before=knownSongs.get(id),mark=before===undefined?'just-added':before==='busy'&&status==='ready'?'just-ready':null;
+    if(mark)for(const node of document.querySelectorAll(`[data-song="${CSS.escape(id)}"]`))node.classList.add(mark);
+  }
+  knownSongs=now;
+}
+const librarySignature=state=>JSON.stringify([state.songs,state.setlists,state.trash,state.engine.ready,state.engine.message,isJobActive(state.job)?state.job.song_id:null,
+  model.setlist,model.song,model.view,model.libraryQuery,model.libraryKey,(()=>{try{return performanceApp.holdsList();}catch{return null;}})()]);   // (the show panel is built after this file starts)
+function renderLibrary({force=false,poll=false}={}) {
   const state=model.state;if(!state)return;
   // the regular refresh leaves you alone while you're choosing something under a song
   if(!force&&document.activeElement?.closest?.('.set-extra')&&/^(SELECT|INPUT)$/.test(document.activeElement.tagName))return;
+  const signature=librarySignature(state);
+  if(poll&&signature===drawnLibrary)return;
+  drawnLibrary=signature;
   if(!state.setlists.some(list=>list.id===model.setlist))model.setlist='default';
   // "All songs" is the library itself (the set list every import joins); the set lists below it are the ones you make, and a song
   // dragged onto one of them (from All songs or from the list in the sidebar) is added to it.
@@ -587,7 +616,7 @@ function renderLibrary({force=false}={}) {
   container.replaceChildren();
   for(const [index,song] of songs.entries()){
     if(query && !`${song.title} ${song.artist || ''}`.toLowerCase().includes(query))continue;
-    const row=element('div',`song-row${song.id===model.song?' selected':''}`);const busySong=isJobActive(state.job)&&state.job.song_id===song.id;row.dataset.status=busySong?'busy':song.active_run?'ready':'new';row.dataset.tint=String(tapeTint(song.id));const handle=element('span','song-number drag-handle','⠿');handle.draggable=true;handle.title='Drag to reorder, or onto a set list to add it there';handle.setAttribute('aria-label',handle.title);handle.ondragstart=event=>{model.dragSong=song.id;event.dataTransfer.setData('text/plain',song.id);event.dataTransfer.effectAllowed='copyMove';row.classList.add('dragging');};handle.ondragend=()=>{model.dragSong=null;row.classList.remove('dragging');for(const item of container.children)item.classList.remove('drop-target');};row.ondragover=event=>{if(model.dragSong && model.dragSong!==song.id && list?.song_ids.includes(model.dragSong)){event.preventDefault();event.dataTransfer.dropEffect='move';row.classList.add('drop-target');}};row.ondragleave=()=>row.classList.remove('drop-target');row.ondrop=event=>{if(!model.dragSong)return;event.preventDefault();event.stopPropagation();row.classList.remove('drop-target');moveSongBefore(model.dragSong,song.id);};row.append(handle);
+    const row=element('div',`song-row${song.id===model.song?' selected':''}`);row.dataset.song=song.id;const busySong=isJobActive(state.job)&&state.job.song_id===song.id;row.dataset.status=busySong?'busy':song.active_run?'ready':'new';row.dataset.tint=String(tapeTint(song.id));const handle=element('span','song-number drag-handle','⠿');handle.draggable=true;handle.title='Drag to reorder, or onto a set list to add it there';handle.setAttribute('aria-label',handle.title);handle.ondragstart=event=>{model.dragSong=song.id;event.dataTransfer.setData('text/plain',song.id);event.dataTransfer.effectAllowed='copyMove';row.classList.add('dragging');};handle.ondragend=()=>{model.dragSong=null;row.classList.remove('dragging');for(const item of container.children)item.classList.remove('drop-target');};row.ondragover=event=>{if(model.dragSong && model.dragSong!==song.id && list?.song_ids.includes(model.dragSong)){event.preventDefault();event.dataTransfer.dropEffect='move';row.classList.add('drop-target');}};row.ondragleave=()=>row.classList.remove('drop-target');row.ondrop=event=>{if(!model.dragSong)return;event.preventDefault();event.stopPropagation();row.classList.remove('drop-target');moveSongBefore(model.dragSong,song.id);};row.append(handle);
     const button=element('button','song-main'),line=songLine(song,busySong);button.append(element('strong','',song.title));button.onclick=()=>selectSong(song.id);row.append(button);
     // on the spine the tempo and key stand on end beside the label; a note (Analyzing…, Failed) stays on the label, under the title
     if(line.classList.contains('song-facts'))row.append(line);else button.append(line);if(!song.active_run){const lock=element('span','song-lock');lock.title='Not analyzed yet';lock.innerHTML=icon('lock');row.append(lock);}else if(song.duration)button.insertBefore(element('span','song-len',timeLabel(song.duration)),button.children[1]||null);
@@ -597,6 +626,7 @@ function renderLibrary({force=false}={}) {
   }
   if(!container.children.length)container.append(element('p','sidebar-empty',query?'No songs match your search.':list?.id==='default'?'Your song library starts with an MP3. Import one to get going.':'This set list is ready for songs. Import an MP3 or add a song from your library.'));
   renderView();
+  noteArrivals(state);
   const trashed=state.trash||[];$('trash-open').classList.toggle('hidden',!trashed.length);$('trash-open').textContent='Trash ('+trashed.length+')';
   $('engine-status').textContent=state.engine.ready?'Transcription engine ready':state.engine.message || 'Transcription engine needs setup';
   $('engine-dot').classList.toggle('ready',!!state.engine.ready);
@@ -797,7 +827,7 @@ function renderJob(){
 }
 async function refreshState(){
   const previous=currentSong();const oldStatus=previous?.status,oldRun=previous?.active_run,oldSettings=JSON.stringify(model.state?.settings);
-  model.state=await api('/api/state');chordModelPanel.update(model.state.chord_model);modelsPanel.update(model.state.models);renderLibrary();renderControls();renderJob();renderLock();await refreshSeparation();
+  model.state=await api('/api/state');chordModelPanel.update(model.state.chord_model);modelsPanel.update(model.state.models);renderLibrary({poll:true});renderControls();renderJob();renderLock();await refreshSeparation();
   if(oldSettings!==JSON.stringify(model.state.settings)&&currentRecord()){
     if(currentRecord().doc.kind==='chart')refreshChartMusic();else if(currentRecord().doc.kind==='abc')renderAbc();
   }

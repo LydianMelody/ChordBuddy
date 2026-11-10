@@ -60,8 +60,14 @@ applyPrefs();
 remember.onLoad(applyPrefs);
 $('rack-toggle').onclick = () => setRack(false);
 $('rack-open').onclick = () => setRack(true);
-for (const button of document.querySelectorAll('[data-theme-pick]')) button.onclick = () => setTheme(button.dataset.themePick);
-$('scheme-toggle').onclick = () => setScheme(root.dataset.scheme === 'dark' ? 'light' : 'dark');
+// Choosing a look fades from the old one to the new one (the browser blends the two pictures) instead of snapping; with reduced motion, or a
+// browser that cannot, it simply changes.
+function softly(change) {
+  if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) document.startViewTransition(change);
+  else change();
+}
+for (const button of document.querySelectorAll('[data-theme-pick]')) button.onclick = () => softly(() => setTheme(button.dataset.themePick));
+$('scheme-toggle').onclick = () => softly(() => setScheme(root.dataset.scheme === 'dark' ? 'light' : 'dark'));
 $('side-toggle').onclick = () => setSide(false);
 $('side-open').onclick = () => setSide(true);
 

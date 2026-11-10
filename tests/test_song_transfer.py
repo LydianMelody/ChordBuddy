@@ -178,6 +178,30 @@ def test_files_that_are_not_song_exports_are_refused(two, tmp_path):
     assert not list((here.library.root / '.imports').glob('*'))
 
 
+def test_windows_device_names_and_trailing_dots_inside_a_zip_are_refused(two):
+    here, _ = two
+    for name in ('song/nul', 'song/CON.txt', 'song/audio/com1.wav', 'song/notes. ', 'song/sub./file.txt'):
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, 'w') as archive:
+            archive.writestr(MANIFEST, '{}')
+            archive.writestr(name, 'x')
+        with pytest.raises(ValueError, match='will not unpack'):
+            here.transfer.receive(io.BytesIO(out.getvalue()).read, len(out.getvalue()))
+
+
+def test_a_zip_that_would_not_fit_on_the_drive_is_refused_before_unpacking(two, monkeypatch):
+    here, _ = two
+    monkeypatch.setattr('chordbuddy.song_transfer.shutil.disk_usage', lambda path: SimpleNamespace(free=1000))
+    monkeypatch.setattr(SongTransfer, '_read', staticmethod(lambda path: {'ok': 1}))
+    monkeypatch.setattr(SongTransfer, 'describe', lambda self, manifest: {})
+    big = io.BytesIO()
+    with zipfile.ZipFile(big, 'w') as archive:
+        archive.writestr('song/x.bin', b'0' * (300 << 20))
+    with pytest.raises(ValueError, match='not enough free space'):
+        here.transfer.receive(io.BytesIO(big.getvalue()).read, len(big.getvalue()))
+    assert not list((here.library.root / '.imports').glob('*'))
+
+
 def test_a_round_trip_adds_only_what_changed_not_the_whole_history_again(two):
     here, there = two
     add_song(here)

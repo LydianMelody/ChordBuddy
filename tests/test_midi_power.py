@@ -294,3 +294,32 @@ def test_a_devices_own_clock_tells_its_real_tempo():
     assert abs(midi.status()['clock_in']['Line 6 Helix']['bpm']-120)<.01
     pulses(200,133)
     assert abs(midi.status()['clock_in']['Line 6 Helix']['bpm']-133)<.01,'the last four beats, not an average of everything'
+
+
+def test_a_time_that_is_not_a_real_number_is_refused_before_it_can_spoil_the_queue(rig):
+    midi,_,_=rig
+    for at in (float('nan'),float('inf')):
+        with pytest.raises(ValueError):midi.schedule('Line 6 Helix',[{'at':at,'bytes':[0x90,60,100]}])
+    with pytest.raises(ValueError):midi.schedule(['Line 6 Helix'],[{'at':101.0,'bytes':[0x90,60,100]}])   # a device is a name, not a list
+    assert midi.status()['queued']==0
+
+
+def test_waiting_for_input_with_a_wait_that_is_not_a_number_returns_at_once(rig):
+    midi,_,_=rig
+    start=time.perf_counter()
+    assert midi.read_events(0,float('nan'))['events']==[]
+    assert midi.read_events(0,-3)['events']==[]
+    assert time.perf_counter()-start<1
+
+
+def test_the_scheduler_thread_survives_a_failed_send_round():
+    backend=FakeBackend();clock=Clock();calls=[]
+    midi=MidiService(backend,clock=clock,sleep=lambda s:None,autostart=False)
+    real=midi.run_once
+    def flaky():
+        calls.append(1)
+        if len(calls)==1:raise RuntimeError('boom')
+        midi.closed=True;return None
+    midi.run_once=flaky;midi.queue.append((0,0,'x',[0x90,1,1],0,None))
+    midi._run()
+    assert len(calls)==2 and any(entry['kind']=='scheduler-error' for entry in midi.log)

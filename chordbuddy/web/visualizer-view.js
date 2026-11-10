@@ -79,8 +79,10 @@ function saveSettings(value){try{localStorage.setItem(SETTINGS,JSON.stringify(va
 const userFiles=new Map();                     // your MIDI files, read once per version (id:mtime)
 // The index of the chart's bar 1 among the measures (the first bar shown), as the scene numbers them.
 function firstBarOf(measures,scene){const one=scene?.bars?.find(b=>b.number===1);return Math.max(0,one?measures.findIndex(m=>Math.abs(m.start-one.start)<1e-6):0);}
-async function getJson(path,token){
-  const response=await fetch(path,{headers:{'X-ChordBuddy-Token':token}});
+// Who is asking: the main window's own pop-out has the session token in its scene; a visualizer in OBS has only its stream key.
+export const credentials=(token,streamKey)=>token?{'X-ChordBuddy-Token':token}:{'X-ChordBuddy-Stream':streamKey||''};
+async function getJson(path,headers){
+  const response=await fetch(path,{headers});
   if(!response.ok)throw Error(`${path}: ${response.status}`);
   return response.json();
 }
@@ -113,10 +115,10 @@ function loopEvents(previous,frame){
   return {started:!!now&&!same,ended:!now&&!!before,wrapped};
 }
 
-// options: {open (the bridge channel; the BroadcastChannel by default), stream (an OBS Browser Source: no controls at all, nothing saved here,
+// options: {streamKey (the OBS address's key, used in place of a token), open (the bridge channel; the BroadcastChannel by default), stream (an OBS Browser Source: no controls at all, nothing saved here,
 // and it follows the main window's look rather than choosing one), editor (the Advanced Visuals Editor, visual-patchbay.js: {root, defaultVisualMenu, onPopOut,
 // onClose}; the editor fills root and this visualizer draws in its preview corner, with no controls of its own)}
-export function mountVisualizer(container,{open,stream=false,editor=null}={}){
+export function mountVisualizer(container,{open,stream=false,streamKey='',editor=null}={}){
   let bay=null;
   if(editor){
     // the patch bay (visual-patchbay.js; bayShown: what it was last given, so it is only told when something changed): a change shows at
@@ -162,12 +164,12 @@ export function mountVisualizer(container,{open,stream=false,editor=null}={}){
     const midi={};
     await Promise.all((m.midiDocs||[]).map(async doc=>{
       const name=midiName(doc.name);if(!name)return;
-      try{midi[name]=(await getJson('/api/document/'+encodeURIComponent(doc.id),m.token)).content?.notes||[];}catch{}
+      try{midi[name]=(await getJson('/api/document/'+encodeURIComponent(doc.id),credentials(m.token,streamKey))).content?.notes||[];}catch{}
     }));
     // your own MIDI files: parts that replace the model's melodies, and extras (midi-user.js)
     let user=[],extras=[];
     if(m.userMidi?.length&&m.music?.measures?.length)try{
-      const files=await loadSongFiles(m.songId,m.userMidi,path=>fetch(path,{headers:{'X-ChordBuddy-Token':m.token}}).then(r=>{if(!r.ok)throw Error(r.status);return r.arrayBuffer();}),userFiles);
+      const files=await loadSongFiles(m.songId,m.userMidi,path=>fetch(path,{headers:credentials(m.token,streamKey)}).then(r=>{if(!r.ok)throw Error(r.status);return r.arrayBuffer();}),userFiles);
       const measures=effectiveMeasures(m.music,m.content?.layout||{});
       const parts=songParts(files,measures,{duration:m.content?.duration||m.music?.duration||0,firstBar:firstBarOf(measures,song)});
       for(const [name,notes] of Object.entries(parts.replace)){midi[name]=notes.map(n=>({...n,mine:true}));user.push(name);}
@@ -179,7 +181,7 @@ export function mountVisualizer(container,{open,stream=false,editor=null}={}){
     song=buildScene({...base,midi,user,extras});previous=null;
     if(!m.runId)return;                                // not playable yet: chords, lyrics and MIDI only
     try{
-      const features=await getJson('/api/visual-features/'+encodeURIComponent(m.runId),m.token);
+      const features=await getJson('/api/visual-features/'+encodeURIComponent(m.runId),credentials(m.token,streamKey));
       if(songKey===key&&!disposed){song=withFeatures(song,features);previous=null;}
     }catch{if(songKey===key)status='Sound data is not available for this song yet.';}
   }

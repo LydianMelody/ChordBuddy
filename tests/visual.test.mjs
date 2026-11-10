@@ -470,6 +470,21 @@ test('the player relays only after a hello from the server, and only the visuali
   assert.deepEqual(fake.posts[0].body.messages,[{type:'scene',songId:'a'}]);
 });
 
+test('the session token never goes out through the relay, only to the local pop-out window', async()=>{
+  const fake=fakeRelay(),channel=playerRelay('tok',fake);
+  fake.sources[0].onmessage({data:'{"type":"hello"}'});
+  const scene={type:'scene',songId:'a',token:'tok'};
+  channel.postMessage(scene);await tick();
+  assert.deepEqual(fake.posts[0].body.messages,[{type:'scene',songId:'a'}]);
+  assert.equal(scene.token,'tok','the message itself is left alone for the other channels');
+});
+
+test('a visualizer asks with its token when it has one and with its stream key when it does not', async()=>{
+  const {credentials}=await import('../chordbuddy/web/visualizer-view.js');
+  assert.deepEqual(credentials('tok','key'),{'X-ChordBuddy-Token':'tok'});
+  assert.deepEqual(credentials(undefined,'key'),{'X-ChordBuddy-Stream':'key'});
+});
+
 test('while one request is out, a newer clock replaces the waiting one; scenes are kept', async()=>{
   const fake=fakeRelay(),channel=playerRelay('tok',fake);
   fake.sources[0].onmessage({data:'{"type":"hello"}'});

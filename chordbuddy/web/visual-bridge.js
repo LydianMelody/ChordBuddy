@@ -122,6 +122,8 @@ export function playerRelay(token,{fetch=globalThis.fetch,EventSource=globalThis
     postMessage(m){
       if(!active||closed||!m||!['scene','clock','setup','perform'].includes(m.type))return;
       if(m.type==='clock'){if(!clockNews(lastClock,m))return;lastClock=m;waiting=waiting.filter(w=>w.type!=='clock');}
+      // The session token stays in this browser: a visualizer in OBS reads with its stream key (which the server limits to what drawing a song needs).
+      if(m.type==='scene'&&m.token){const {token:_kept,...open}=m;m=open;}
       waiting.push(m);flush();
     },
     close(){closed=true;events.close();},
