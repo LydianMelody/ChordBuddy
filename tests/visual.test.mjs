@@ -319,7 +319,14 @@ test('a playback key pressed in a pop-out visualizer reaches the player', () => 
 });
 
 // ---- a song's own look, and the usual one ----
-import {readSetup,readUsual,writeSetup,writeUsual,pickScene} from '../chordbuddy/web/visual-setup.js';
+import {defaultVisualOptions,readSetup,readUsual,writeSetup,writeUsual,pickScene} from '../chordbuddy/web/visual-setup.js';
+test('the Default Visualization menu: your usual look first, then each visualization, and a missing one says so', () => {
+  const scenes=[{id:'a',name:'Aurora'},{id:'b',name:'Mine',mine:true}];
+  assert.deepEqual(defaultVisualOptions(scenes,null,'a'),[['','My usual look (Aurora)'],['a','Aurora'],['b','Mine (My Visuals)']]);
+  assert.equal(defaultVisualOptions(scenes,null,null)[0][1],'My usual look');
+  assert.deepEqual(defaultVisualOptions(scenes,{scene:'gone'},'a').at(-1),['gone','gone (file missing, shows your usual look)']);
+  assert.equal(defaultVisualOptions(scenes,{scene:'a'},'a').length,3,'a pinned look that exists isn’t listed twice');
+});
 
 test('a song\'s pinned look and the usual one are read back safely, and anything odd is ignored', () => {
   assert.deepEqual(readSetup(writeSetup({scene:'starlane'})),{scene:'starlane'});

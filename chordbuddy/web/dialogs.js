@@ -2,6 +2,14 @@
 // Plain DOM, no dependencies. Everything resolves or calls back; nothing here touches the library itself.
 const el=(tag,cls='',text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 
+/** Colors a dialog answer by what it says: OK, Okay, Done green; Cancel red (shell.css). Returns the button. */
+export function answerColor(button){
+  const words=String(button.textContent).trim().toLowerCase();
+  button.classList.toggle('btn-ok',/^(ok|okay|done)$/.test(words));
+  button.classList.toggle('btn-cancel',words==='cancel');
+  return button;
+}
+
 function shell(host,title,message,cancelLabel){
   const dialog=el('dialog','choice-dialog'),heading=el('h2','',title);
   dialog.append(heading);
@@ -26,11 +34,11 @@ export function askChoice({title,message,choices,cancel='Cancel',onPick=()=>{},h
     if(checkbox)dialog.append(checkRow(checkbox));
     let done=false;
     const finish=value=>{if(done)return;done=true;close();resolve(value);};
-    const cancelButton=el('button','secondary choice-cancel',cancel);cancelButton.type='button';cancelButton.onclick=()=>finish(null);
+    const cancelButton=answerColor(el('button','secondary choice-cancel',cancel));cancelButton.type='button';cancelButton.onclick=()=>finish(null);
     actions.append(cancelButton);
     for(const choice of choices){
       const button=el('button',choice.kind==='danger'?'btn hot choice-danger':choice.kind==='primary'?'btn blue':'secondary','');
-      button.textContent=choice.label;button.type='button';button.dataset.choice=choice.id;
+      button.textContent=choice.label;button.type='button';button.dataset.choice=choice.id;answerColor(button);
       button.onclick=()=>{if(choice.keepOpen)onPick(choice.id);else finish(choice.id);};
       actions.append(button);
     }
@@ -50,8 +58,8 @@ export function askText({title,message,label,value='',action='OK',host=document.
     row.append(el('span','pf-field-name',label),input);dialog.append(row);
     let done=false;
     const finish=result=>{if(done)return;done=true;close();resolve(result);};
-    const cancelButton=el('button','secondary choice-cancel','Cancel');cancelButton.type='button';cancelButton.onclick=()=>finish(null);
-    const ok=el('button','btn blue',action);ok.type='button';
+    const cancelButton=el('button','secondary choice-cancel btn-cancel','Cancel');cancelButton.type='button';cancelButton.onclick=()=>finish(null);
+    const ok=el('button','btn blue btn-ok',action);ok.type='button';   // the one way to say yes here, whatever its words
     const submit=()=>{if(input.value.trim())finish(input.value.trim());};
     ok.onclick=submit;input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();submit();}};
     input.oninput=()=>{ok.disabled=!input.value.trim();};ok.disabled=!value.trim();
@@ -153,7 +161,7 @@ export function askSongImport({title,matches,incoming,host=document.body}){
       for(const key of Object.keys(rows))delete rows[key];
       choices.replaceChildren();
       if(incoming.analyzed)rows.analysis=checkRow({label:'Overwrite the analysis and edits',checked:true,id:'import-analysis',onChange:()=>check(),
-        hint:target.analyzed?'Use the imported chart, lead sheet, MIDI and edits. The ones on this computer move to Previous transcriptions in the ⋯ menu, so you can bring them back.':'This song isn’t analyzed here yet.'});
+        hint:target.analyzed?'Use the imported chart, lead sheet, MIDI and edits. The ones on this computer move to Previous transcriptions in Settings, so you can bring them back.':'This song isn’t analyzed here yet.'});
       // Stems on both sides: keep or replace. Only in the zip: they are simply added.
       if(incoming.stems&&target.stems)rows.stems=checkRow({label:'Overwrite the stems',checked:false,id:'import-stems',onChange:()=>check(),
         hint:'Use the imported stems. The stems on this computer are deleted (they can always be split again).'});
@@ -164,7 +172,7 @@ export function askSongImport({title,matches,incoming,host=document.body}){
     dialog.append(asNew);
     let done=false;
     const finish=value=>{if(done)return;done=true;close();resolve(value);};
-    const cancel=el('button','secondary choice-cancel','Cancel');cancel.type='button';cancel.onclick=()=>finish(null);
+    const cancel=el('button','secondary choice-cancel btn-cancel','Cancel');cancel.type='button';cancel.onclick=()=>finish(null);
     const go=el('button','btn blue','Import');go.type='button';go.id='import-go';
     check=()=>{
       const fresh=asNew.input.checked;

@@ -8,7 +8,7 @@
 // Time: `played` counts every frame rendered and never goes back, so "when" is always a played frame. Source frames say what is heard.
 // engine: {jump({at,to}), mark(at), prepare(frame), schedule(atPlayed,payload,id), cancel(prefix), play(bool)}; jump and mark may answer at once or
 // through the callback they are given; a late answer for an old generation is ignored.
-import {applyToState,domainOfProperty,isOneShot,mixFromState,writesOf} from './performance-actions.js';
+import {STEM_ROLES,applyToState,audibleGains,domainOfProperty,fadeMix,isOneShot,mixFromState,writesOf} from './performance-actions.js';
 import {furtherPass} from './performance-compiler.js';
 import {pathSeconds} from './performance-duration.js';
 
@@ -20,22 +20,23 @@ export const COMMIT_HORIZON=256;
 const WAIT_MARGIN=Math.round(RATE*.15);
 const RAMP_STEP=441;                            // a ramp is one small mixer step every 10 ms
 const MAX_LOG=5000;
+const MIX_ACTIONS=new Set(['track.set','master.set','mix.set']);
 
 const clone=v=>structuredClone(v);
 
 // ---- which bars a key loops
-/** L: the four bars around the playhead, counted from the section's first bar; real measures, across a section edge if it must, and the last
- *  four at the end of the song. Fewer than four only when the song itself has fewer. */
-export function fourBarRange(measures,sections,frame){
+/** L: the four bars (or `count`) around the playhead, counted from the section's first bar; real measures, across a section edge if it must, and the last
+ *  ones at the end of the song. Fewer only when the song itself has fewer. */
+export function fourBarRange(measures,sections,frame,count=4){
   const seconds=frame/RATE,at=measures.findIndex(m=>seconds>=m.start&&seconds<m.end);
   const here=at<0?measures.length-1:at;
   const section=(sections||[]).find(s=>seconds>=s.start&&seconds<s.end);
   const first=section?Math.max(0,measures.findIndex(m=>m.end>section.start+.05)):0;
   const inSection=Math.max(0,here-first);
-  let start=first+inSection-inSection%4;
-  if(start+4>measures.length)start=Math.max(0,measures.length-4);
-  const bars=measures.slice(start,start+4);
-  return {kind:'bars',start:Math.round(bars[0].start*RATE),end:Math.round(bars.at(-1).end*RATE),firstBar:bars[0].number,lastBar:bars.at(-1).number,short:bars.length<4,label:bars.length===1?`bar ${bars[0].number}`:`bars ${bars[0].number}–${bars.at(-1).number}`};
+  let start=first+inSection-inSection%count;
+  if(start+count>measures.length)start=Math.max(0,measures.length-count);
+  const bars=measures.slice(start,start+count);
+  return {kind:'bars',start:Math.round(bars[0].start*RATE),end:Math.round(bars.at(-1).end*RATE),firstBar:bars[0].number,lastBar:bars.at(-1).number,short:bars.length<count,label:bars.length===1?`bar ${bars[0].number}`:`bars ${bars[0].number}–${bars.at(-1).number}`};
 }
 /** R: the section around the playhead, on barlines, leaving out a fade the caller's trim() found (shown in the label, never silently). */
 export function sectionRange(measures,sections,frame,{trim=null}={}){
@@ -52,6 +53,8 @@ export function sectionRange(measures,sections,frame,{trim=null}={}){
   return {kind:'section',name:section.name,start:Math.round(first.start*RATE),end:Math.round(last.end*RATE),firstBar:first.number,lastBar:last.number,faded,label:`${section.name} · ${bars}${faded?' (fade left out)':''}`};
 }
 /** The next barline a change can use: starts of bars after `frame`, plus the end of the song. */
+/** A flag that starts a loop, as pressing L or R does. */
+const startsLoop=action=>action?.type==='command'&&(action.command==='loop-bars'||action.command==='loop-section');
 export function nextBarline(measures,frame){
   for(const m of measures){const f=Math.round(m.start*RATE);if(f>frame)return f;}
   const end=Math.round(measures.at(-1).end*RATE);
@@ -84,7 +87,7 @@ export class PerformanceRunner{
     this.planned=clone(compiled.initialState);  // what the program wants now, whatever the overrides say
     this.done=new Set();                        // one-shots already sent
     this.prepared=new Set();
-    this.log=[];this.queuedActions=[];this.loop=null;this.pendingLoop=null;this.pendingNav=null;this.playedSeconds=0;this.lastPlayedAt=0;this.rate=this.planned.rate??100;
+    this.log=[];this.queuedActions=[];this.loop=null;this.pendingLoop=null;this.departure=null;this.pendingNav=null;this.playedSeconds=0;this.lastPlayedAt=0;this.rate=this.planned.rate??100;
     this.consumed=new Set();this.liveRate=false;this.currentSection=null;this.waiting=null;
   }
 
@@ -97,9 +100,20 @@ export class PerformanceRunner{
   snapshot(){
     const s={status:this.status,played:this.played,source:this.heard,section:this.sectionAt(this.heard)?.name??null,bar:this.measures[barAt(this.measures,this.heard)]?.number??null,
       occurrence:this.current?{key:this.current.key,regionId:this.current.regionId,passId:this.current.passId,passIndex:this.current.passIndex,traversal:this.traversal}:null,
-      loop:this.loop?{kind:this.loop.kind,label:this.loop.label,start:this.loop.start,end:this.loop.end,pass:this.loop.pass}:null,
+      loop:this.loopNow(),
       pending:this.pendingText(),waiting:this.waiting,holding:this.status==='holding'?{seconds:this.hold?.left??null,waiting:this.hold?.segment.seconds===null}:null,overrides:[...this.overrides.entries()].map(([property,o])=>({property,value:o.value,policy:o.policy})),rate:this.rate};
     return {...s,...this.durations()};
+  }
+  /** The loop going round now, as the pages show it: its bars (frames), how many times it has gone back, and how many plays it has in all (null: until you leave it). */
+  loopNow(){return this.loop&&this.pendingLoop?.type!=='exit'?{kind:this.loop.kind,label:this.loop.label,start:this.loop.start,end:this.loop.end,pass:this.loop.pass,plays:this.loop.plays??null}:null;}
+  /** What a page's loop count shows now: the bars going round (frames), the plays still to come counting this one (null: until you leave
+   *  it; 1 once you've pressed to leave), and the planned loop's id when it's the plan going round. A live loop wins over the plan it replaced. */
+  loopShown(){
+    const leaving=this.pendingLoop?.type==='exit';
+    if(this.loop){const l=this.loop;return {start:l.start,end:l.end,label:l.label,regionId:null,left:leaving||l.last?1:l.plays?Math.max(1,l.plays-l.pass):null};}
+    const c=this.current;if(!c?.regionId)return null;
+    const r=this.performance.regions?.find(x=>x.id===c.regionId),range=this.regionRange({regionId:c.regionId,visit:c.visit});
+    return {start:range?.start??c.start,end:range?.end??c.end,label:range?.label??'',regionId:c.regionId,left:leaving?1:Number.isInteger(r?.plays)?Math.max(1,r.plays-(c.passIndex??0)):null};
   }
   pendingText(){
     if(this.pendingNav)return {type:'jump',target:this.pendingNav.target,bar:this.measures[barAt(this.measures,this.pendingNav.target)]?.number,boundary:this.boundary?.at??null};
@@ -152,6 +166,7 @@ export class PerformanceRunner{
     this.prepareTargets();
     this.commitNext();
     this.scheduleWindow();
+    this.scheduleGlides();
     if(report.state==='ended'&&!this.boundary&&!this.peek())this.finish();
   }
   /** A queued loop becomes the loop in force at its barline; a queued exit is over when the pass ends. Until then the same key takes it back. */
@@ -163,7 +178,7 @@ export class PerformanceRunner{
     this.note('loop-settled',{intent:p.type,kind:p.kind});
   }
   finish(){this.status='finished';this.note('finished');this.current=null;this.out({type:'finished'});}
-  stop(){this.status='stopped';this.engine.cancel('');this.engine.play(false);this.note('stopped');this.out({type:'cleanup'});}
+  stop(){this.status='stopped';this.glides=[];this.engine.cancel('');this.engine.play(false);this.note('stopped');this.out({type:'cleanup'});}
   pause(){
     if(this.status==='holding'){this.holdPaused=true;if(this.hold)this.hold.last=null;this.note('paused');return;}   // a timed hold waits too
     if(this.status==='playing'||this.status==='buffering'){this.status='paused';this.engine.play(false);this.note('paused');}
@@ -185,7 +200,8 @@ export class PerformanceRunner{
   pop(segment){
     const item=this.path[0];
     if(!item)return;
-    if(item.kind==='loopback'){if(segment.loopId===item.loop.id)item.loop.pass++;return;}
+    // a loop with a number of plays lets go of its marker as its last time round begins, so the music carries on after it
+    if(item.kind==='loopback'){if(segment.loopId===item.loop.id){item.loop.pass++;if(item.loop.plays&&item.loop.pass>=item.loop.plays-1){this.path.shift();item.loop.last=true;}}return;}
     if(item.kind==='more'){if(segment.regionId===item.regionId)item.index++;return;}
     if(item===segment||item.key===segment.key)this.path.shift();
   }
@@ -199,7 +215,7 @@ export class PerformanceRunner{
   /** A live loop's next pass: the same captured program, every time. */
   loopSegment(loop){
     const n=loop.pass+1;
-    return {kind:'music',key:`live/${loop.id}/${n}`,start:loop.start,end:loop.end,regionId:null,passId:null,passIndex:n,visit:1,live:true,family:loop.kind,loopId:loop.id,replay:loop.id,state:loop.startState,actions:loop.program.map(a=>({...a,id:`${a.id}@${n}`}))};
+    return {kind:'music',key:`live/${loop.id}/${n}`,start:loop.start,end:loop.end,regionId:null,passId:null,passIndex:n,visit:1,live:true,family:loop.kind,loopId:loop.id,replay:loop.id,state:loop.startState,actions:loop.program.filter(a=>!a.first&&!startsLoop(a.action)).map(a=>({...a,id:`${a.id}@${n}`}))};   // going round again is never "the first time"; and a loop flag inside the loop isn't pressed again each time round (it would leave the loop it started)
   }
   /** The plan when the current segment is over. */
   endStateOfCurrent(){
@@ -244,6 +260,8 @@ export class PerformanceRunner{
     }
     if(result.status==='waiting'){
       this.waiting={at:boundary,target:step.to};this.note('waiting-audio',{at:boundary,target:step.to});
+      // what was fetched ahead for it may have been dropped to make room: ask again, about once a second while it waits
+      if(this.refetch?.target!==step.to||this.played-this.refetch.at>RATE){this.refetch={target:step.to,at:this.played};this.engine.prepare(step.to);}
       // Audio is usually a moment away: keep asking on each report, and give up on this barline only when it is nearly here.
       if(this.current.startPlayed+(boundary-this.current.start)-this.played<WAIT_MARGIN)this.moveBoundaryLater(step,boundary);
       return;
@@ -269,6 +287,7 @@ export class PerformanceRunner{
     this.engine.cancelFrom(atPlayed);
     this.queuedActions=this.queuedActions.filter(q=>{if(q.at<atPlayed)return true;this.sentKeys?.delete(q.key);if(q.action.oneShot)this.done.delete(`${this.runId}|${this.entryId}|${q.key}`);return false;});
     this.pendingWrites=(this.pendingWrites||[]).filter(w=>w.at<atPlayed);
+    this.glides=(this.glides||[]).filter(g=>g.start<atPlayed);for(const g of this.glides)g.next=Math.min(g.next,atPlayed);
     this.out({type:'withdrawn',atPlayed});
   }
   prepareTargets(){
@@ -292,6 +311,9 @@ export class PerformanceRunner{
   }
   advance(segment,atPlayed,from,restart=false){
     if(!segment)return;
+    if(this.loop?.last&&segment.loopId!==this.loop.id){this.note('loop-played-out',{kind:this.loop.kind,plays:this.loop.plays});this.loop=null;}   // its plays are done: the music has moved on
+    const d=this.departure;
+    if(d){d.fresh=false;if(!(segment.loopId&&segment.loopId===d.loopId)&&!(segment.regionId===d.regionId&&segment.visit===d.visit)&&this.loop?.id!==d.loopId)this.departure=null;}   // a planned loop you left behind: the music moved on
     if(segment.kind==='hold'){this.beginHold(segment);return;}
     if(restart&&segment.state){this.planned=clone(segment.state);this.pendingWrites=[];}
     this.traversal++;
@@ -318,6 +340,8 @@ export class PerformanceRunner{
   /** After a boundary is committed: a segment that isn't simply the next stretch of the same plan gets its state set there. */
   prepareBoundary(boundary){
     const seg=boundary.segment;
+    // a move you made, or a live loop, leaves the planned path, and a fade that was under way ends where it stood
+    if((boundary.nav||seg.loopId)&&this.glides?.length){this.glides=[];this.engine.cancelFrom(boundary.atPlayed);}
     if(seg.kind==='hold')this.engine.schedule(boundary.atPlayed,{kind:'hold'},`hold:${boundary.atPlayed}`);
     if(seg.kind==='music'&&(boundary.jumped||boundary.nav)&&seg.state)this.scheduleWhole(boundary.atPlayed,seg);
   }
@@ -349,17 +373,18 @@ export class PerformanceRunner{
   /** Sends one timed action to where it runs, leaving out what a live change has taken over. */
   dispatch({at,action,key}){
     const type=action.action.type;
+    if(type==='mix.glide'){this.beginGlide(at,action);return;}
     if(isOneShot(action.action)){
       const identity=`${this.runId}|${this.entryId}|${key}`;
       if(this.done.has(identity))return;
       this.done.add(identity);
-      this.out({type:'oneshot',atPlayed:at,action:action.action,id:identity,leadMs:action.leadMs});
+      this.out({type:'oneshot',atPlayed:at,action:action.action,id:identity,leadMs:action.leadMs,frame:action.frame});   // frame: where in the song the flag sits
       return;
     }
     const suppressed=writesOf(action.action).filter(([p])=>this.isOverridden(p));
     for(const [property] of suppressed)this.note('suppressed',{property,cue:action.id});
     if(suppressed.length===writesOf(action.action).length&&suppressed.length){this.out({type:'suppressed',atPlayed:at,action:action.action});return;}
-    if(type==='track.set'||type==='master.set'){this.scheduleMixChange(at,action);return;}
+    if(MIX_ACTIONS.has(type)){this.scheduleMixChange(at,action);return;}
     if(type==='rate.set'){this.engine.schedule(at,{kind:'rate',percent:action.action.percent},`rate:${at}`);this.out({type:'rate',atPlayed:at,percent:action.action.percent});return;}
     this.out({type:type.startsWith('midi.')?'midi':'visual',atPlayed:at,action:action.action,id:key,leadMs:action.leadMs});
   }
@@ -368,6 +393,36 @@ export class PerformanceRunner{
     if(!o)return false;
     if(o.policy==='next-cue')return false;      // the next planned write takes it back, when it runs
     return true;
+  }
+  /** A fade through to a planned mixer change. It moves how loud each track really is, so going in or out of a mute fades too; the change itself lands at its flag. */
+  beginGlide(at,action){
+    const {target,frames,skip=0}=action.action,before=this.withOverrides(this.plannedThrough(at));
+    (this.glides||(this.glides=[])).push({id:action.id,start:at,end:at+frames,next:at,skip,target,from:mixFromState(before,this.baseMix)});
+  }
+  /** The steps of a fade go to the engine a little at a time, so a long one costs nothing, a jump can drop it, and a live change is heard in the steps still to come. */
+  scheduleGlides(){
+    if(!this.glides?.length)return;
+    for(const g of this.glides){
+      while(g.next<g.end&&g.next<=this.played+SCHEDULE_WINDOW){
+        this.engine.schedule(g.next,{kind:'mix',mix:this.glideMix(g,g.next)},`mix:glide:${g.id}:${g.next}`);
+        g.next+=RAMP_STEP;
+      }
+    }
+    this.glides=this.glides.filter(g=>g.end>this.played);
+  }
+  /** The mixer partway through a fade: how loud each track really is by then. What you've changed by hand stays as you set it. */
+  glideMix(g,at){
+    const hand=[...this.overrides.keys()];
+    const goal=mixFromState({...this.withOverrides(this.planned),...Object.fromEntries(writesOf(g.target)),...Object.fromEntries(hand.map(p=>[p,this.overrides.get(p).value]))},this.baseMix);
+    const f=g.skip+(1-g.skip)*(at-g.start)/(g.end-g.start),mix=fadeMix(g.from,goal,f),after=audibleGains(goal);
+    STEM_ROLES.forEach((role,i)=>{if(hand.some(p=>p.startsWith(`track.${role}.`)))mix.gains[i]=mix.mutes[i]||mix.solos.some(Boolean)?goal.gains[i]:after[i];});
+    if(hand.includes('master'))mix.master=goal.master;
+    return mix;
+  }
+  /** What the mixer should show at this output frame while a fade runs, or null when none is. */
+  fadingMix(at){
+    const g=(this.glides||[]).find(x=>x.start<=at&&at<x.end);
+    return g?this.glideMix(g,at):null;
   }
   /** The mixer's setting for a planned change: the plan so far, with this change and any live changes on top. Steps for a ramp. */
   scheduleMixChange(at,action){
@@ -421,6 +476,13 @@ export class PerformanceRunner{
     this.pushEffective(property);
     return {accepted:true};
   }
+  /** A change that isn't held: it shows now, and the next planned change replaces it. Taking it also gives up any hold on that property. */
+  nudge(property,value){
+    if(this.overrides.delete(property))this.out({type:'overrides',overrides:[...this.overrides.keys()]});
+    this.note('nudge',{property,value});
+    this.out({type:'live',atPlayed:this.played,property,value});
+    return {accepted:true};
+  }
   /** Back to the plan: one property, a whole domain, or everything. */
   release({property=null,domain=null}={}){
     const names=[...this.overrides.keys()].filter(p=>property?p===property:domain?domainOfProperty(p)===domain:true);
@@ -439,9 +501,10 @@ export class PerformanceRunner{
     const at=this.played;
     if(property==='master'||property.startsWith('track.')){
       this.engine.cancel('mix:');
+      for(const g of this.glides||[])g.next=Math.max(g.start,Math.min(g.next,at));
       this.engine.schedule(at,{kind:'mix',mix:mixFromState(state,this.baseMix)},`mix:${at}:live`);
       // what was already on its way is sent again, now under this change
-      const waiting=this.queuedActions.filter(q=>q.at>at&&(q.action.action.type==='track.set'||q.action.action.type==='master.set'));
+      const waiting=this.queuedActions.filter(q=>q.at>at&&MIX_ACTIONS.has(q.action.action.type));
       this.pendingWrites=(this.pendingWrites||[]).filter(w=>w.at<=at);
       for(const q of waiting){if(writesOf(q.action.action).every(([p])=>this.isOverridden(p)))continue;this.scheduleMixChange(q.at,q.action);}
     }else if(property==='rate'){
@@ -467,24 +530,87 @@ export class PerformanceRunner{
     return null;
   }
   rangeFor(kind,frame){
-    return kind==='bars'?fourBarRange(this.measures,this.sections,frame):sectionRange(this.measures,this.sections,frame,{trim:this.trim});
+    return kind==='bars'?fourBarRange(this.measures,this.sections,frame,this.loopBars||4):sectionRange(this.measures,this.sections,frame,{trim:this.trim});
   }
   /** L (kind 'bars') or R (kind 'section'). See the table in the plan: same key leaves after this pass, other key switches after it. */
-  pressLoop(kind){
+  /** plays: how many times the loop's music plays in all, counting the time through it you're in; none, until you leave it. */
+  /** at: the song frame to measure the loop from. A flag gives its own place: when it runs, what's heard is still a moment before it, and a flag on bar 131's first beat would otherwise loop the four bars ending at 130. */
+  pressLoop(kind,{bars=4,plays=null,at=null}={}){
+    this.loopBars=bars;this.loopPlays=Number.isInteger(plays)&&plays>=2?plays:null;this.loopAt=Number.isFinite(at)?at:null;
+    if(this.departure&&this.departure.key===kind)return this.stepDeparture();
+    this.departure=null;                        // the other key: the usual rules from here
     if(this.pendingLoop&&this.pendingLoop.pressed===kind&&this.undoLoopIntent())return {type:'cancelled'};
     if(this.pendingLoop&&this.pendingLoop.pressed!==kind)this.undoLoopIntent();
     const active=this.activeLoop();
     if(!active)return this.queueActivate(kind);
+    if(!active.live)return this.depart(kind,active);
     if(active.kind===kind)return this.queueExit(kind,active);
     return this.queueSwitch(kind,active);
   }
+  // ---- leaving a planned loop: three presses of the same key, round and round.
+  // R: loop the whole section instead (until you leave it); again: leave it after this pass (×1!!); again: back to the plan.
+  // L: keep going round these same bars until you leave them (∞); again: leave after this pass; again: back to the plan.
+  // An until-released plan is already ∞, so L goes straight to leaving it. "Back to the plan" is exact while you're still in the pass where you
+  // first pressed; after that the loop has gone round, so it keeps the loop going instead (and L's loop takes the plan's count of plays again).
+  /** Everything a press changes, so a later press can put it all back. */
+  keep(){return {path:this.path.slice(),loop:this.loop,currentEnd:this.current?.end,consumed:new Set(this.consumed),pendingLoop:this.pendingLoop};}
+  restore(k){
+    this.path=k.path.slice();this.loop=k.loop;this.consumed=new Set(k.consumed);this.pendingLoop=k.pendingLoop;
+    if(k.currentEnd!==undefined&&this.current)this.current={...this.current,end:k.currentEnd};
+    this.note('loop-plan-back');this.recommit();
+  }
+  /** The bars of the planned loop going round now, as a range like L's. */
+  regionRange(active){
+    const spans=(this.compiled.segments||[]).filter(s=>s.regionId===active.regionId&&s.visit===active.visit);
+    if(!spans.length)return null;
+    const start=Math.min(...spans.map(s=>s.start)),end=Math.max(...spans.map(s=>s.end));
+    const first=this.measures[barAt(this.measures,start)],last=this.measures[barAt(this.measures,end-1)];
+    return {kind:'bars',start,end,firstBar:first.number,lastBar:last.number,label:first===last?`bar ${first.number}`:`bars ${first.number}–${last.number}`};
+  }
+  depart(kind,active){
+    const plan=this.keep(),c=this.current,region=this.performance.regions?.find(r=>r.id===active.regionId);
+    const planLeft=region&&Number.isInteger(region.plays)?Math.max(1,region.plays-(c?.passIndex??0)):null;
+    const d={key:kind,plan,regionId:active.regionId,visit:active.visit,fresh:true,planLeft,step:'looping',loopId:null};
+    let result;
+    if(kind==='bars'&&planLeft===null){result=this.queueExit(kind,active);d.step='leaving';}   // already until released: L leaves it
+    else{
+      result=kind==='bars'?this.queueActivate(kind,this.regionRange(active)):this.queueActivate(kind);
+      if(!result)return null;
+      this.pendingLoop=null;                    // this loop is in force now: the next press of the key leaves it, and doesn't just take this one back
+      d.loopId=this.loop?.id??null;
+    }
+    this.departure=d;
+    return {...result,departed:true};
+  }
+  stepDeparture(){
+    const d=this.departure;
+    if(d.step==='looping'){
+      d.step='leaving';
+      if(d.fresh){this.restore(d.plan);return {...this.queueExit(d.key,this.activeLoop()),departed:true};}   // still the pass you pressed in: the plan's pass is the last
+      if(this.pendingLoop)this.undoLoopIntent();
+      return {...this.queueExit(d.key,{live:true,kind:this.loop?.kind??d.key}),departed:true};
+    }
+    // leaving, pressed again: the plan again
+    this.departure=null;
+    if(d.fresh){this.restore(d.plan);return {type:'resumed'};}
+    this.undoLoopIntent();
+    if(this.loop&&d.key==='bars'&&d.planLeft){
+      this.loop.plays=d.planLeft;
+      if(this.loop.pass>=this.loop.plays-1){this.path=this.path.filter(p=>p.kind!=='loopback');this.loop.last=true;}
+      this.recommit();
+    }
+    return {type:'resumed'};
+  }
   /** Leave whatever loop is on, whichever key it answers to. */
   pressExit(){
+    this.departure=null;
     if(this.pendingLoop?.type==='exit'){this.undoLoopIntent();return {type:'cancelled'};}
     if(this.pendingLoop)this.undoLoopIntent();
     const active=this.activeLoop();
     return active?this.queueExit(active.kind,active):null;
   }
+  /** Where a loop is measured from: a flag's own place once, else what's heard now. */
+  takeLoopAt(){const at=this.loopAt??this.heard;this.loopAt=null;return at;}
   remember(type,kind,extra){this.pendingLoop={type,kind,pressed:kind,before:this.path.slice(),loopBefore:this.loop,...extra};this.noteIntent();return this.pendingLoop;}
   noteIntent(){this.note('loop-intent',{intent:this.pendingLoop?.type??null,kind:this.pendingLoop?.kind??null,label:this.pendingLoop?.range?.label??null});this.recommit();}
   undoLoopIntent(){
@@ -550,17 +676,18 @@ export class PerformanceRunner{
   }
   makeLoop(kind,range){
     const captured=this.capture(range);
-    return {id:`${this.traversal}-${kind}-${range.start}`,kind,label:range.label,start:range.start,end:range.end,range,pass:0,...captured};
+    return {id:`${this.traversal}-${kind}-${range.start}`,kind,label:range.label,start:range.start,end:range.end,range,pass:0,plays:this.loopPlays??null,...captured};
   }
-  queueActivate(kind){
-    const range=this.rangeFor(kind,this.heard);
+  queueActivate(kind,given=null){
+    const at=this.takeLoopAt(),range=given||this.rangeFor(kind,at);
     if(!range)return null;
     const loop=this.makeLoop(kind,range);
     const before=this.path.slice(),loopBefore=this.loop,currentEnd=this.current?.end,consumed=new Set(this.consumed);
     const tail=this.tailAfter(range);
     const through=[];
     let reach=this.current?Math.min(this.current.end,range.end):range.end;
-    if(reach<range.end)for(const s of this.path){if(s.kind!=='music'||s.start!==reach)break;through.push(s.end>range.end?{...s,end:range.end}:s);reach=Math.min(s.end,range.end);if(reach>=range.end)break;}
+    const region=this.current?.regionId,visit=this.current?.visit;   // the planned loop's own further passes aren't the music after it
+    if(reach<range.end)for(const s of this.path){if(region&&s.regionId===region&&s.visit===visit)continue;if(s.kind==='more'&&s.regionId===region)continue;if(s.kind!=='music'||s.start!==reach)break;through.push(s.end>range.end?{...s,end:range.end}:s);reach=Math.min(s.end,range.end);if(reach>=range.end)break;}
     if(this.current&&this.current.end>range.end)this.current={...this.current,end:range.end};
     this.path=[...through,{kind:'loopback',loop},...tail];
     this.loop=loop;
@@ -579,7 +706,7 @@ export class PerformanceRunner{
     return {type:'exit',kind,boundary:this.current?.end};
   }
   queueSwitch(kind,active){
-    const range=this.rangeFor(kind,this.heard);
+    const range=this.rangeFor(kind,this.takeLoopAt());
     if(!range)return null;
     const before=this.path.slice(),loopBefore=this.loop;
     const loop=this.makeLoop(kind,range);
@@ -600,15 +727,21 @@ export class PerformanceRunner{
 
   // ---- navigation
   /** Step the queued target by bars (or section starts), or the playhead when nothing is queued. */
+  /** Where the next arrow press counts from: the jump already queued, or, just after one lands (before it's heard), where it went. */
+  navFrom(){
+    if(this.pendingNav)return this.pendingNav.target;
+    if(this.landedAt!==undefined&&this.played-this.landedAt<RATE/2)return this.barStartAt(this.source);
+    return this.barStartAt(this.heard);
+  }
   stepBars(direction){
-    const from=this.pendingNav?this.pendingNav.target:this.barStartAt(this.heard);
+    const from=this.navFrom();
     const i=this.measures.findIndex(m=>Math.round(m.start*RATE)===from);
     const next=this.measures[Math.max(0,Math.min(this.measures.length-1,i+direction))];
     return this.navigate(Math.round(next.start*RATE));
   }
   stepSections(direction){
     const starts=this.sections.map(s=>this.barStartAt(Math.round(s.start*RATE)));
-    const from=this.pendingNav?this.pendingNav.target:this.barStartAt(this.heard);
+    const from=this.navFrom();
     const list=direction>0?starts.filter(f=>f>from):starts.filter(f=>f<from).reverse();
     return list.length?this.navigate(list[0]):null;
   }
@@ -618,12 +751,14 @@ export class PerformanceRunner{
     const target=this.barStartAt(frame);
     const landing=this.findOccurrence(target);
     if(this.status==='paused')return this.jumpWhilePaused(target,landing);
-    const at=nextBarline(this.measures,this.source+COMMIT_HORIZON);
+    let at=nextBarline(this.measures,this.source+COMMIT_HORIZON);
+    // a jump already in the engine for a coming barline: this press changes where that one goes, rather than adding another a bar later
+    if(this.boundary?.nav&&this.boundary.at>this.source&&(at===null||this.boundary.at<at))at=this.boundary.at;
     if(at===null)return null;
     this.pendingNav={target,at,segment:landing.segment,rest:landing.rest};
     if(this.current&&at>this.current.end)this.current={...this.current,end:at};
     this.note('jump-queued',{target,at});
-    if(!this.prepared.has(target)){this.prepared.add(target);this.engine.prepare(target);}
+    this.prepared.add(target);this.engine.prepare(target);   // always asked for again: the player keeps only a few seconds fetched ahead, so audio asked for earlier may be gone
     this.generation++;
     this.commitNext();
     return {type:'jump',target,boundary:this.pendingNav?.at??at};
@@ -647,7 +782,9 @@ export class PerformanceRunner{
     const make=(segment,rest)=>{
       const state=clone(segment.state??this.planned);
       let at=state;for(const a of segment.actions||[])if(!a.oneShot&&a.frame<frame)at=applyToState(at,a.action);
-      return {segment:{...segment,start:frame,state:at,actions:(segment.actions||[]).filter(a=>a.frame>=frame),key:`${segment.key}/at${frame}`},rest};
+      // landing in the middle of a fade: the rest of it still runs
+      const inFade=(segment.actions||[]).filter(a=>a.glide&&a.frame<frame&&a.frame+a.action.frames>frame).map(a=>({...a,frame,action:{...a.action,frames:a.frame+a.action.frames-frame,skip:(frame-a.frame)/a.action.frames}}));
+      return {segment:{...segment,start:frame,state:at,actions:[...inFade,...(segment.actions||[]).filter(a=>a.frame>=frame)],key:`${segment.key}/at${frame}`},rest};
     };
     const planned=list=>list.filter(p=>p.kind!=='loopback');
     if(this.current&&inside(this.current)&&!this.current.loopId)return make(this.current,planned(this.path));
@@ -666,7 +803,7 @@ export class PerformanceRunner{
     this.engine.jumpNow({to:target},result=>{
       if(result?.status!=='committed'){this.waiting={at:null,target};this.note('waiting-audio',{target});return;}
       this.waiting=null;
-      this.withdrawFrom(this.played);this.boundary=null;this.pendingNav=null;this.pendingLoop=null;this.loop=null;
+      this.withdrawFrom(this.played);this.boundary=null;this.pendingNav=null;this.pendingLoop=null;this.loop=null;this.departure=null;
       this.path=landing.rest;
       this.advance(landing.segment,this.played,target,true);
       this.applyWhole(this.played);
@@ -677,11 +814,18 @@ export class PerformanceRunner{
   }
   commitNavigation(boundary){
     const nav=boundary.nav;
-    this.pendingNav=null;this.pendingLoop=null;
+    // only the jump that landed is done: a press since then queued a newer one, which still goes at its own barline
+    const newer=this.pendingNav&&this.pendingNav!==nav?this.pendingNav:null;
+    this.pendingNav=newer;this.pendingLoop=null;this.landedAt=boundary.atPlayed;
     if(this.loop){this.loop=null;}
+    this.departure=null;
     this.path=nav.rest;
     this.advance(nav.segment,boundary.atPlayed,nav.segment.start,true);
+    // its barline was counted where the music was before this jump: it goes at the first barline after where the music landed
+    if(newer){const later=nextBarline(this.measures,nav.target+COMMIT_HORIZON);if(later===null)this.pendingNav=null;else newer.at=later;}
+    if(this.pendingNav&&this.current&&this.pendingNav.at>this.current.end)this.current={...this.current,end:this.pendingNav.at};
     this.note('jump-committed',{target:nav.target,at:boundary.at,atPlayed:boundary.atPlayed});
+    if(this.pendingNav){this.generation++;this.commitNext();}
   }
 
   beginHold(segment){

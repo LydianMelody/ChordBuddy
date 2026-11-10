@@ -120,7 +120,7 @@ export function createTiming(env){
         cell.style.left=(n&&a?beatToX(a.beat,width,n):0)+'px';
         const chord=el('span','chord',chunk.continued?'('+spellChord(chunk.label)+')':spellChord(chunk.label));cell.append(chord);
         const cues=env.cuesAt?.(chunk.key)||[];       // cues are written with the Cue tool on the chart as written; here they show where they fall
-        if(cues.length){const lane=el('span','cue-lane');for(const {cue,passNumber} of cues){const b=el('button','cue',cue.text);b.type='button';b.title='Cue'+(g.passCount>1?', pass '+passNumber:'');b.onclick=e=>{e?.stopPropagation?.();env.seek?.(cue.start,g,passNumber);};b.onpointerdown=e=>e?.stopPropagation?.();refs.cues?.push({node:b,cue,chunkKey:chunk.key,passNumber});lane.append(b);}cell.append(lane);}
+        if(cues.length){const lane=el('span','cue-lane');for(const {cue,passNumber} of cues){const b=el('button',cue.plan?'cue plan':'cue',cue.text);b.type='button';b.title=(cue.plan?`A note in the arrangement “${cue.plan}”`:'Cue')+(g.passCount>1?', pass '+passNumber:'');b.onclick=e=>{e?.stopPropagation?.();env.seek?.(cue.start,g,passNumber);};b.onpointerdown=e=>e?.stopPropagation?.();refs.cues?.push({node:b,cue,chunkKey:chunk.key,passNumber});lane.append(b);}cell.append(lane);}
         if(chunk.repeat>1){const count=el('span','repeat','(×'+chunk.repeat+')');env.zone?.(count,'regroup','time');count.onclick=e=>{if(timeAct(e)){e.stopPropagation?.();env.regroup?.(g);}};
           count.onpointerdown=e=>e?.stopPropagation?.();         // the count sits inside the chord: pressing it regroups, never starts a chord drag
           cell.append(count);}

@@ -80,6 +80,12 @@
 .speed>span small{font:800 9px/1 var(--g);letter-spacing:.1em;text-transform:uppercase;color:var(--soft)}
 .speed.slowed>span small{color:inherit}
 .speed.slowed>span{background:var(--hl)}
+/* the tempo you're hearing, under the speed: a small button that turns into a box to type a tempo in */
+.speed{height:50px}
+.speed>span{gap:1px;min-width:54px}
+.speed .tempo-read{width:auto;height:auto;padding:1px 4px;border-radius:6px;font:700 11px/1.1 var(--m);text-decoration:underline dotted;text-underline-offset:2px}
+.speed .tempo-read:disabled{text-decoration:none}
+.speed .tempo-entry{width:48px;height:18px;padding:0 2px;border:2px solid var(--ink);border-radius:5px;background:var(--page);color:var(--ink);font:700 11px var(--m);text-align:center}
 
 /* locked: dim everything but the pill */
 .nav-lock{position:absolute;top:-13px;left:0;right:0;margin:0;display:flex;justify-content:center;pointer-events:none;width:auto;z-index:6}

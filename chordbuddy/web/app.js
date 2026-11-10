@@ -12,8 +12,13 @@ import {analysisUiState,songStatusLabel,analysisErrorMessage,lockStepStates,lock
 import {ProposalGuard,renderRhythmPreview} from './rhythm-view.js';
 import {Transport} from './transport.js';
 import {mountMixer} from './mixer-rack.js';
+import {createMonitorOut} from './monitor-out.js';
+import {mountMonitorStrips} from './monitor-strips.js';
+import {loadSongGrid} from './performance-song.js';
+import {countInOf} from './performance-duration.js';
 import {mountPlayer} from './player-view.js';
 import {playbackAction,targetSeconds} from './playback-keys.js';
+import {currentMapping} from './performance-commands.js';
 import {SHORTCUTS} from './shortcuts.js';
 import {renderLibraryPage,tapeTint} from './library-page.js';
 import {createSongFacts,shortKey,totalLabel} from './song-facts.js';
@@ -33,7 +38,7 @@ import {mountModelsPanel,mountChordModelPanel} from './models-view.js';
 import {mountDeskBars,combinedZoom} from './desk-bars.js';
 import {createVisualPublisher,desktopWindow,joinChannels,playerRelay,CHANNEL} from './visual-bridge.js';
 import {mountVisualizer,loadVisualizations} from './visualizer-view.js';
-import {readSetup,readUsual,writeSetup,writeUsual} from './visual-setup.js';
+import {defaultVisualOptions,readSetup,readUsual,writeSetup,writeUsual} from './visual-setup.js';
 import {createMidiImport} from './midi-import.js';
 import {buildScene} from './visual-scene.js';
 import {createPerformanceApp} from './performance-app.js';
@@ -48,6 +53,7 @@ const timeLabel = seconds => `${Math.floor(Math.max(0,seconds)/60)}:${String(Mat
 const element = (tag,className,text) => {const node=document.createElement(tag); if(className)node.className=className; if(text!==undefined)node.textContent=text;return node;};
 function showError(error) {$('alert').textContent=error?.message || String(error);$('alert').classList.remove('hidden');}
 function clearError() {$('alert').classList.add('hidden');}
+$('alert-close').onclick=clearError;
 async function api(path, body, options={}) {
   const headers={'X-ChordBuddy-Token':token,...options.headers};
   const init={...options,headers};
@@ -95,7 +101,9 @@ const mixer=mountMixer($('rack'),{transport,onError:showError,onSplit:()=>splitS
 
 let practiceViewport=null,practiceData=null;
 // The waveform's peak outline also tells the chart whether the recording fades out (fade-out.js).
-const player=mountPlayer($('player'),transport,showError,{onViewportChange:updatePracticeViewport,loadWaveform:run=>{const song=model.song;return api('/api/waveform/'+encodeURIComponent(run)).then(value=>{
+// The open song's tempo, for the player's tempo, Set tempo and a Helix that follows it: {id, bpm, measures, constant}, or null before it's loaded.
+function songTempoNow(){const song=currentSong();if(!song||model.detail?.song?.id!==song.id)return null;const music=(chartRecord()||currentRecord())?.doc?.music;return {id:song.id,bpm:music?.timing?.bpm??null,measures:practiceData?.music?.measures||music?.measures||[],constant:!!model.detail?.metadata?.timing?.constant_tempo};}
+const player=mountPlayer($('player'),transport,showError,{songTempo:()=>songTempoNow(),onViewportChange:updatePracticeViewport,loadWaveform:run=>{const song=model.song;return api('/api/waveform/'+encodeURIComponent(run)).then(value=>{
  if(value&&song===model.song){model.waveform={song,run,peaks:value.peaks,duration:value.duration};if(currentRecord()?.doc.kind==='chart')renderChart();}
  return value;});}});
 const practiceView=mountChartPage($('chart-sections'),{
@@ -105,6 +113,8 @@ const practiceView=mountChartPage($('chart-sections'),{
  onModeChange:()=>syncModeUi(),onToolChange:()=>syncModeUi(),onScopeChange:()=>syncModeUi(),onTimingChange:()=>syncModeUi(),
  isActive:()=>currentRecord()?.doc.kind==='chart'&&!$('chart-editor').classList.contains('hidden'),onZoomWheel:event=>zoomChartAt(event.deltaY<0?1.15:1/1.15,event.clientX),
  dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),
+ planNotes:()=>{const p=performanceApp.planNotes();return p&&p.songId===model.song?p.notes:[];},
+ performing:()=>performanceApp.page==='perform',   // a show's controls are open: the chart is for reading, so only Play and Cue   // a playing arrangement's notes show with the song's cues
 });
 // The chart's tools (Play, Edit, Timing) sit in the rail beside it, with Ctrl and Shift as quick shortcuts on top (chart-page.js).
 // In time, the chart is drawn on a beat grid wider than the desk: it gets cassette bars (scroll and zoom) instead of scroll bars.
@@ -271,27 +281,19 @@ let visualShowing=null;
 // How the open song is shown (visual-setup.js): its pinned look, and the usual one. Kept with the library, so they last between launches.
 function publishVisualSetup(){
   const song=model.detail?currentSong():null;
+  paintDefaultVisuals();
   if(visualShowing&&visualShowing.songId!==song?.id)visualShowing=null;
   if(visualPatches.songId!==(song?.id||null))loadVisualPatches(song?.id||null);   // it publishes again once they are here
   const patches=visualPatches.songId===(song?.id||null)?{usual:visualPatches.usual,song:visualPatches.song}:{usual:visualPatches.usual,song:{}};
   visuals.setup({songId:song?.id||null,pinned:song?readSetup(prefs.get('cb-visual:'+song.id,'')):null,usual:readUsual(prefs.get('cb-visual-usual','')),
     showing:visualShowing?.scene||null,patches});
 }
-// ---- On air: for streaming the visualizer (an OBS Browser Source, or a visualizer window you capture). While it is on, 1–9, Y and C in
-// the chart and MIDI views choose the look and switch the lyrics and calm mode for every visualizer, OBS included, as they do in a
-// visualizer window. The lead sheet keeps its own keys (C picks its Chords tool). Off, these keys do nothing here. ----
-const onAirButton=$('on-air'),onAirLabel=onAirButton.querySelector('em');
-// On air lasts only while this tab is open (a reload keeps it): a new launch always starts with it off, so these keys never surprise.
-const onAirStore={get:()=>{try{return sessionStorage.getItem('cb-on-air')==='1';}catch{return false;}},set:on=>{try{sessionStorage.setItem('cb-on-air',on?'1':'0');}catch{/* blocked storage: it lasts until the page is left */}}};
-let onAirOn=onAirStore.get();
-const onAir=()=>onAirOn;
+// ---- Visualizer keys: 1–9, Y and C in the chart and MIDI views choose the look and switch the lyrics and calm mode for every visualizer, OBS included, as they do
+// in a visualizer window. The lead sheet keeps its own keys (C picks its Chords tool). ----
+const onAirLabel=$('visual-menu').querySelector('summary em');
 let onAirScenes=null,onAirNote=0;
-// while On air is on, the whole window gets a red frame: 1-9, Y and C then change the stream, so it must be impossible to miss
-function paintOnAir(){onAirButton.setAttribute('aria-pressed',String(onAir()));document.body.classList.toggle('on-air-live',onAir());}
-// says briefly on the button what a key just did, since the visualizer may only be showing in OBS
-function onAirSay(text){clearTimeout(onAirNote);onAirLabel.textContent=text;onAirNote=setTimeout(()=>{onAirLabel.textContent='On air';},2200);}
-onAirButton.onclick=()=>{onAirOn=!onAirOn;onAirStore.set(onAirOn);paintOnAir();if(onAir())loadVisualizations().then(r=>{onAirScenes=r.scenes;}).catch(()=>{});};
-paintOnAir();
+// says briefly on the Visualizer button what a key just did, since the visualizer may only be showing in OBS
+function onAirSay(text){clearTimeout(onAirNote);onAirLabel.textContent=text;onAirNote=setTimeout(()=>{onAirLabel.textContent='Visualizer';},2200);}
 async function onAirKey(key){
   const usual=readUsual(prefs.get('cb-visual-usual','')),song=model.detail?currentSong():null;
   const setUsual=change=>{prefs.set('cb-visual-usual',writeUsual({...usual,...change}));publishVisualSetup();};
@@ -305,7 +307,7 @@ async function onAirKey(key){
   onAirSay(scene.name);
 }
 document.addEventListener('keydown',event=>{
-  if(!onAir()||event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||event.defaultPrevented||event.repeat)return;
+  if(event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||event.defaultPrevented||event.repeat)return;
   const key=String(event.key).toLowerCase();if(!/^[1-9yc]$/.test(key))return;
   if(typingTarget(event.target)||document.querySelector('dialog[open]')||midiImport.isOpen)return;
   if(currentRecord()?.doc.kind==='abc')return;          // the lead sheet's own keys
@@ -370,7 +372,7 @@ transport.subscribe(snapshot=>{visuals.clock(snapshot);if(visuals.listening)publ
 // Opening must happen straight from the click (browsers only allow pop-ups and full screen then); the song follows a moment later.
 // In the desktop app the page cannot open windows or go full screen itself (WebView2), so it asks the app (desktopWindow()).
 function openVisualizer(fullScreen){
-  $('more-menu').open=false;
+  $('settings-menu').open=false;
   const desktop=desktopWindow();
   if(fullScreen){
     const overlay=document.createElement('div');overlay.className='visualizer-overlay';document.body.append(overlay);
@@ -396,24 +398,41 @@ let closeVisualOverlay=null;                     // closes the full-screen visua
 // ---- The Advanced Visuals Editor (visual-patchbay.js): the patch bay as a whole page in place of the chart, with a live preview in its
 // corner (a visualizer of its own, so it shows the look being edited). The sidebar and the player stay, to play the song while patching.
 let visualEditor=null;
+let editorDefaultMenu=null;
 function openVisualEditor(){
   $('visual-menu').open=false;closeVisualOverlay?.();
   if(visualEditor)return;
   const root=$('visual-editor');root.classList.remove('hidden');document.body.classList.add('editing-visuals');
-  visualEditor=mountVisualizer(root,{editor:{root,onPopOut:()=>openVisualizer(false),onClose:closeVisualEditor}});
+  editorDefaultMenu=addDefaultVisualMenu(element('select','vx-visual'));
+  visualEditor=mountVisualizer(root,{editor:{root,defaultVisualMenu:editorDefaultMenu,onPopOut:()=>openVisualizer(false),onClose:closeVisualEditor}});
   loadChartRecord().then(publishVisualScene).catch(showError);
 }
 function closeVisualEditor(){
   if(!visualEditor)return;
+  defaultVisualMenus.delete(editorDefaultMenu);editorDefaultMenu=null;
   visualEditor.dispose();visualEditor=null;$('visual-editor').classList.add('hidden');document.body.classList.remove('editing-visuals');
 }
 $('visual-editor-open').onclick=openVisualEditor;
 // The show system (performance-app.js): the Prepare, Show and Perform pages, and the one running show.
 let lastNow=null;{const setNow=player.setNow;player.setNow=value=>{lastNow=value;setNow(value);};}
-const performanceApp=createPerformanceApp({api,token,transport,visuals,$,showError,prefs,
-  songs:()=>(model.state?.songs||[]).filter(song=>song.active_run),setlists:()=>model.state?.setlists||[],currentSong,
+const performanceApp=createPerformanceApp({api,token,transport,visuals,$,showError,prefs,onHistory:()=>syncPrepareHistory(),onStepped:step=>notePrepareStep(step),onPlanNotes:()=>{if(currentRecord()?.doc.kind==='chart')renderChart();},onMonitorPlan:state=>monitorStrips.paint()||monitorStrips.setPlanned(state&&{click:state['monitor.click'],cue:state['monitor.cue']}),
+  songs:()=>(model.state?.songs||[]).filter(song=>song.active_run),allSongs:()=>model.state?.songs||[],setlists:()=>model.state?.setlists||[],currentSong,
+  refresh:()=>refreshState(),onPageChange:()=>{practiceView.refreshTools?.();leadView?.refreshTools?.();if(performanceApp.page==='perform')showChosenView();renderTabs();if(performanceApp.history)syncPrepareHistory();else if(model.document)renderDocument();},redrawLibrary:()=>{if(model.state)renderLibrary({force:true});},setHost:()=>$('songs'),
+  tapDevice:()=>prefs.get('cb-midi-tap',''),setTapDevice:name=>prefs.set('cb-midi-tap',name||''),
   showSong:id=>selectSong(id,{forShow:true}).catch(showError),
-  chordNow:()=>lastNow?{now:lastNow.chord,next:lastNow.next}:null,mappings:()=>{try{return JSON.parse(prefs.get('cb-midi-mappings','[]'));}catch{return [];}},saveMappings:value=>prefs.set('cb-midi-mappings',JSON.stringify(value))});
+  onShow:()=>needSoundWindow(),copyObsAddress,
+  practice:{
+    run:runPlaybackAction,
+    toggleLoop:(kind,bars)=>player.toggleLoop(kind,bars),
+    barStarts:()=>(practiceView.getModel()?.measures||practiceData?.music?.measures||[]).map(m=>m.start),
+    songTempo:()=>songTempoNow(),
+    song:direction=>{const ids=(model.state?.setlists||[]).find(list=>list.id===model.setlist)?.song_ids||[],at=ids.indexOf(model.song),to=ids[at+direction];if(at>=0&&to)selectSong(to).catch(showError);},
+    currentVisual:()=>{const song=model.detail?currentSong():null;if(visualShowing?.songId===song?.id&&visualShowing?.scene)return visualShowing.scene;return (song?readSetup(prefs.get('cb-visual:'+song.id,''))?.scene:null)??readUsual(prefs.get('cb-visual-usual','')).scene??null;},
+    showVisual:id=>{const song=model.detail?currentSong():null;if(song&&readSetup(prefs.get('cb-visual:'+song.id,''))){visualShowing={songId:song.id,scene:id};publishVisualSetup();}else{visualShowing=null;prefs.set('cb-visual-usual',writeUsual({...readUsual(prefs.get('cb-visual-usual','')),scene:id}));publishVisualSetup();}},
+    toggleVisual:name=>{const usual=readUsual(prefs.get('cb-visual-usual',''));prefs.set('cb-visual-usual',writeUsual({...usual,[name]:!(usual[name]??name==='lyrics')}));publishVisualSetup();},
+    visualSwitch:name=>readUsual(prefs.get('cb-visual-usual',''))[name]??name==='lyrics',
+  },
+  chordNow:()=>lastNow?{now:lastNow.chord,next:lastNow.next}:null,mappings:()=>{try{return JSON.parse(prefs.get('cb-midi-mappings','[]')).map(currentMapping);}catch{return [];}},saveMappings:value=>prefs.set('cb-midi-mappings',JSON.stringify(value))});
 $('visual-editor-open').addEventListener('click',()=>performanceApp.closePage());
 $('all-songs').addEventListener('click',()=>performanceApp.closePage());
 $('all-songs').addEventListener('click',closeVisualEditor);     // All songs takes the same place
@@ -423,10 +442,10 @@ $('all-songs').addEventListener('click',closeVisualEditor);     // All songs tak
 // program that plays the sound, so picking it works (obs-sound.html, and allow_sound_window in __main__.py). It comes back with each launch
 // until it is closed. A browser needs none of this: OBS can pick the browser itself.
 let soundWindow=null,soundWatch=0;
-function openSoundWindow(){
+function openSoundWindow({remember=true}={}){
   soundWindow=window.open('/obs-sound.html','cb-obs-sound','popup,width=460,height=190');
   if(!soundWindow)return;
-  prefs.set('cb-obs-sound','1');
+  if(remember)prefs.set('cb-obs-sound','1');
   clearInterval(soundWatch);
   soundWatch=setInterval(()=>{if(soundWindow.closed){clearInterval(soundWatch);prefs.set('cb-obs-sound','0');}},1000);
 }
@@ -434,8 +453,27 @@ function restoreSoundWindow(){
   const reopen=()=>{if(prefs.get('cb-obs-sound','0')==='1')openSoundWindow();};
   if(desktopWindow())reopen();else window.addEventListener('pywebviewready',reopen,{once:true});   // the desktop app says so a moment after the page loads
 }
+/** A show needs the sound window, so a stream hears it: opened for the show if it isn't open already (desktop app only). Opening it this way
+ *  doesn't change whether it comes back at the next launch. */
+function needSoundWindow(){
+  if(!desktopWindow()||(soundWindow&&!soundWindow.closed))return;
+  try{openSoundWindow({remember:false});}catch{}
+}
+/** The show strip's Copy OBS link: puts the visualizer's Browser Source address on the clipboard. True if it was copied; if it couldn't be, the address is shown to copy by hand. */
+async function copyObsAddress(){
+  let url;try{({url}=await api('/api/visual-relay/address'));}catch(error){showError(error);return false;}
+  try{await navigator.clipboard.writeText(url);return true;}catch{}
+  await askChoice({title:'Copy this address by hand',message:['The address couldn’t be copied for you. Select it here and copy it, then paste it as the URL of a Browser Source in OBS:',url,'Keep the address private: while Chord Buddy is running, it can read your songs.'],cancel:'Done',choices:[]});
+  return false;
+}
+$('copy-run-log').onclick=async()=>{
+  $('settings-menu').open=false;
+  const log=performanceApp.runLog();if(!log){showError('There’s no show run to copy yet. Start a show first.');return;}
+  let copied=true;try{await navigator.clipboard.writeText(log);}catch{copied=false;}
+  await askChoice({title:copied?'Copied the show’s run log':'Copy the show’s run log',message:copied?'Paste it into a message to say what went wrong.':['It couldn’t be copied by itself. Select it here and copy it:',log.slice(0,4000)+(log.length>4000?' …':'')],cancel:'Done',choices:[]});
+};
 $('visualizer-obs').onclick=async()=>{
-  $('more-menu').open=false;
+  $('settings-menu').open=false;
   let url;try{({url}=await api('/api/visual-relay/address'));}catch(error){showError(error);return;}
   const desktop=!!desktopWindow();
   const copy=async()=>{try{await navigator.clipboard.writeText(url);return true;}catch{return false;}};
@@ -450,29 +488,40 @@ $('visualizer-obs').onclick=async()=>{
     cancel:'Done',choices:[{id:'copy',label:copied?'Copy again':'Copy',keepOpen:true},...(desktop?[{id:'sound',label:'Open sound window',keepOpen:true}]:[])],
     onPick:id=>{if(id==='sound')openSoundWindow();else copy();}});
 };
-// The song's own visualization: chosen here, or pinned from the visualizer's toolbar (Pin). "My usual look" unpins it.
-$('song-visual').onclick=async()=>{
-  $('more-menu').open=false;
-  const song=currentSong();if(!song)return;
-  let scenes=[];try{({scenes}=await loadVisualizations());}catch(error){showError(error);return;}
-  const pinned=readSetup(prefs.get('cb-visual:'+song.id,'')),usual=readUsual(prefs.get('cb-visual-usual','')).scene;
-  const options=[{id:'',label:'My usual look',hint:scenes.find(s=>s.id===usual)?.name||'Whatever the visualizer last showed'},
-    ...scenes.map(s=>({id:s.id,label:s.name,hint:s.mine?'From My Visuals':''}))];
-  if(pinned&&!scenes.some(s=>s.id===pinned.scene))options.push({id:pinned.scene,label:pinned.scene,hint:'This file is missing, so the song shows your usual look'});
-  let picked=pinned?.scene||'';
-  const choice=await askChoice({title:'Visualization for this song',message:`Shown whenever “${song.title}” is open. You can also pin the look that’s showing with Pin on the visualizer’s toolbar.`,
-    radios:{label:'',value:picked,options,onChange:id=>{picked=id;}},choices:[{id:'save',label:'Save',kind:'primary'}]});
-  if(choice!=='save')return;
-  prefs.set('cb-visual:'+song.id,picked?writeSetup({...pinned,scene:picked}):'');publishVisualSetup();   // a pinned layout stays
-};
-// The menus at the top (Export, More, Visualizer, Settings): picking something closes its menu. Settings stays open, to try the colors.
+// Default Visualization: the look a song opens with. The same choice as Pin on the visualizer's toolbar, offered under the mixer and in the
+// Advanced Visuals Editor; every copy of the menu follows it. "My usual look" unpins it, and a pinned layout stays when the look changes.
+const defaultVisualMenus=new Set();let defaultVisualScenes=[];
+function paintDefaultVisuals(){
+  const song=model.detail?currentSong():null,pinned=song?readSetup(prefs.get('cb-visual:'+song.id,'')):null;
+  const options=defaultVisualOptions(defaultVisualScenes,pinned,readUsual(prefs.get('cb-visual-usual','')).scene),shape=JSON.stringify(options);
+  for(const menu of defaultVisualMenus){
+    if(menu.dataset.shape!==shape){menu.replaceChildren(...options.map(([value,label])=>{const o=element('option','',label);o.value=value;return o;}));menu.dataset.shape=shape;}
+    menu.value=pinned?.scene||'';menu.disabled=!song;
+  }
+}
+function addDefaultVisualMenu(menu){
+  menu.setAttribute('aria-label','Default Visualization');
+  menu.onfocus=()=>loadDefaultVisuals();
+  menu.onchange=()=>{
+    const song=currentSong();if(!song)return;
+    const pinned=readSetup(prefs.get('cb-visual:'+song.id,''));
+    prefs.set('cb-visual:'+song.id,menu.value?writeSetup({...pinned,scene:menu.value}):'');
+    if(visualShowing?.songId===song.id)visualShowing=null;
+    publishVisualSetup();
+  };
+  defaultVisualMenus.add(menu);paintDefaultVisuals();
+  return menu;
+}
+async function loadDefaultVisuals(){try{defaultVisualScenes=(await loadVisualizations()).scenes;paintDefaultVisuals();}catch{/* the menu keeps what it had */}}
+addDefaultVisualMenu($('rack-visual'));loadDefaultVisuals();
+// The menus at the top (Export, Visualizer, Settings): picking something closes its menu. Settings stays open, to try the colors, except for this song's tools.
 // (A click anywhere else closes them: shell.js.)
 document.addEventListener('click',event=>{
   const menu=event.target.closest?.('details.more');
-  if(menu&&event.target.closest('.more-pop:not(.settings-pop) :is(button,a)'))menu.open=false;
+  if(menu&&event.target.closest('.more-pop:not(.settings-pop) :is(button,a),#more-tools button'))menu.open=false;
 });
-// Keyboard shortcuts: from More options, or ? anywhere you are not typing.
-const showShortcuts=()=>{$('more-menu').open=false;openShortcuts({groups:SHORTCUTS});};
+// Keyboard shortcuts: from Settings, or ? anywhere you are not typing.
+const showShortcuts=()=>{$('settings-menu').open=false;openShortcuts({groups:SHORTCUTS});};
 $('shortcuts-open').onclick=showShortcuts;
 document.addEventListener('keydown',event=>{
  if(event.key!=='?'||event.ctrlKey||event.metaKey||event.altKey||event.defaultPrevented||typingTarget(event.target)||document.querySelector('dialog[open]'))return;
@@ -507,8 +556,10 @@ function songLine(song,busy){
   return label==='Transcribed'?factBadges(song):element('small','song-note',label);
 }
 const listLength=songs=>songs.reduce((sum,song)=>sum+(Number(song.duration)||0),0);
-function renderLibrary() {
+function renderLibrary({force=false}={}) {
   const state=model.state;if(!state)return;
+  // the regular refresh leaves you alone while you're choosing something under a song
+  if(!force&&document.activeElement?.closest?.('.set-extra')&&/^(SELECT|INPUT)$/.test(document.activeElement.tagName))return;
   if(!state.setlists.some(list=>list.id===model.setlist))model.setlist='default';
   // "All songs" is the library itself (the set list every import joins); the set lists below it are the ones you make, and a song
   // dragged onto one of them (from All songs or from the list in the sidebar) is added to it.
@@ -523,13 +574,17 @@ function renderLibrary() {
     button.ondragleave=()=>button.classList.remove('drop-target');
     button.ondrop=event=>{if(!model.dragSong)return;event.preventDefault();button.classList.remove('drop-target');const id=model.dragSong;model.dragSong=null;addToSetlist(list,id,button);};
     nav.append(button);
+    if(list.id===model.setlist&&!performanceApp.holdsList())nav.append(performanceApp.setlist.head());
   }
   const list=state.setlists.find(item=>item.id===model.setlist);
+  performanceApp.setlist.sync(model.setlist);
   $('library-heading').textContent=list?.id==='default'?'ALL SONGS':`${list?.name || 'SONGS'}`.toUpperCase();
   const query=$('song-search').value.trim().toLowerCase();
   const songs=(list?.song_ids || []).map(id=>state.songs.find(song=>song.id===id)).filter(Boolean);
-  $('song-count').textContent=songs.length;$('list-total').textContent=songs.length?totalLabel(listLength(songs))+' total':'';songFacts.want(state.songs);
-  const container=$('songs');container.replaceChildren();
+  $('song-count').textContent=songs.length;$('list-total').textContent=songs.length?(performanceApp.setlist.totalLine()??totalLabel(listLength(songs))+' total'):'';songFacts.want(state.songs);
+  const container=$('songs');
+  if(performanceApp.holdsList()){renderView();return;}   // the show controls draw the running set here
+  container.replaceChildren();
   for(const [index,song] of songs.entries()){
     if(query && !`${song.title} ${song.artist || ''}`.toLowerCase().includes(query))continue;
     const row=element('div',`song-row${song.id===model.song?' selected':''}`);const busySong=isJobActive(state.job)&&state.job.song_id===song.id;row.dataset.status=busySong?'busy':song.active_run?'ready':'new';row.dataset.tint=String(tapeTint(song.id));const handle=element('span','song-number drag-handle','⠿');handle.draggable=true;handle.title='Drag to reorder, or onto a set list to add it there';handle.setAttribute('aria-label',handle.title);handle.ondragstart=event=>{model.dragSong=song.id;event.dataTransfer.setData('text/plain',song.id);event.dataTransfer.effectAllowed='copyMove';row.classList.add('dragging');};handle.ondragend=()=>{model.dragSong=null;row.classList.remove('dragging');for(const item of container.children)item.classList.remove('drop-target');};row.ondragover=event=>{if(model.dragSong && model.dragSong!==song.id && list?.song_ids.includes(model.dragSong)){event.preventDefault();event.dataTransfer.dropEffect='move';row.classList.add('drop-target');}};row.ondragleave=()=>row.classList.remove('drop-target');row.ondrop=event=>{if(!model.dragSong)return;event.preventDefault();event.stopPropagation();row.classList.remove('drop-target');moveSongBefore(model.dragSong,song.id);};row.append(handle);
@@ -538,6 +593,7 @@ function renderLibrary() {
     if(line.classList.contains('song-facts'))row.append(line);else button.append(line);if(!song.active_run){const lock=element('span','song-lock');lock.title='Not analyzed yet';lock.innerHTML=icon('lock');row.append(lock);}else if(song.duration)button.insertBefore(element('span','song-len',timeLabel(song.duration)),button.children[1]||null);
     if(list?.id!=='default'){const out=element('button','song-remove');out.type='button';out.innerHTML=icon('x');out.title=`Take ${song.title} out of ${list.name}`;out.setAttribute('aria-label',out.title);out.onclick=()=>removeFromSetlist(list.id,song.id);row.append(out);}
     const order=element('div','song-order');for(const [symbol,direction] of [['▲',-1],['▼',1]]){const move=element('button','',symbol);move.title=`Move ${song.title} ${direction<0?'up':'down'}`;move.setAttribute('aria-label',move.title);move.disabled=index+direction<0 || index+direction>=songs.length;move.onclick=()=>reorderSong(song.id,direction);order.append(move);}row.append(order);container.append(row);
+    if(list?.id!=='default'){const details=performanceApp.setlist.rowDetails(song.id,song.title);if(details)container.append(details);}
   }
   if(!container.children.length)container.append(element('p','sidebar-empty',query?'No songs match your search.':list?.id==='default'?'Your song library starts with an MP3. Import one to get going.':'This set list is ready for songs. Import an MP3 or add a song from your library.'));
   renderView();
@@ -575,7 +631,7 @@ async function moveSongBefore(id,target){try{const list=model.state.setlists.fin
 const TITLE_NODES=['page-song','score-title','midi-title'];
 function renderControls(){
   const song=currentSong();$('empty-state').classList.toggle('hidden',!!song);$('song-controls').classList.toggle('hidden',!song);$('workspace').classList.toggle('hidden',!song);
-  $('song-actions').classList.toggle('hidden',!song);$('song-visual').classList.toggle('hidden',!song);
+  $('song-actions').classList.toggle('hidden',!song);$('more-tools').classList.toggle('hidden',!song);
   renderSections();if(!song)return;   // (set lists are arranged on All songs, never from a song's page)
   if(!TITLE_NODES.some(id=>document.activeElement===$(id))&&!model.pendingTitle&&!model.titleSave){$('song-title').value=song.title;for(const id of TITLE_NODES)$(id).textContent=song.title;}
 
@@ -720,7 +776,7 @@ const jobKey=job=>JSON.stringify([job?.id,job?.kind,job?.status,job?.stage]);
 function renderJob(){
   const finished=model.state?.job&&['completed','cancelled'].includes(model.state.job.status),dismissed=model.state?.job&&model.dismissedJob===jobKey(model.state.job);
   if(!model.state?.job||finished||dismissed){$('job-panel').classList.add('hidden');return;}
-  const activeJob=model.state?.job;if(['analysis','rhythm'].includes(activeJob?.kind)){const running=isJobActive(activeJob);$('job-panel').classList.remove('hidden');$('job-title').textContent=activeJob.kind==='rhythm'?'Drum-based rhythm correction':'Analyze song';$('job-message').textContent=analysisErrorMessage(activeJob.error,!!currentSong()?.active_run)||activeJob.retention_warning||activeJob.retention?.warning||activeJob.stage;$('cancel-job').classList.toggle('hidden',false);$('cancel-job').textContent=running?'Cancel':'Dismiss';$('cancel-job').disabled=activeJob.status==='cancelling';const progress=$('job-progress'),p=activeJob.progress;progress.classList.toggle('indeterminate',running&&!p?.total);progress.style.width=p?.total?`${Math.min(100,100*p.completed/p.total)}%`:activeJob.status==='completed'?'100%':'25%';return;}
+  const activeJob=model.state?.job;if(['analysis','rhythm'].includes(activeJob?.kind)){const running=isJobActive(activeJob);$('job-panel').classList.remove('hidden');$('job-title').textContent=activeJob.kind==='rhythm'?'Drum-based rhythm correction':'Analyze song';$('job-message').textContent=analysisErrorMessage(activeJob.error,!!currentSong()?.active_run)||activeJob.retention_warning||activeJob.retention?.warning||activeJob.stage;$('cancel-job').classList.toggle('hidden',false);$('cancel-job').textContent=running?'Cancel':'Dismiss';$('cancel-job').classList.toggle('btn-cancel',running);$('cancel-job').disabled=activeJob.status==='cancelling';const progress=$('job-progress'),p=activeJob.progress;progress.classList.toggle('indeterminate',running&&!p?.total);progress.style.width=p?.total?`${Math.min(100,100*p.completed/p.total)}%`:activeJob.status==='completed'?'100%':'25%';return;}
 
   const job=model.state?.job;const running=isJobActive(job);
   $('job-panel').classList.toggle('hidden',!job);if(!job)return;
@@ -748,18 +804,19 @@ async function refreshState(){
   const song=currentSong();if(song&&(song.status!==oldStatus || song.active_run!==oldRun || model.state.job?.kind!=='separation' && model.state.job?.song_id===song.id && isJobActive(model.state.job)))await refreshSongDetail(song.id,false);
 }
 async function selectSong(id,{forShow=false}={}){
-  if(!forShow&&performanceApp?.ownsSong()&&performanceApp.ownsSong()!==id){showError(Error('A show is playing. Stop it to open another song, or change the set from the Perform view.'));return;}
+  if(!forShow&&performanceApp?.ownsSong()&&performanceApp.ownsSong()!==id){performanceApp.goToSong(id);return;}   // a running show goes to it, at the next bar line
   if(id===model.song){if(model.view!=='song'){model.view='song';renderLibrary();}return;}
   if(!practiceView.canNavigate())return;
   const request=++model.loadingSong;
   try{const saved=await window.chordBuddyFlush();if(!saved.ok)throw Error('Finish saving before changing the selected song or document.');}catch(error){showError(error);return;}
   if(request!==model.loadingSong)return;
+  if(!forShow)performanceApp?.endPreview();
   prefs.set('cb-last-song',id);                       // opened again next time the app starts
   model.view='song';renderView();
   playbackGate.block('Checking analysis.');player.setWaveformRun(null);practiceViewport=null;practiceData=null;player.setPractice({music:{measures:[]},projection:null,viewport:null});separationDetail=null;model.readinessChecked=false;model.song=id;model.detail=null;model.document=null;
   clearError();renderLibrary();renderControls();renderDocument();renderLock();
   await transport.loadSong({songId:id,originalUrl:mediaUrl('/api/audio/'+encodeURIComponent(id)),separation:null});player.setNow({chord:'—',next:''});await refreshSeparation();if(request!==model.loadingSong)return;
-  try{const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(request!==model.loadingSong)return;model.detail=detail;renderTabs();loadMelody(detail,id);refreshUserMidi(id);loadModelKey(detail,id);if(shownDocs(detail).length)await selectDocument(shownDocs(detail)[0].id);else renderDocument();showSongError(detail.song,true);}catch(error){if(request===model.loadingSong)showError(error);}
+  try{const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(request!==model.loadingSong)return;model.detail=detail;renderTabs();loadMelody(detail,id);refreshUserMidi(id);loadModelKey(detail,id);if(shownDocs(detail).length)await selectDocument(showDocFor(detail)?.id||shownDocs(detail)[0].id);else renderDocument();showSongError(detail.song,true);}catch(error){if(request===model.loadingSong)showError(error);}
 }
 // The vocal melody (a MIDI output of the analysis): its notes are drawn faintly behind the Time tool's bars, and their starts are
 // the first guess for where words fall.
@@ -802,14 +859,29 @@ function renderTabs(){
   const tabs=$('document-tabs');tabs.replaceChildren();
   $('transcription-history').disabled=isJobActive(model.state?.job)||!model.detail?.runs.some(r=>r.id!==currentSong()?.active_run&&r.has_documents);
   renderExportMenu();
-  const docs=model.detail?.documents||[],selected=docs.find(doc=>doc.id===model.document);
+  const planning=performanceApp.page==='prepare'||performanceApp.page==='perform';   // planning or performing: Perform is the lit tab
+  const docs=model.detail?.documents||[],selected=planning?null:docs.find(doc=>doc.id===model.document);
   for(const [kind,label] of TAB_KINDS){
     const list=docs.filter(doc=>doc.kind===kind);if(!list.length)continue;
     const target=selected?.kind===kind?selected:list.find(doc=>doc.kept)||list.find(doc=>doc.name==='transcription.mid')||list.find(doc=>/melody\.mid$/.test(doc.name))||list[0];
     const button=element('button',`document-tab${selected?.kind===kind?' selected':''}`,label+(kind==='chart'&&target.kept?' · kept edits':''));
-    button.role='tab';button.setAttribute('aria-selected',selected?.kind===kind?'true':'false');button.title=TAB_TIPS[kind]||target.name;button.onclick=()=>selectDocument(target.id);tabs.append(button);
+    button.role='tab';button.setAttribute('aria-selected',selected?.kind===kind?'true':'false');button.title=TAB_TIPS[kind]||target.name;button.onclick=()=>{performanceApp.leavePrepare();performanceApp.leavePerform();selectDocument(target.id);};tabs.append(button);
+    // Perform comes after the lead sheet: where a song is planned for the stage, and its set list is run
+    if(kind==='abc'||(kind==='chart'&&!docs.some(doc=>doc.kind==='abc'))){
+      const running=performanceApp.showRunning(),perform=element('button',`document-tab perform-tab${planning?' selected':''}${running?' show-running':''}`,running?'Show running':'Perform');
+      perform.role='tab';perform.setAttribute('aria-selected',String(planning));
+      perform.title=running?'A show is running. Its controls are above the chart or lead sheet.':'Plan this song for the stage: repeats, mixer changes, visuals and MIDI, each at its place in the song. Then perform the set list from here.';
+      perform.onclick=()=>{if(practiceView.canNavigate())performanceApp.openTab();};tabs.append(perform);
+    }
   }
 }
+// During a show: the chart or the lead sheet, as planned in Set list settings (a song without a lead sheet shows its chart).
+function showDocFor(detail){
+  if(performanceApp.page!=='perform'||!detail)return null;
+  const docs=shownDocs(detail),kind=performanceApp.showView();
+  return docs.find(doc=>doc.kind===kind)||docs.find(doc=>doc.kind==='chart')||null;
+}
+function showChosenView(){const doc=showDocFor(model.detail);if(doc&&doc.id!==model.document)selectDocument(doc.id);else renderTabs();}
 async function selectDocument(id){
   if(id===model.document && model.documents.has(id))return;
   if(!practiceView.canNavigate())return;
@@ -837,6 +909,7 @@ function renderDocument(){
   const rawPending=!!model.pendingChart||(record?.doc.kind==='chart'&&practiceView.hasDraft());
   $('undo').disabled=!record?.doc.can_undo||!!record?.dirty||!!record?.saving||rawPending;$('redo').disabled=!record?.doc.can_redo||!!record?.dirty||!!record?.saving||rawPending;$('restore').disabled=!record||!!record?.dirty||!!record?.saving||rawPending;
   $('undo').dataset.tip=record?.doc.undo_label?'Undo: '+record.doc.undo_label+'.':'Undo the last change.';$('redo').dataset.tip=record?.doc.redo_label?'Redo: '+record.doc.redo_label+'.':'Put back what you just undid.';
+  syncPrepareHistory();   // on the Perform tab they're its own
   $('download').classList.toggle('disabled',!record||record.dirty||record.saving||rawPending);if(record){$('download').href=mediaUrl(`/api/export/${encodeURIComponent(record.doc.id)}`);$('download').setAttribute('download','');}else $('download').removeAttribute('href');
   renderSaveStatus();renderTabs();renderPageHead();renderChips();syncModeUi();
   if(!record)return;
@@ -862,7 +935,7 @@ function renderAbc(){
   paintMeter($('score-meter'));
   setKeySpelling(songKey().label);
   leadView=renderLeadSheet($('score'),{key:model.document,musicKey:songKey().label,content:{...content,abc:spellAbc(content.abc,content.chords)},music:record.doc.music,getMeter:()=>songMeter().meter,title:song?.title,artist:song?.artist,settings:model.state.settings,
-    dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),frozen:readFrozen(song?.id),
+    dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),frozen:readFrozen(song?.id),performing:()=>performanceApp.page==='perform',
     onSeek:seconds=>transport.seek(seconds),onExternal:sendToExternalEditor,
     onFreeze:snapshot=>{writeFrozen(song.id,snapshot);renderAbc();},onUnfreeze:()=>{writeFrozen(song.id,null);renderAbc();},
     chart:chart?{content:chart.draft||chart.doc.content,music:chart.doc.music,documentId:chart.doc.id,revision:chart.doc.revision}:null,
@@ -983,15 +1056,33 @@ function noteHistory(before,after){
   const n=Math.abs(to-from),name=currentSong()?.title,where=name?` in ${name}`:'';
   const text=to<from?(n===1?`Undid “${labels[from]}”${where}.`:`Undid ${n} changes${where}, back to before “${labels[to+1]}”.`)
     :(n===1?`Redid “${labels[to]}”${where}.`:`Redid ${n} changes${where}, up to “${labels[to]}”.`);
+  showHistoryNote(text,to<from,()=>historyAction('goto',from));
+}
+/** The note after an undo or redo: what happened, by name, and a button to go back. undid: whether it was an undo. */
+function showHistoryNote(text,undid,back){
   $('history-note-text').textContent=text;
-  const back=$('history-note-back');back.textContent=to<from?'Redo':'Undo';
-  back.title=to<from?'Put back what was just undone':'Undo what was just redone';
-  back.onclick=()=>{hideHistoryNote();historyAction('goto',from);};
+  const button=$('history-note-back');button.textContent=undid?'Redo':'Undo';
+  button.title=undid?'Put back what was just undone':'Undo what was just redone';
+  button.onclick=()=>{hideHistoryNote();back();};
   $('history-note').classList.remove('hidden');clearTimeout(historyNoteTimer);historyNoteTimer=setTimeout(hideHistoryNote,8000);
+}
+// ---- the Perform tab's history, through the same Undo, Redo and History as every view
+function syncPrepareHistory(){
+  let h=null;try{h=performanceApp.history;}catch{return;}   // before the Perform tab exists, at startup
+  if(!h)return;
+  $('undo').disabled=!h.canUndo;$('redo').disabled=!h.canRedo;
+  $('undo').dataset.tip=h.undoLabels[0]?`Undo: ${h.undoLabels[0]}.`:'Undo the last change.';$('redo').dataset.tip=h.redoLabels[0]?`Redo: ${h.redoLabels[0]}.`:'Put back what you just undid.';
+  if($('history-menu').open)renderHistoryMenu();
+}
+function notePrepareStep({undid,count,label}){
+  const h=performanceApp.history;if(!h||!label)return;
+  const text=undid?(count===1?`Undid “${label}”.`:`Undid ${count} changes, back to before “${label}”.`):(count===1?`Redid “${label}”.`:`Redid ${count} changes, up to “${label}”.`);
+  showHistoryNote(text,undid,()=>performanceApp.history?.go(undid?count:-count));
 }
 function hideHistoryNote(){clearTimeout(historyNoteTimer);$('history-note').classList.add('hidden');}
 // The History menu: the changes after "Now" (to redo) above it, the ones before it (to undo) below, newest nearest; a step goes there at once.
 function renderHistoryMenu(){
+  if(performanceApp.history){renderPrepareHistoryMenu(performanceApp.history);return;}
   const pop=$('history-pop'),record=currentRecord(),doc=record?.doc,labels=doc?.history||[],at=doc?.cursor??0;
   const item=(text,steps,title,go)=>{const b=document.createElement('button');b.type='button';b.className='text-button';b.title=title;
     b.append(document.createTextNode(text));const s=document.createElement('small');s.textContent=steps===1?'1 step':`${steps} steps`;b.append(s);
@@ -1006,6 +1097,19 @@ function renderHistoryMenu(){
   for(let p=at;p>=last;p--)item(p===at?`Undo “${labels[p]}”`:`Undo back through “${labels[p]}”`,at-p+1,
     `Undo ${p===at?'this change':`this change and the ${at-p} after it`}. Redo, or this menu, can put ${p===at?'it':'them'} back`,p-1);
   if(last>1)line('more-label',`${last-1} older change${last-1===1?'':'s'}: undo back to the last one here, then open History again.`);
+}
+/** The same menu for the Perform tab: redo steps above Now, undo steps below, newest nearest. */
+function renderPrepareHistoryMenu(h){
+  const pop=$('history-pop');pop.replaceChildren();
+  const item=(text,steps,title,go)=>{const b=document.createElement('button');b.type='button';b.className='text-button';b.title=title;
+    b.append(document.createTextNode(text));const small=document.createElement('small');small.textContent=steps===1?'1 step':`${steps} steps`;b.append(small);
+    b.onclick=()=>{$('history-menu').open=false;h.go(go);};pop.append(b);};
+  const line=(className,text)=>{const p=document.createElement('p');p.className=className;p.textContent=text;pop.append(p);};
+  const undo=h.undoLabels,redo=h.redoLabels;
+  if(!undo.length&&!redo.length){line('more-label','No changes yet. Your edits to this arrangement show up here by name.');return;}
+  for(let n=Math.min(redo.length,10);n>=1;n--)item(`Redo up to “${redo[n-1]}”`,n,`Put back ${n===1?'this change':`the ${n} changes up to and including this one`}`,n);
+  line('history-now','Now');
+  for(let n=1;n<=Math.min(undo.length,20);n++)item(n===1?`Undo “${undo[0]}”`:`Undo back through “${undo[n-1]}”`,n,`Undo ${n===1?'this change':`this change and the ${n-1} after it`}. Redo, or this menu, can put ${n===1?'it':'them'} back`,-n);
 }
 $('history-menu').addEventListener('toggle',()=>{if($('history-menu').open)renderHistoryMenu();});
 async function updateTitle(){
@@ -1077,6 +1181,7 @@ for(const id of TITLE_NODES){
   node.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();event.target.blur();}else if(event.key==='Escape'){event.target.textContent=currentSong()?.title||'';$('song-title').value=currentSong()?.title||'';event.target.blur();}};
 }
 
+$('midi-setup').onclick=()=>{$('settings-menu').open=false;performanceApp.openMidiSetup();};
 // Check for updates: only when asked, and it only says what it found (update_check.py). Getting a new version stays in your hands.
 $('check-updates').onclick=async()=>{
   $('settings-menu').open=false;
@@ -1090,7 +1195,7 @@ $('check-updates').onclick=async()=>{
   await askChoice({title:r.state==='current'?'You’re up to date':r.state==='none'?'Nothing newer yet':'Couldn’t check for updates',message:r.state==='current'?[`Version ${r.current} is the latest.`]:[r.reason,yours],cancel:'OK',choices:[]});
 };
 $('model-attribution').onclick=()=>openModelAttribution(model.state?.engine?.model,model.state?.models?.models||[]);
-$('song-timing').onclick=async()=>{$('more-menu').open=false;try{await commitUiDrafts();const record=currentRecord();if(record?.doc.kind!=='chart')throw new Error('Choose a Song chart for timing controls.');const id=record.doc.id;openSongTiming({metadata:{timing:record.doc.timing_binding.overrides},onSave:async metadata=>{if(model.document!==id)throw new Error('Selected chart changed.');await window.chordBuddyFlush();const fresh=currentRecord().doc;await api('/api/documents/'+id+'/timing',{timing:metadata.timing,revision:fresh.revision});await refreshSongDetail(model.song,true);renderDocument();}});}catch(error){showError(error);}};
+$('song-timing').onclick=async()=>{$('settings-menu').open=false;try{await commitUiDrafts();const record=currentRecord();if(record?.doc.kind!=='chart')throw new Error('Choose a Song chart for timing controls.');const id=record.doc.id;openSongTiming({metadata:{timing:record.doc.timing_binding.overrides},onSave:async metadata=>{if(model.document!==id)throw new Error('Selected chart changed.');await window.chordBuddyFlush();const fresh=currentRecord().doc;await api('/api/documents/'+id+'/timing',{timing:metadata.timing,revision:fresh.revision});await refreshSongDetail(model.song,true);renderDocument();}});}catch(error){showError(error);}};
 $('transcription-history').onclick=async()=>{
   const songId=model.song;
   try{const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving your edits before opening a previous transcription.');
@@ -1213,7 +1318,7 @@ async function trashSong(id){
  }catch(error){showError(error);}
 }
 $('delete-song').onclick=async()=>{
- $('more-menu').open=false;const song=currentSong();if(!song)return;
+ $('settings-menu').open=false;const song=currentSong();if(!song)return;
  const answer=await askChoice({title:'Delete “'+song.title+'”?',message:['It moves to the Trash. Nothing is erased yet: you can restore it, or delete it forever from the Trash.'],choices:[{id:'trash',label:'Move to Trash',kind:'danger'}]});
  if(answer==='trash')await trashSong(song.id);
 };
@@ -1229,8 +1334,8 @@ $('trash-open').onclick=()=>openTrash({
 $('lock-cta').onclick=()=>{const job=analysisJobFor(currentSong());(job&&isJobActive(job)?$('cancel-job'):$('transcribe')).click();};
 $('cancel-job').onclick=async()=>{try{const job=model.state?.job;if(job&&!isJobActive(job)){model.dismissedJob=jobKey(job);renderJob();return;}const path=['analysis','rhythm'].includes(job?.kind)?'/api/analysis/'+job.id+'/cancel':job?.kind==='separation'?'/api/separation/cancel':'/api/cancel';await api(path,job?.kind==='separation'?{job_id:job.id}:{});await refreshState();}catch(error){showError(error);}};
 $('song-folder').onclick=()=>api('/api/open-folder',{song_id:model.song}).catch(showError);
-$('undo').onclick=()=>historyAction('undo');$('redo').onclick=()=>historyAction('redo');$('restore').onclick=async()=>{
- $('more-menu').open=false;const record=currentRecord();if(!record)return;
+$('undo').onclick=()=>{if(performanceApp.history)performanceApp.history.undo();else historyAction('undo');};$('redo').onclick=()=>{if(performanceApp.history)performanceApp.history.redo();else historyAction('redo');};$('restore').onclick=async()=>{
+ $('settings-menu').open=false;const record=currentRecord();if(!record)return;
  const what=record.doc.kind==='abc'?'lead sheet':record.doc.kind==='midi'?'MIDI':'chart';
  const answer=await askChoice({title:'Restore the model-predicted '+what+'?',message:['This puts the '+what+' back exactly as Chord Buddy first made it, without your edits. Undo can still bring your edits back.'],
   choices:[{id:'restore',label:'Restore',kind:'primary'}]});
@@ -1256,6 +1361,26 @@ window.chordBuddyFlush=async()=>{
   }
   return {ok:false,pending:[...model.documents.values()].filter(record=>record.dirty||record.saving||record.practiceSaveError).map(record=>({id:record.doc.id,error:record.practiceSaveError?.message || record.error?.message || 'An edit is still being saved.'}))};
 };
+// The click and the cue track: only you hear them. They follow the show when there is one, and what's open when there isn't.
+const practiceGrids=new Map();
+function practiceGrid(songId){
+  if(!practiceGrids.has(songId)){practiceGrids.set(songId,null);loadSongGrid(api,songId).then(grid=>practiceGrids.set(songId,grid)).catch(()=>practiceGrids.delete(songId));}
+  return practiceGrids.get(songId);
+}
+const monitorOut=createMonitorOut({api,transport,performer:()=>performanceApp.monitorSource(),
+  practice:()=>{const song=transport.getSnapshot().songId,grid=song?practiceGrid(song):null;return grid?{song,measures:grid.measures}:null;},
+  onProblem:message=>showError(new Error(`The click and cue track aren’t playing, and the music is fine. ${message}`))});
+const monitorStrips=mountMonitorStrips($('rack-monitor'),{api,token,prefs,transport,out:monitorOut,showError,countSource:()=>performanceApp.countSource()});
+// Play in practice: a count-in of the bars set beside the Click fader, into bar 1 from before it, or into the playhead. The music waits for the count to end.
+transport.countIn=seconds=>{
+  const bars=monitorStrips.countBars(),song=transport.getSnapshot().songId,grid=song?practiceGrid(song):null;
+  if(!bars||!grid)return null;
+  const speed=(transport.getSnapshot().rate??100)/100,count=countInOf(grid.measures,bars,speed*100,seconds);
+  if(!count.clicks.length)return null;
+  const startAt=performance.now()/1000+.35+count.lead;   // a moment ahead, so the first click is sent in time
+  monitorOut.countIn({song,until:Math.round(count.target*44100),clicks:count.clicks.map((c,i)=>({k:`p${Date.now()}:${i}`,at:startAt+(c.at-seconds)/speed,accent:c.accent}))});
+  return {startAt};
+};
 async function boot(){try{await prefs.connect(values=>api('/api/prefs',values),()=>api('/api/prefs'));practiceView.setSnapping(prefs.get('cb-snap','1')!=='0');restoreSoundWindow();await refreshState();const last=prefs.get('cb-last-song',''),song=model.state.songs.find(s=>s.id===last)||model.state.songs[0];if(song)await selectSong(song.id);else showAllSongs();}catch(error){showError(error);$('engine-status').textContent='Could not connect to the local app';}}
 boot();setInterval(async()=>{if(model.polling)return;model.polling=true;try{await refreshState();}catch(error){$('engine-status').textContent='Connection interrupted · reconnecting';}finally{model.polling=false;}},2500);
 export {transport};
@@ -1263,8 +1388,8 @@ export {transport};
 const proposalGuard=new ProposalGuard(()=>model.document);
 const rhythmButton=element('button','text-button','Attempt timing correction w/drum track');rhythmButton.type='button';
 const cleanupButton=element('button','secondary','Check empty end artifact');
-rhythmButton.hidden=true;cleanupButton.hidden=true;$('song-timing').after(rhythmButton);$('more-tools').querySelector('.more-sep').before(cleanupButton);   // Delete song stays last, on its own
-rhythmButton.addEventListener('click',()=>{$('more-menu').open=false;});
+rhythmButton.hidden=true;cleanupButton.hidden=true;$('song-timing').after(rhythmButton);$('song-danger-sep').before(cleanupButton);   // Delete song stays last, on its own
+rhythmButton.addEventListener('click',()=>{$('settings-menu').open=false;});
 rhythmButton.onclick=async()=>{try{
  const flushed=await window.chordBuddyFlush();if(!flushed.ok)throw new Error('Finish saving edits first.');const doc=currentRecord()?.doc;if(doc?.kind!=='chart')throw new Error('Choose a Song chart.');const ticket=proposalGuard.begin();const job=model.state?.job;
  if(job?.kind!=='rhythm'||job.document_id!==doc.id||job.status!=='completed'||!job.proposal_id){await api('/api/documents/'+doc.id+'/rhythm/propose',{});await refreshState();return;}

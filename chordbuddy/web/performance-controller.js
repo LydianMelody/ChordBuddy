@@ -5,7 +5,7 @@
 //   that never jumps, out(event): every timed event for the visual and MIDI adapters, onChange(snapshot), onSong(songId): show this song in the app's views.
 import {PerformanceRunner,nextBarline} from './performance-runner.js';
 import {pathSeconds} from './performance-duration.js';
-import {showSeconds,timing} from './performance-duration.js';
+import {countInOf,showSeconds,timing} from './performance-duration.js';
 import {domainOfProperty,STEM_ROLES} from './performance-actions.js';
 
 const RATE=44100;
@@ -57,10 +57,13 @@ export class ShowController{
   /** Resolve every entry of a show; nothing plays. show: {entries, target, policy, keepVisualsWhenMuted, ...}. */
   async arm(show,checks={}){
     this.status='preparing';this.show=show;this.entries=show.entries.map(e=>({...e}));this.policy=show.policy||this.policy;this.emit();
+    const run=this.stops||0;
     const items=await Promise.all(this.entries.map(async entry=>{
       try{const item=await this.loadEntry(entry);this.loaded.set(entry.id,item);return item;}
       catch(error){const item={error:error.message,song:{title:entry.title||entry.songId},compiled:{ok:false,errors:[],warnings:[],segments:[]}};this.loaded.set(entry.id,item);return item;}
     }));
+    // stopped while the songs loaded: it stays stopped, and says so, so nothing goes on to start it
+    if((this.stops||0)!==run)return {ready:false,stopped:true,blocking:[],warnings:[],notes:[]};
     this.check=preflight(items,checks);
     this.status=this.check.ready?'armed':'preparing';
     this.note('armed',{ready:this.check.ready});this.emit();
@@ -71,11 +74,18 @@ export class ShowController{
   async start({from=0,entryIndex=0}={}){
     if(this.status!=='armed')throw Error('This show isn’t ready to start.');
     this.setDeadline();
-    this.session=await this.createSession({onPosition:m=>this.position(m),onError:(e,slot,soft)=>this.engineError(e,slot,soft),onHandoff:m=>this.handedOff(m)});
+    // Stop can come while this is still getting going (Prepare stops a preview the moment you click elsewhere). Then the run ends here:
+    // a session made after the stop is closed, and the run never goes on to play, or to report a place the page would believe.
+    const run=this.stops||0,stopped=()=>(this.stops||0)!==run;
+    const session=await this.createSession({onPosition:m=>this.position(m),onError:(e,slot,soft)=>this.engineError(e,slot,soft),onHandoff:m=>this.handedOff(m)});
+    if(stopped()){session?.dispose?.();return;}
+    this.session=session;
     this.power?.acquire?.();
     await this.session.resume();
+    if(stopped())return this.abandon(session);
     this.index=Math.max(0,Math.min(this.entries.length-1,entryIndex));this.slot=0;
     await this.startCurrent(from);
+    if(stopped())return this.abandon(session);
     this.note('started');
     this.saveCheckpoint();
     this.preloadNext();
@@ -93,12 +103,16 @@ export class ShowController{
     else this.deadline=null;
   }
   async startCurrent(from=0){
-    const item=this.loaded.get(this.current.id);
-    await this.session.load(this.slot,item.manifest,from);
+    const item=this.loaded.get(this.current.id),session=this.session;
+    await session.load(this.slot,item.manifest,from);
+    if(this.session!==session)return;   // stopped while it loaded
     this.makeRunner(this.slot,item);
     this.session.mix(this.slot,item.baseMix);
+    this.countFrom=from;this.countRun=(this.countRun||0)+1;             // the count-in goes into where this run starts: bar 1, or a place on the Perform tab
+    const lead=this.countInFor(this.current,from).lead;
+    if(lead>0){this.session.leadIn?.(Math.round(lead*RATE));this.gapEnds=this.now()+lead;}
     if(from>0)this.runner.startAt(from);else this.runner.start(0);
-    this.status='playing';
+    this.status=lead>0?'gap':'playing';
     this.onSong(this.current.songId,item);
   }
   makeRunner(slot,item){
@@ -113,7 +127,7 @@ export class ShowController{
     if(!item?.manifest){this.note('next-not-ready',{next:next.id});return;}
     if(this.preloading===next.id||this.readySlot===next.id)return;
     this.preloading=next.id;
-    try{await this.session.load(slot,item.manifest,0);if(this.next?.id===next.id){this.readySlot=next.id;this.session.mix(slot,item.baseMix);this.note('next-ready',{next:next.id});}}
+    try{await this.session.load(slot,item.manifest,0);if(this.next?.id===next.id){this.readySlot=next.id;this.session.mix(slot,item.baseMix);this.note('next-ready',{next:next.id});if(this.goWhenReady===next.id){this.goWhenReady=null;this.goFromWait();}}}
     catch(error){this.note('next-load-failed',{next:next.id,error:error.message});}
     finally{if(this.preloading===next.id)this.preloading=null;this.emit();}
   }
@@ -152,6 +166,8 @@ export class ShowController{
   planHandoff(){
     const r=this.runner;if(!r||!r.current||this.handoffPlanned||r.status==='holding')return;
     if(this.pendingNext){
+      // pressed just before a bar line, what's known of the music can be a moment old, so that bar line may have gone by: the next one, then
+      if(r.current.startPlayed+(this.pendingNext.at-r.current.start)<r.played)this.pendingNext.at=nextBarline(r.measures,r.source+256)??r.grid.frames;
       const at=this.pendingNext.at;
       const until=r.current.startPlayed+(at-r.current.start)-r.played;
       if(until>HANDOFF_WINDOW)return;
@@ -167,7 +183,13 @@ export class ShowController{
     if(t.kind==='control'||this.readySlot!==next.id){this.waitingAtEnd=true;return;}
     this.requestHandoff(end,t);
   }
-  transitionOf(entry){const t=entry.transition||this.show.transitions||{};return {kind:t.kind||'immediate',seconds:Number.isFinite(t.seconds)?t.seconds:0,countIn:Number.isFinite(t.countIn)?t.countIn:0,expected:t.expected};}
+  /** An entry's count-in: how long it is, and the silence it needs before the music. */
+  countInFor(entry,from=0){
+    const t=entry?.transition||this.show?.transitions||{},item=entry&&this.loaded.get(entry.id);
+    const own=t.countBars!==undefined||t.countBeats!==undefined;     // the set list gave this song its own; otherwise the arrangement's
+    return countInOf(item?.grid?.measures,own?t:item?.performance?.countBars??this.songCount?.(entry.songId)??0,item?.compiled?.initialState?.rate??100,from/RATE);
+  }
+  transitionOf(entry){const t=entry.transition||this.show.transitions||{};return {kind:t.kind||'immediate',seconds:Number.isFinite(t.seconds)?t.seconds:0,countIn:(Number.isFinite(t.countIn)?t.countIn:0)+this.countInFor(entry).lead,expected:t.expected};}
   requestHandoff(at,transition=null){
     const r=this.runner,next=this.next;if(!next||this.readySlot!==next.id)return;
     const t=transition||{...this.transitionOf(next),seconds:this.transitionOf(next).kind==='gap'?this.transitionOf(next).seconds:0};
@@ -203,7 +225,7 @@ export class ShowController{
     if(carried)for(const [property,value] of carried)this.runner.overrides.set(property,value);
     this.saveCheckpoint();
     // The next song's first sound comes after the gap: the worklet holds its start until then.
-    this.runner.start(0);
+    this.countFrom=0;this.countRun=(this.countRun||0)+1;this.runner.start(0);
     this.status=m.gap>0?'gap':'playing';
     if(m.gap>0)this.note('gap-started',{seconds:m.gap/RATE});this.gapEnds=m.gap>0?this.now()+m.gap/RATE:null;
     this.onSong(this.current.songId,item);
@@ -250,12 +272,20 @@ export class ShowController{
     if(this.beforePause==='gap'){this.gapEnds=this.now()+this.gapLeftAtPause;this.session?.resume?.();}
     this.note('resumed');this.emit();
   }
+  /** A start that was stopped part way: whatever it got going is shut down, and it stays stopped. */
+  abandon(session){
+    this.runner?.stop();this.status='stopped';this.power?.release?.();
+    session?.dispose?.();if(this.session===session)this.session=null;
+    this.out({type:'cleanup'});this.emit();
+  }
   /** Stop everything now. Never locked, never quantized. */
   stop(){
+    this.stops=(this.stops||0)+1;
     this.runner?.stop();if(this.runner){this.runner.pendingLoop=null;this.runner.pendingNav=null;}this.pendingNext=null;this.status='stopped';this.power?.release?.();this.note('stopped');this.checkpoint?.clear?.();
     this.session?.dispose?.();this.session=null;this.out({type:'cleanup'});this.emit();
   }
-  pressLoop(kind){return this.runner?.pressLoop(kind)??null;}
+  pressLoop(kind,options){return this.runner?.pressLoop(kind,options)??null;}
+  nudge(property,value){return this.runner?.nudge(property,value)??{accepted:false,reason:'Nothing is playing.'};}
   exitLoop(){return this.runner?.pressExit()??null;}
   navigate(frame){return this.runner?.navigate(frame)??null;}
   stepBars(direction){return this.runner?.stepBars(direction)??null;}
@@ -287,6 +317,28 @@ export class ShowController{
     if(this.readySlot!==this.next.id)this.preloadNext();
     this.planHandoff();this.emit();
     return {type:'next',boundary:at};
+  }
+  /** Go to any song, in the set or not, the way Next song goes: at the next bar line, or at once from a wait. One further down the set comes up to next, and the songs in between
+   *  stay on the set after it. One already played, or not in the set, is added for tonight, with the arrangement it had if it was played earlier. The saved set list isn't changed. */
+  async goToSong(songId){
+    if(this.current?.songId===songId)return null;
+    const ahead=this.entries.slice(this.index+1),found=ahead.find(e=>e.songId===songId);
+    if(found)this.setQueue([found.id,...ahead.filter(e=>e!==found).map(e=>e.id)]);
+    else{
+      const earlier=this.entries.find(e=>e.songId===songId);
+      await this.addEntry({id:`live-${Date.now().toString(36)}`,songId,performanceId:earlier?.performanceId??null,revision:earlier?.revision},this.index+1);
+    }
+    const next=this.next;
+    if(!this.loaded.get(next?.id)?.manifest){
+      if(!found&&next)this.removeEntry(next.id);
+      throw Error('That song can’t play yet: it needs to be analyzed first. The show carries on.');
+    }
+    this.note('go-to-song',{songId,entry:next.id});
+    if(this.waitingAtEnd||this.status==='waiting'||this.runner?.status==='holding'){
+      if(this.readySlot===next.id)return this.goFromWait();
+      this.goWhenReady=next.id;return {type:'next',boundary:null};
+    }
+    return this.nextSong();
   }
   cancelNext(){
     if(!this.pendingNext)return false;

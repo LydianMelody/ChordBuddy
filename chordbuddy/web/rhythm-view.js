@@ -17,7 +17,7 @@ export function renderRhythmPreview({preview,busy=false},handlers){
  for(const change of preview.change_details||[]){const item=document.createElement('li');item.textContent=`Bar ${change.number}: boundary shift ${((change.after_start-change.before_start)*1000).toFixed(1)} ms; largest beat shift ${(change.maximum_beat_shift_seconds*1000).toFixed(1)} ms`;details.append(item);}dialog.append(details);
  const actions=[];
  for(const choice of rhythmChoices(preview.has_manual_rhythm)){
-  const button=document.createElement('button');button.textContent=choice.label;button.disabled=choice.policy!==null&&(busy||!preview.changes);actions.push(button);dialog.append(button);
+  const button=document.createElement('button');button.textContent=choice.label;if(!choice.policy)button.className='btn-cancel';button.disabled=choice.policy!==null&&(busy||!preview.changes);actions.push(button);dialog.append(button);
   button.onclick=async()=>{if(!choice.policy){handlers.cancel();dialog.close();return;}actions.forEach(b=>b.disabled=true);try{
    const candidate=await handlers.preview(choice.policy);
    if(!candidate)return;

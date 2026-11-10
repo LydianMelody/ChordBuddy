@@ -31,13 +31,17 @@ export async function loadSongGrid(api,songId){
       trim=section=>sectionLoopRange(section,measures,{...fades,musicStart:measures[0].start});
     }
   }catch{/* no waveform: R simply loops the whole section */}
-  return {song:detail.song,measures,sections,manifest,frames:manifest?.frames??Math.round(measures.at(-1).end*RATE),trim,cues:doc.content?.cues||[]};
+  // the song's own tempo, for a tempo flag: what the chart shows (its timing), and whether it's set as one steady tempo
+  const tempo={bpm:doc.music?.timing?.bpm??null,constant:!!detail.metadata?.timing?.constant_tempo};
+  return {song:detail.song,measures,sections,manifest,tempo,frames:manifest?.frames??Math.round(measures.at(-1).end*RATE),trim,cues:doc.content?.cues||[],chords:doc.content?.chords||[]};
 }
 
 /** One show entry, ready for the controller. An entry with no performance plays the Original arrangement. */
 export async function loadEntry(api,entry){
   const grid=await loadSongGrid(api,entry.songId);
-  const performance=entry.performanceId?(await api(`/api/performance/${encodeURIComponent(entry.performanceId)}?revision=${entry.revision}`)).body:newPerformance({songId:entry.songId,id:'original'});
+  // an arrangement plays as it is now in Prepare, unsaved changes included: never an older version than the one you're working on
+  const current=entry.performanceId?await api(`/api/performance/${encodeURIComponent(entry.performanceId)}`):null;
+  const performance=current?(current.draft??current.body):newPerformance({songId:entry.songId,id:'original'});
   const compiled=compilePerformance(performance,{measures:grid.measures,frames:grid.frames});
   return {song:grid.song,performance,compiled,grid:{measures:grid.measures,frames:grid.frames},sections:grid.sections,manifest:grid.manifest,trim:grid.trim,baseMix:defaultMix(),cues:grid.cues};
 }

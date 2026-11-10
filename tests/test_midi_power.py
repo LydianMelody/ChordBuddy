@@ -280,3 +280,17 @@ def test_clock_proves_a_device_is_reaching_us_and_never_counts_as_a_press():
     assert midi.read_events()['events']==[],'none of those is a control'
     seen=midi.status()['clock_in']['Line 6 Helix']
     assert seen['pulses']==48 and seen['seconds_ago']<1
+
+
+def test_a_devices_own_clock_tells_its_real_tempo():
+    api=FakeWinrtApi();midi=service_on(backend(api));midi.connect('Line 6 Helix',output=False)
+    now=[100.0];midi.clock=lambda:now[0]
+    def pulses(count,bpm):
+        for _ in range(count):
+            api.port.handler(None,FakeArgs([0xF8]));now[0]+=60/bpm/24
+    pulses(10,120)
+    assert midi.status()['clock_in']['Line 6 Helix']['bpm'] is None,'not enough to tell yet'
+    pulses(200,120)
+    assert abs(midi.status()['clock_in']['Line 6 Helix']['bpm']-120)<.01
+    pulses(200,133)
+    assert abs(midi.status()['clock_in']['Line 6 Helix']['bpm']-133)<.01,'the last four beats, not an average of everything'

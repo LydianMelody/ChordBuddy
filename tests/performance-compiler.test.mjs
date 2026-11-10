@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {newPerformance,addRepeat,address,editPass,copyPreviousPass,resetPass,movePass,removePass,setPlays,customizedPasses,editShared,loopKey} from '../chordbuddy/web/performance-model.js';
 import {compilePerformance,furtherPass,gridFingerprint,validBeatLengths,endForBeats,addressPosition,RATE} from '../chordbuddy/web/performance-compiler.js';
 import {pathSeconds,musicSeconds,showSeconds,timing,clockText,spareText} from '../chordbuddy/web/performance-duration.js';
-import {checkAction,describeAction,writesOf,ACTIONS,mixFromState,domainOfProperty} from '../chordbuddy/web/performance-actions.js';
+import {checkAction,describeAction,writesOf,ACTIONS,mixFromState,domainOfProperty,helixPresetName} from '../chordbuddy/web/performance-actions.js';
 import {defaultMix} from '../chordbuddy/web/pcm-mixer-core.js';
 
 // Bars of 2 seconds at 4 beats, unless told otherwise: a pickup, and an odd 3-beat bar, are easy to add.
@@ -228,8 +228,10 @@ test('Helix: human numbers in the editor, wire numbers on the wire, in the docum
  const a={type:'midi.helix',device:'helix',channel:1,setlist:2,preset:5,snapshot:3};
  assert.equal(checkAction(a),null);
  assert.deepEqual(ACTIONS['midi.helix'].bytes(a),[[0xB0,32,1],[0xC0,4],[0xB0,69,2]]);
- assert.equal(checkAction({...a,snapshot:9}),'Setlists run 1–8, presets 1–128, snapshots 1–8.');
+ assert.equal(checkAction({...a,snapshot:9}),'Setlists run 1–8, presets 1A–32D, snapshots 1–8.');
  assert.match(describeAction({type:'midi.helix',device:'helix',channel:1,snapshot:3}),/Helix: Snapshot 3/);
+ assert.deepEqual([1,2,4,5,8,9,128].map(helixPresetName),['1A','1B','1D','2A','2D','3A','32D'],'named the way the Helix shows them');
+ assert.match(describeAction({type:'midi.helix',device:'helix',channel:1,preset:6}),/Helix: Preset 2B/);
 });
 
 test('a state becomes a mixer setting, leaving what it never set', () => {

@@ -78,3 +78,26 @@ test('a song analyzed without stems plays its recording: the player is told to u
  assert.equal(transport.getSnapshot().stems,true);assert.equal(transport.getSnapshot().sourceRunId,'r');
  await transport.play();assert.equal(calls.filter(c=>c[0]==='mode').at(-1)[1],'stems');
 });
+test('with a plan to follow, Play goes to it from the current position; without one it plays as usual',async()=>{
+ const {transport,calls,load}=fixture();await load();await transport.seek(12);
+ const asked=[];transport.planPlay=seconds=>{asked.push(seconds);return true;};
+ await transport.play();assert.deepEqual(asked,[12]);assert.ok(!calls.some(c=>c[0]==='prime'));assert.equal(transport.getSnapshot().playIntent,false);
+ transport.planPlay=()=>false;await transport.play();assert.equal(transport.getSnapshot().playIntent,true);assert.ok(calls.some(c=>c[0]==='prime'));
+});
+test('Play from the very end of a stopped song starts it over; anywhere else it plays from there',async()=>{
+ const {transport,calls,load}=fixture();await load();
+ await transport.seek(99.9);assert.equal(transport.getSnapshot().seconds,99.9);
+ await transport.play();
+ assert.equal(transport.getSnapshot().seconds,0);assert.equal(calls.find(c=>c[0]==='prime')[2],0);
+ const other=fixture();await other.load();await other.transport.seek(99);await other.transport.play();
+ assert.equal(other.transport.getSnapshot().seconds,99);
+});
+test('during a show the player bar goes to the show: seeks jump, L and R loop, a dragged range says why it cannot',async()=>{
+ const {transport}=fixture(),got=[];
+ transport.attachPerformer({navigate:f=>got.push(['navigate',f]),pressLoop:k=>got.push(['loop',k]),exitLoop:()=>got.push(['exit']),pause(){},resume(){}});
+ await transport.seek(10);
+ await transport.setLoop({enabled:true,start:1,end:2,implicit:true,kind:'bars'});
+ await transport.setLoop(null);
+ await assert.rejects(transport.setLoop({enabled:true,start:1,end:5}),/L loops four bars and R loops the section/);
+ assert.deepEqual(got,[['navigate',441000],['loop','bars'],['exit']]);
+});

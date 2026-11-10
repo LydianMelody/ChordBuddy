@@ -84,7 +84,7 @@ function cueApplies(cue,{passId,visit}){
   return true;
 }
 function compileCue(cue,measures,rank=1){
-  return {id:cue.id,frame:addressFrame(measures,cue.at),action:cue.action,order:cue.order,rank,leadMs:cue.leadMs??0,oneShot:isOneShot(cue.action)};
+  return {id:cue.id,frame:addressFrame(measures,cue.at),action:cue.action,order:cue.order,rank,leadMs:cue.leadMs??0,oneShot:isOneShot(cue.action),first:!!cue.when?.first};
 }
 
 function conflicts(actions,errors,segmentKey){
@@ -106,7 +106,8 @@ function passSegment({performance,measures,span,pass,index,visit,live,further=fa
   const inside=source.filter(c=>{const f=addressFrame(measures,c.at);return f!==null&&f>=start&&f<end;});
   const actions=[];
   for(const a of pass.entry||[])actions.push({id:`${pass.id||'further'}:entry:${actions.length}`,frame:start,action:a,rank:0,leadMs:0,oneShot:isOneShot(a)});
-  for(const c of inside)if(cueApplies(c,{passId:pass.id,visit}))actions.push(compileCue(c,measures));
+  // "the first time only" on a song-wide action means the first pass of the first visit; on a pass's own action, that pass the first visit
+  for(const c of inside)if(cueApplies(c,{passId:pass.id,visit})&&!(c.when?.first&&!pass.program&&index>0))actions.push(compileCue(c,measures));
   const sorted=sortActions(actions);
   if(errors)conflicts(sorted,errors,region.id);
   return {kind:'music',key:`${region.id}/${further?`further-${index}`:pass.id}/${visit}`,start,end,regionId:region.id,passId:further?null:pass.id,passIndex:index,visit,live,family:region.family,further,actions:sorted};
@@ -132,6 +133,28 @@ export function attachStates(segments,initial=emptyState()){
     for(const a of segment.actions||[])if(!a.oneShot)state=applyToState(state,a.action);
   }
   return state;
+}
+
+/** A mixer change that fades gets a companion action, placed at the mixer's last planned change (or the start of the song), which runs the fade through to it.
+ *  Along the path, so it knows repeats. The plan itself still changes at the flag, so a jump always lands on the right state. */
+export function addGlides(segments){
+  let walked=0,previous=null;const first=segments.find(s=>s.kind==='music');
+  for(const segment of segments){
+    if(segment.kind!=='music')continue;
+    const adding=[];
+    for(const a of segment.actions){
+      if(a.action.type!=='mix.set')continue;
+      const at=walked+(a.frame-segment.start);
+      if(a.action.move==='glide'){
+        const from=previous||{segment:first,frame:first.start,at:0},frames=at-from.at;
+        if(frames>0)(from.segment===segment?adding:from.segment.actions).push({id:`${a.id}:glide`,frame:from.frame,action:{type:'mix.glide',target:a.action,frames},rank:9,leadMs:0,oneShot:false,glide:true});
+      }
+      previous={segment,frame:a.frame,at};
+    }
+    if(adding.length)segment.actions.push(...adding);
+    walked+=segment.end-segment.start;
+  }
+  for(const segment of segments)if(segment.kind==='music')segment.actions=sortActions(segment.actions);
 }
 
 /**
@@ -210,6 +233,7 @@ export function compilePerformance(performance,{measures,frames}){
   }
   // onExit runs where the region ends, whatever comes next: fold it into the state walk by placing it on the following segment.
   segments.forEach((s,i)=>{if(s.onExit){const after=segments[i+1];if(after?.kind==='music')after.actions=[...s.onExit.map(a=>({...a,frame:after.start,rank:0})),...after.actions];}});
+  addGlides(segments);
   const initialState=(performance.initial||[]).reduce(applyToState,emptyState());
   attachStates(segments,initialState);
   if(moved&&!errors.length)warnings.push({code:'moved',message:'The song’s bars changed since this performance was saved. Check that its actions are still in the right places.',ref:null});

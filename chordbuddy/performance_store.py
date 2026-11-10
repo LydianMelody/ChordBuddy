@@ -235,8 +235,8 @@ class PerformanceStore:
                 key=(entry['performanceId'],entry['revision'])
                 if key in seen:continue                    # the same arrangement used twice travels once
                 seen.add(key)
-                saved=self.performance(*key)
-                performances.append({'id':key[0],'revision':key[1],'body':saved['body']})
+                current=self.performance(key[0])           # a show plays each arrangement as it is now, unsaved changes and all, so that's what travels
+                performances.append({'id':key[0],'revision':key[1],'body':current['draft'] or current['body']})
         visuals=self._show_visuals([p['body'] for p in performances],list(songs),patches)
         return {'format':'chordbuddy-show','version':SCHEMA,'show':record['body'],'performances':performances,'songs':list(songs.values()),'visuals':visuals}
 

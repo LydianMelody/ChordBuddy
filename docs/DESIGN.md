@@ -17,7 +17,7 @@ Songs and everything you change live in the `Data` folder next to the app (or th
 
 - The imported recording and the models' original output are never overwritten.
 - Every edit is saved as a revision, so Undo and Redo survive closing the app.
-- Each analysis is kept. **Previous transcriptions** (in the ⋯ menu) opens an earlier one with its own edits and history.
+- Each analysis is kept. **Previous transcriptions** (in Settings) opens an earlier one with its own edits and history.
 - Deleted songs go to the trash first and can be restored.
 - **Whole song · zip** (`song_transfer.py`, `song_extras.py`) carries everything about one song: rows, files, your MIDI, its visual connections, look and arrangements. Importing only adds, and a damaged extra is left out without losing the song.
 

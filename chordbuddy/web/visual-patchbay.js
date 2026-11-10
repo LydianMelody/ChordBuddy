@@ -38,7 +38,7 @@ export function conversion(from,to){
  *  now, or null (the defaults), so Undo can put it back exactly. onChoose(visual id): show another visualization (every visualizer
  *  follows). onPopOut(): open the visualizer in its own window. onClose(): back to the chart.
  *  Its preview (a corner of the page) is where the visualizer draws: the returned `preview` element. */
-export function mountPatchBay(container,{onSave,stored=()=>null,onChoose=()=>{},onPopOut=()=>{},onClose=()=>{}}){
+export function mountPatchBay(container,{onSave,stored=()=>null,onChoose=()=>{},defaultVisualMenu=null,onPopOut=()=>{},onClose=()=>{}}){
   const panel=el('div','vx');panel.setAttribute('role','region');panel.setAttribute('aria-label','Advanced Visuals Editor');
   // ---- the bar along the top: which visualization, whose patch (this song's or every song's), Undo/Redo, the defaults, Pop out, Close ----
   const bar=el('header','vx-bar'),title=withIcon(el('h2','vx-title','Visuals editor'),'layers');
@@ -59,7 +59,8 @@ export function mountPatchBay(container,{onSave,stored=()=>null,onChoose=()=>{},
   const popOut=button('btn vx-popout','Pop out','expand','Open the visualizer in its own window, to put on another monitor or full screen. The preview here keeps going.');
   const close=button('btn sq vx-close','','x','Close the editor and go back to the chart (your changes are already saved)');close.setAttribute('aria-label','Close the editor');
   popOut.onclick=()=>onPopOut();close.onclick=()=>onClose();
-  bar.append(title,pick,which,scope,el('span','vx-gap'),undoButton,redoButton,reset,popOut,close);
+  const defaultPick=el('label','vx-pick');defaultPick.title='The visualization this song opens with. The same choice as the menu under the mixer.';if(defaultVisualMenu)defaultPick.append(el('span','vx-cap','Default Visualization'),defaultVisualMenu);
+  bar.append(title,pick,defaultPick,which,scope,el('span','vx-gap'),undoButton,redoButton,reset,popOut,close);
   const note=el('p','vx-note');
   // ---- three columns: the sources, the visualization's inputs, and the preview with the chosen input's settings under it ----
   const body=el('div','vx-body');

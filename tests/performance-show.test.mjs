@@ -131,6 +131,35 @@ test('Next song goes at the next barline, and can be cancelled', async () => {
  assert.equal(out[RATE*8+500],1000000+500);
 });
 
+test('going to any song: further down the set, not in it, or already played', async () => {
+ const r=rig();await r.c.arm(show([entryOf('e1','a'),entryOf('e2','b'),entryOf('e3','c')]));await r.c.start();await flush();
+ r.session.run(RATE*3);await flush();
+ assert.equal((await r.c.goToSong('a')),null,'already on it');
+ assert.equal((await r.c.goToSong('c')).boundary,RATE*4);
+ assert.deepEqual(r.c.entries.map(e=>e.id),['e1','e3','e2'],'the one in between stays, after it');
+ assert.ok(r.c.pendingNext);
+ r.session.run(RATE*3);await flush();
+ assert.equal(r.c.current.id,'e3');
+ await r.c.goToSong('a');await flush();
+ assert.equal(r.c.next.songId,'a','played earlier, it comes again');assert.notEqual(r.c.next.id,'e1');
+ assert.deepEqual(r.c.entries.map(e=>e.songId),['a','c','a','b']);
+ for(let i=0;i<8;i++){r.session.run(RATE);await flush();}   // a second at a time: the song it's getting ready has to arrive
+ assert.equal(r.c.current.songId,'a');
+});
+test('Next song pressed as a bar line goes by aims at the next one, and never gets stuck', async () => {
+ const r=rig();await r.c.arm(show([entryOf('e1','a'),entryOf('e2','b')]));await r.c.start();await flush();
+ r.session.run(RATE*3);await flush();
+ r.c.nextSong();r.c.pendingNext.at=RATE*2;   // already behind the music
+ for(let i=0;i<8;i++){r.session.run(RATE);await flush();}
+ assert.equal(r.c.current.id,'e2');
+});
+test('a song that can’t play is turned away, and the show carries on as it was', async () => {
+ const r=rig();await r.c.arm(show([entryOf('e1','a'),entryOf('e2','b')]));await r.c.start();await flush();
+ const load=r.c.loadEntry;r.c.loadEntry=async()=>{throw Error('no analysis');};
+ await assert.rejects(r.c.goToSong('nothing'),/analyzed/);
+ r.c.loadEntry=load;
+ assert.deepEqual(r.c.entries.map(e=>e.id),['e1','e2']);assert.equal(r.c.pendingNext,null);
+});
 test('add, remove and reorder while playing: totals change at once and the song playing stays put', async () => {
  const r=rig();await r.c.arm(show([entryOf('e1','a'),entryOf('e2','b')]));await r.c.start();await flush();
  r.session.run(RATE*5);await flush();
@@ -312,5 +341,33 @@ test('a timed hold stops counting while paused', async () => {
 test('an empty show cannot start, and says why', async () => {
  const r=rig();const check=await r.c.arm(show([]));
  assert.equal(check.ready,false);assert.match(check.blocking[0],/no songs/);
+ await assert.rejects(r.c.start(),/isn’t ready/);
+});
+
+test('a preview stopped while it is still starting stays stopped: its session is closed and it never plays or reports', async () => {
+ for(const when of ['session','resume','load']){
+  const r=rig();
+  await r.c.arm(show([entryOf('e1','a')]));
+  const made=r.c.createSession;let changes=0;r.c.onChange=()=>changes++;
+  r.c.createSession=async h=>{const s=await made(h);if(when==='session')r.c.stop();
+   if(when==='resume'){const resume=s.resume.bind(s);s.resume=async()=>{await resume();r.c.stop();};}
+   if(when==='load'){const load=s.load.bind(s);s.load=async(...a)=>{await load(...a);r.c.stop();};}
+   return s;};
+  await r.c.start();await flush();
+  assert.equal(r.c.status,'stopped',when);
+  assert.equal(r.c.session,null,when+': no session left running');
+  assert.equal(r.session.disposed,true,when+': the session it made was closed');
+  const seen=changes;r.session.run(RATE);await flush();
+  assert.equal(changes,seen,when+': nothing more is reported');
+ }
+});
+
+test('a show stopped while its songs load does not become ready', async () => {
+ let release;const r=rig();const load=r.c.loadEntry;
+ r.c.loadEntry=entry=>new Promise(done=>{release=()=>done(load(entry));});
+ const armed=r.c.arm(show([entryOf('e1','a')]));await flush();
+ r.c.stop();release();
+ const check=await armed;
+ assert.equal(check.stopped,true);assert.equal(r.c.status,'stopped');
  await assert.rejects(r.c.start(),/isn’t ready/);
 });

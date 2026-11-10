@@ -3,8 +3,8 @@
    plug) and the preview with the chosen input's settings. A cable's color says what kind of signal it carries. */
 
 /* while it is open, it takes the chart's place: the sidebar, the top bar's own buttons and the player stay */
-body.editing-visuals .main>:not(.top,#alert,#history-note,#visual-editor,#player){display:none!important}
-body.editing-visuals :is(#song-controls,#song-actions){display:none!important}
+body.editing-visuals .main>:not(.top,.alert-box,#history-note,#visual-editor,#player){display:none!important}
+body.editing-visuals :is(#song-controls,#song-actions,#more-tools){display:none!important}
 .visual-editor{flex:1;min-height:0;display:flex;padding:4px 0 14px}
 
 .vx{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;gap:12px;color:var(--ink);font:14px/1.4 var(--g)}

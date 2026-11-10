@@ -24,6 +24,13 @@ export function readUsual(text){
   for(const key of ['lyrics','calm'])if(typeof value[key]==='boolean')out[key]=value[key];
   return places(value,out);
 }
+/** The Default Visualization menu: [value, label] pairs. Empty means My usual look. A pinned look whose file is gone stays listed, and says so. */
+export function defaultVisualOptions(scenes,pinned,usual){
+  const usualName=scenes.find(s=>s.id===usual)?.name;
+  const options=[['',usualName?`My usual look (${usualName})`:'My usual look'],...scenes.map(s=>[s.id,s.mine?`${s.name} (My Visuals)`:s.name])];
+  if(pinned&&!scenes.some(s=>s.id===pinned.scene))options.push([pinned.scene,`${pinned.scene} (file missing, shows your usual look)`]);
+  return options;
+}
 export const writeSetup=setup=>setup&&ID.test(setup.scene)?JSON.stringify(readSetup(JSON.stringify(setup))):'';
 export const writeUsual=usual=>JSON.stringify(readUsual(JSON.stringify(usual||{})));
 // Where a panel sits: the song's own place for it, else the usual one, else null (its built-in spot).

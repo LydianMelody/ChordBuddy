@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="/visual-editor.css">
   <link rel="stylesheet" href="/performance.css">
   <link rel="stylesheet" href="/midi-import.css">
+  <link rel="stylesheet" href="/responsive.css">
   <script defer src="/vendor/abcjs-basic-min.js"></script>
   <script type="module" src="/shell.js"></script>
   <script type="module" src="/app.js"></script>
@@ -65,35 +66,18 @@
             <button type="button" class="text-button" data-export="midi">MIDI · one file, all tracks</button>
             <button type="button" class="text-button" data-export="midi-tracks">MIDI · one file per track (zip)</button>
             <button type="button" class="text-button" data-export="outputs" title="Everything SheetSage wrote for this song: beats, chords, melody, tokens and more">All SheetSage outputs (zip)</button>
-            <button type="button" class="text-button" data-export="song" title="The recording, analysis, every edit, your MIDI files, this song’s visuals and its arrangements in one zip, to import on another computer (or keep as a backup). Shows have their own export.">Whole song · zip</button>
+            <button type="button" class="text-button" data-export="song" title="The recording, analysis, every edit, your MIDI files, this song’s visuals and its arrangements in one zip, to import on another computer (or keep as a backup). Set lists have their own export.">Whole song · zip</button>
             <a id="download" class="text-button disabled" title="This view's own file, as Chord Buddy saves it">This view's file</a>
-          </div></details>
-          <details class="more" id="more-menu"><summary class="btn sq" title="More for this song: restore, earlier analyses, timing, shortcuts, delete" aria-label="More options"><span data-icon="more"></span></summary><div class="more-pop" id="more-tools">
-            <button id="restore" class="text-button" type="button" disabled>Restore model-predicted chart…</button>
-            <button id="transcription-history" class="text-button" disabled>Previous transcriptions</button>
-            <button id="transcribe" class="text-button" type="button"><em>Analyze again</em>…</button>
-            <button id="song-timing" class="text-button hidden" type="button" title="Tempo and beat grid for this song">Timing options…</button>
-            <button id="song-folder" class="text-button" type="button" title="Open this song's folder (the recording, its stems and your own MIDI files) on your computer">Open song folder</button>
-            <button id="shortcuts-open" class="text-button" type="button" title="Every keyboard shortcut (?)">Keyboard shortcuts</button>
-            <hr class="more-sep">
-            <button id="delete-song" class="text-button danger" type="button">Delete song…</button>
           </div></details>
         </div>
         <div class="actions actions-global">
-          <details class="more" id="perform-menu"><summary class="btn" title="Plan how songs play, build a show, and run it with one Start" aria-label="Perform"><span data-icon="play"></span><em>Perform</em></summary><div class="more-pop">
-            <button id="perform-prepare" class="text-button" type="button" title="Plan this song for the stage: repeats, mutes, visuals and MIDI, each at its bar. The chart stays as it is.">Prepare this song</button>
-            <button id="perform-shows" class="text-button" type="button" title="Put songs in order for a set, with their arrangements, gaps and how long it all takes">Shows</button>
-            <button id="perform-stage" class="text-button" type="button" title="The stage view of the running show: where you are, what’s next, and the time left">Perform view</button>
-          </div></details>
           <details class="more" id="visual-menu"><summary class="btn" title="Show the visualizer, stream it, or edit how it reacts" aria-label="Visualizer"><span data-icon="eye"></span><em>Visualizer</em></summary><div class="more-pop">
             <button id="visual-editor-open" class="text-button" type="button" title="Choose which sounds and signals move each part of a visualization, with a live preview. It takes the place of the chart until you close it.">Advanced Visuals Editor</button>
             <button id="visualizer-window" class="text-button" type="button" title="Open the visualizer in its own window (it can go full screen on any monitor)">In its own window</button>
             <button id="visualizer-full" class="text-button" type="button" title="Show the visualizer full screen on this monitor (Esc to leave)">Full screen here</button>
             <button id="visualizer-obs" class="text-button" type="button" title="Stream the visualizer: an address for an OBS Browser Source, with no controls on screen, and how to get the sound into OBS">Stream to OBS…</button>
-            <button id="song-visual" class="text-button" type="button" title="Choose the visualization that shows whenever this song is open">Visualization for this song…</button>
           </div></details>
-          <button id="on-air" class="btn on-air" type="button" aria-pressed="false" data-tip-title="On air" data-tip="For streaming the visualizer. While this is on, 1–9 choose the look, Y shows or hides the lyrics and C turns calm mode on or off, from the chart and MIDI views, for every visualizer, OBS included."><i aria-hidden="true"></i><em>On air</em></button>
-          <details class="more" id="settings-menu"><summary class="btn sq" title="Settings: colors, light or dark, and the models' credits" aria-label="Settings"><span data-icon="gear"></span></summary><div class="more-pop settings-pop">
+          <details class="more" id="settings-menu"><summary class="btn sq" title="Settings: colors, MIDI devices, shortcuts, and tools for this song" aria-label="Settings"><span data-icon="gear"></span></summary><div class="more-pop settings-pop">
             <p class="more-label">Ink colors</p>
             <div class="themes" id="themes" title="Ink colors">
             <button data-theme-pick="tomato" style="--c1:#EE5530;--c2:#2D4FD8" title="Tomato &amp; Cobalt" aria-label="Tomato and Cobalt"></button>
@@ -101,17 +85,31 @@
             <button data-theme-pick="plum" style="--c1:#E2466B;--c2:#4A2F86" title="Rose &amp; Plum" aria-label="Rose and Plum"></button>
           </div>
             <button id="scheme-toggle" class="text-button" type="button" aria-pressed="false"><span data-icon="moon"></span><em>Dark mode</em></button>
+            <button id="midi-setup" class="text-button" type="button" title="Connect a pedal or controller, and teach its switches to run Chord Buddy, in practice or in a show">MIDI devices and foot switches</button>
+            <button id="shortcuts-open" class="text-button" type="button" title="Every keyboard shortcut (?)">Keyboard shortcuts</button>
             <button id="check-updates" class="text-button" type="button" title="See whether a newer Chord Buddy is out. It checks only when you press this, sends nothing about your songs, and never installs anything by itself.">Check for updates</button>
+            <button id="copy-run-log" class="text-button" type="button" title="Copy what happened in the last show, moment by moment, to paste into a message if something went wrong">Copy the show’s run log</button>
             <button id="model-attribution" class="text-button" type="button" title="Which models Chord Buddy uses, and who made them">Models &amp; credits</button>
+            <div id="more-tools" class="settings-song">
+              <hr class="more-sep">
+              <p class="more-label">This song</p>
+              <button id="restore" class="text-button" type="button" disabled>Restore model-predicted chart…</button>
+              <button id="transcription-history" class="text-button" disabled>Previous transcriptions</button>
+              <button id="transcribe" class="text-button" type="button"><em>Analyze again</em>…</button>
+              <button id="song-timing" class="text-button hidden" type="button" title="Tempo and beat grid for this song">Timing options…</button>
+              <button id="song-folder" class="text-button" type="button" title="Open this song's folder (the recording, its stems and your own MIDI files) on your computer">Open song folder</button>
+              <hr class="more-sep" id="song-danger-sep">
+              <button id="delete-song" class="text-button danger" type="button">Delete song…</button>
+            </div>
           </div></details>
           <button id="import-button" class="btn hot" title="Import an MP3, or a song zip exported from Chord Buddy"><span data-icon="plus"></span><em>Import</em></button>
         </div>
         </div>
         <input id="file-input" type="file" accept=".mp3,audio/mpeg,.zip,application/zip" hidden>
       </header>
-      <div id="alert" role="alert" class="alert hidden"></div>
+      <div class="alert-box"><div id="alert" role="alert" class="alert hidden"></div><button id="alert-close" class="alert-close" type="button" title="Dismiss this message" aria-label="Dismiss this message"><span data-icon="x"></span></button></div>
       <div id="history-note" role="status" class="history-note hidden"><span id="history-note-text"></span><button id="history-note-back" class="btn" type="button"></button></div>
-      <section id="job-panel" class="job-panel hidden" aria-live="polite"><div class="job-icon">♫</div><div class="job-copy"><strong id="job-title">Preparing transcription</strong><span id="job-message"></span><div class="progress-track"><div id="job-progress"></div></div></div><button id="cancel-job" class="secondary">Cancel</button></section>
+      <section id="job-panel" class="job-panel hidden" aria-live="polite"><div class="job-icon">♫</div><div class="job-copy"><strong id="job-title">Preparing transcription</strong><span id="job-message"></span><div class="progress-track"><div id="job-progress"></div></div></div><button id="cancel-job" class="secondary btn-cancel">Cancel</button></section>
       <section id="chord-model-panel" class="models-panel hidden" aria-live="polite"></section>
       <section id="models-panel" class="models-panel hidden" aria-live="polite"></section>
       <section id="library-page" class="library-page" aria-label="All songs"></section>
@@ -169,14 +167,18 @@
         <div class="zoom-pill" id="zoom-pill" role="status" title="Click to go back to 100%"></div>
       </section>
       <button id="rack-open" class="fold fold-open-right" title="Show the mixer" aria-label="Show the mixer"><span data-icon="chevronLeft"></span></button>
+      <div class="rack-column">
       <aside id="rack" class="rack" aria-label="Mixer">
         <div class="rack-head"><b><span data-icon="layers"></span>Mixer</b><span class="rack-count">7 STEMS</span><button id="rack-toggle" class="fold" title="Hide the mixer" aria-label="Hide the mixer" aria-expanded="true"><span data-icon="chevron"></span></button></div>
         <div class="presets" id="rack-presets"></div>
         <div class="strips" id="rack-strips"></div>
         <div class="master"><span data-icon="volume"></span><b>Master</b><input type="range" id="rack-master" min="0" max="100" step="1" aria-label="Master volume"><output id="rack-master-out">100</output></div>
+        <div class="monitor" id="rack-monitor"></div>
         <a id="rack-export" class="export-mix disabled" download role="button"><span data-icon="download"></span>Export this mix<small>MP3 · uses the faders above</small></a>
         <a id="rack-export-stems" class="export-mix disabled" download role="button"><span data-icon="download"></span>Export stems<small>One MP3 per stem · zipped</small></a>
       </aside>
+      <label class="rack-visual" title="The visualization this song opens with. My usual look follows whatever the visualizer last showed."><span>Default Visualization</span><select id="rack-visual" class="vx-visual"></select></label>
+      </div>
       </div>
       <footer id="player" class="player"><div id="nav-lock" class="nav-lock hidden"><span><span data-icon="lock"></span>Playback unlocks after analysis</span></div><audio id="audio" controls preload="metadata"></audio></footer>
     </main>

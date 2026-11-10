@@ -49,6 +49,7 @@
 .cue{display:inline-flex;align-items:center;gap:4px;font:italic 600 13.5px/19px var(--type);color:var(--soft);background:none;border:0;border-left:2.5px solid var(--a2);border-radius:0 4px 4px 0;padding:0 6px 0 5px;white-space:nowrap;text-align:left;cursor:pointer}
 .cue:hover{color:var(--ink)}
 .cue.now{color:var(--ink);background:var(--hl)}
+.cue.plan{border-left-color:var(--a1);border-left-style:double;border-left-width:4px}   /* a note from the arrangement playing, not the song's own */
 .cue-pass{font:700 9.5px/14px var(--m);font-style:normal;color:var(--faint);border:1.5px solid var(--faint);border-radius:4px;padding:0 3px}
 .cue-add{display:none}
 .tchord .cue-lane{position:absolute;left:-2px;bottom:100%;display:flex;margin:0 0 1px}
@@ -252,11 +253,3 @@
 @media print{.playmark{display:none}}
 /* a wrapped line of a repeated row hides the lyric lanes it has no words in (row-layout.js) */
 .lane.lane-idle{display:none}
-/* On air: a light that shows when the chart's 1–9, Y and C keys drive the visualizer */
-.btn.on-air i{width:9px;height:9px;border-radius:50%;border:2px solid currentColor;box-sizing:border-box;flex:none}
-.btn.on-air[aria-pressed="true"]{background:#D7263D;color:#fff}
-.btn.on-air[aria-pressed="true"] i{background:#fff;border-color:#fff;box-shadow:0 0 6px 1px rgba(255,255,255,.8)}
-/* the frame around the whole window while On air is on (not drawn in print or in the visualizer) */
-body.on-air-live::after{content:'';position:fixed;inset:0;z-index:9999;border:4px solid #D7263D;pointer-events:none}
-@media print{body.on-air-live::after{display:none}}
-body.on-air-live:has(.visualizer-overlay)::after{display:none}

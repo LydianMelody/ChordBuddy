@@ -11,7 +11,7 @@ const withIcon=(node,name)=>{node.insertAdjacentHTML('afterbegin',icon(name));re
  *  always there, not dragged, and its button folds it down to its title instead of hiding it. Returns {toggle(open?), setMix(mix),
  *  setLevels(frame), element (the floating panel), handle (what it is dragged by), docked, dispose()}. */
 const FOLDED='chordbuddy.editorMixerFolded';
-export function mountMixerDrawer(container,{send,docked=false}){
+export function mountMixerDrawer(container,{send,docked=false,foldable=true}){
   const drawer=el('div','visualizer-mixer'+(docked?' docked open':''));drawer.hidden=!docked;
   const rack=el('aside','rack');rack.setAttribute('aria-label','Mixer');
   const head=el('div','rack-head'),title=withIcon(el('b','','Mixer'),'layers'),close=withIcon(el('button','fold'),'chevron');
@@ -46,7 +46,8 @@ export function mountMixerDrawer(container,{send,docked=false}){
     close.title=value?'Show the mixer':'Fold the mixer down to its title';close.setAttribute('aria-label',close.title);
     try{localStorage.setItem(FOLDED,value?'1':'');}catch{}
   }
-  if(docked){head.title='';let folded=false;try{folded=!!localStorage.getItem(FOLDED);}catch{}fold(folded);}
+  if(docked&&!foldable){head.title='';close.hidden=true;}
+  else if(docked){head.title='';let folded=false;try{folded=!!localStorage.getItem(FOLDED);}catch{}fold(folded);}
   // keys inside the drawer (arrows on a fader, space on a button) belong to the drawer, not to the visualizer's shortcuts
   drawer.addEventListener('keydown',event=>{if(event.key!=='Escape'&&event.key!=='m'&&event.key!=='M')event.stopPropagation();});
 

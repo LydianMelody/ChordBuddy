@@ -265,7 +265,7 @@ function createView(container){
   const settings=()=>engravingSettings(content.engraving);
   const frozen=()=>options.frozen||null;
   // A frozen copy stays as it was sent out: nothing follows the chord chart, and nothing here is edited.
-  const editable=name=>!frozen()||name==='select'||name==='breaks';
+  const editable=name=>options.performing?.()?name==='select':(!frozen()||name==='select'||name==='breaks');   // during a show it's read: Select only
   function say(text){notices=notices.filter(n=>n.warn);if(text)notices.push({text});paintNote();}
   function change(next,label){content=next;options.onChange?.(next,label);paintScore();paintNote();}
   function patch(p,label){change({...content,engraving:{...settings(),...p}},label);}
@@ -276,7 +276,8 @@ function createView(container){
     options.dock.dataset.owner='lead';
     // Opening the score in another editor is not a tool: it is in the Export menu, behind a warning (it stops the lead sheet following
     // the chart), see openLeadElsewhere in app.js
-    renderRail(options.dock,{groups:LEAD_GROUPS,active:tool,onPick:setTool,disabled:LEAD_NAMES.filter(name=>!editable(name))});
+    if(options.performing?.()&&tool!=='select'){tool='select';options.onTool?.(tool);}
+    renderRail(options.dock,{groups:options.performing?.()?[['select']]:LEAD_GROUPS,active:tool,onPick:setTool,disabled:LEAD_NAMES.filter(name=>!editable(name))});
   }
   function setTool(next){
     if(!LEAD_NAMES.includes(next)||!editable(next))return tool;
@@ -704,6 +705,8 @@ function createView(container){
   // Draws the sheet for paper (and puts it back afterwards). The caller prints in between.
   function printMode(on){if(printing===on)return;printing=on;paintScoreNow();if(!on){markSelection();}}
   return {root,getTool:()=>tool,setTool,handleKey,openExternal,printMode,chordNodeAt,chords:()=>shownChords,showTools(){renderTools();paintNote();markSelection();},
+    /** A show's controls opened or closed: put down a tool it doesn't offer, and draw the rail again. */
+    refreshTools(){if(!editable(tool)){tool='select';options.onTool?.(tool);paintScore();}renderTools();paintNote();},
     update(next){
       if(options.key!==next.key){selection=null;tool=LEAD_DEFAULT;}
       options=next;content=next.content||{};

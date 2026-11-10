@@ -115,3 +115,12 @@ button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
 
 
 [hidden]{display:none!important}
+
+/* Every tick box in the app: square, the page's hard border and shadow, red with a white tick when on. One rule, so they all match. */
+input[type=checkbox]{appearance:none;-webkit-appearance:none;position:relative;flex:none;box-sizing:border-box;width:22px;height:22px;min-width:22px;min-height:22px;aspect-ratio:1;margin:0;padding:0;border:2.5px solid var(--ink);border-radius:6px;background:var(--page);box-shadow:2px 2px 0 var(--ink);cursor:pointer;vertical-align:middle;accent-color:auto}
+input[type=checkbox]:checked{background:var(--a1)}
+/* the tick is an L turned 45 degrees; its strokes sit low in their own box, so it is lifted to look centered */
+input[type=checkbox]:checked::after{content:'';position:absolute;left:50%;top:50%;width:10px;height:5px;border:solid var(--onA1,#fff);border-width:0 0 3px 3px;transform:translate(-50%,-50%) translateY(-2px) rotate(-45deg)}
+input[type=checkbox]:focus,input[type=checkbox]:focus-visible{box-shadow:2px 2px 0 var(--ink);border-color:var(--ink)}
+input[type=checkbox]:focus-visible{outline:2.5px dashed var(--a2);outline-offset:2px}
+input[type=checkbox]:disabled{opacity:.45;cursor:not-allowed}

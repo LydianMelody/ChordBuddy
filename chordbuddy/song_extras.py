@@ -14,6 +14,7 @@ from .visual_patches import VisualPatches
 MAX_ARRANGEMENTS=200
 MAX_REVISIONS=500
 MIDI_INDEX='my-midi/index.json'
+CUE_INDEX='my-cues/index.json'
 
 
 class SongExtras:
@@ -22,6 +23,7 @@ class SongExtras:
         self.patches=getattr(app,'visual_patches',None) or VisualPatches(app.library)
         self.performances=getattr(app,'performances',None) or PerformanceStore(app.library)
         self.user_midi=getattr(app,'user_midi',None)
+        self.cue_tracks=getattr(app,'cue_tracks',None)
 
     def _prefs(self,song_id):
         tail=':'+song_id
@@ -41,11 +43,14 @@ class SongExtras:
         count=lambda key:len(extras.get(key) or ())
         return {'midi':midi_files,'patches':count('patches'),'arrangements':count('arrangements')}
 
-    def restore(self,song_id,extras,midi_items,old_id=None):
-        """Adds what isn't here yet. midi_items: [(index item, file bytes)]. Returns how many of each came in, and how many were left out."""
+    def restore(self,song_id,extras,midi_items,old_id=None,cue=None):
+        """Adds what isn't here yet. midi_items: [(index item, file bytes)]; cue: (index item, file bytes) or None. Returns how many of each came in, and how many were left out."""
         extras=extras if isinstance(extras,dict) else {}
         done={'midi':0,'patches':0,'prefs':0,'arrangements':0,'skipped':0}
         self._restore_midi(song_id,midi_items,done)
+        if cue and self.cue_tracks is not None:
+            added,skipped=self.cue_tracks.merge(song_id,*cue)
+            done['cues']=added;done['skipped']+=skipped
         self._restore_patches(song_id,extras.get('patches'),done)
         self._restore_prefs(song_id,extras.get('prefs'),old_id,done)
         self._restore_arrangements(song_id,extras.get('arrangements'),done)
@@ -111,6 +116,21 @@ class SongExtras:
                 done['arrangements']+=1
             except (KeyError,TypeError,ValueError,AttributeError):
                 done['skipped']+=1
+
+
+def cue_item_from(archive,manifest):
+    """The song's cue track inside an open zip: (index item, bytes), or None."""
+    by_path={f['path']:f for f in manifest.get('files',[])}
+    index=by_path.get(CUE_INDEX)
+    if not index or not index.get('zip'):return None
+    try:
+        item=json.loads(archive.read(index['zip']).decode('utf-8'))
+        entry=by_path.get('my-cues/'+str(item.get('file') or ''))
+        origin=by_path.get(entry['same']) if entry and entry.get('same') else entry
+        if not origin or not origin.get('zip') or archive.getinfo(origin['zip']).file_size>250*1024*1024:return None
+        return item,archive.read(origin['zip'])
+    except (ValueError,KeyError,AttributeError,UnicodeDecodeError):
+        return None
 
 
 def midi_items_from(archive,manifest):

@@ -9,7 +9,7 @@
 //     further: the template for passes past the planned ones of a 'live' region. onExit: actions at the end of the region.
 //   jumps: [{id, at, to, times}], holds: [{id, at, seconds, expected}] (seconds null: wait for a control; expected: the planning estimate)
 // A cue's when: undefined or {every:true} on every traversal; {first:true} only on the first visit; {passes:[ids]} only in those passes.
-// Show: an ordered list of entries, each pinned to one saved revision of a performance. Entries have their own ids, so a song can appear twice.
+// Show: an ordered list of entries, each naming a performance, which plays as it is now (its draft, if it has one). `revision` is kept because saved shows name one, but it doesn't choose what plays. Entries have their own ids, so a song can appear twice.
 export const SCHEMA=1;
 export const LIVE_BUDGET=4;                     // an until-released loop is planned as four plays in all: an estimate, never a stop
 export const MAX_PLAYS=256;
@@ -63,6 +63,18 @@ export const removeRegion=(performance,regionId)=>({...clone(performance),region
 export function sharedCuesInRegion(performance,region,position){
   const from=position(region.start),to=position(region.end);
   return performance.cues.filter(c=>{const t=position(c.at);return t>=from&&t<to;});
+}
+/** A pass's own actions play only inside its repeat. Any that end up outside it (added, pasted or moved there while editing a pass) go to Every play, where they do play. */
+export function rehomeStrayCues(performance,position){
+  const next=clone(performance);let moved=0;
+  for(const region of next.regions||[]){
+    const from=position(region.start),to=position(region.end);
+    for(const pass of [...(region.passes||[]),region.further]){
+      if(!pass?.program)continue;
+      pass.program=pass.program.filter(c=>{const t=position(c.at);if(!Number.isFinite(t)||(t>=from&&t<to))return true;const {from:copiedFrom,...cue}=c;void copiedFrom;next.cues.push(cue);moved++;return false;});
+    }
+  }
+  return {performance:moved?next:performance,moved};
 }
 /** A pass's own program, copied from the shared cues on first need. */
 function ownProgram(performance,region,pass,position,uid){

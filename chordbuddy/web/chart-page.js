@@ -306,9 +306,11 @@ export function mountChartPage(root,handlers={}){
 
   // ======================= the rail, the note bar and the status line =======================
   // The rail is shared with the lead sheet and the MIDI view: whichever is showing draws its own tools in it.
+  // during a show the chart is read, not edited: no Edit or Timing tool (Play and Cue stay)
+  const locked=name=>!!handlers.performing?.()&&(name==='edit'||name==='timing');
   function renderTools(){
     dock.dataset.owner='chart';
-    renderRail(dock,{groups:[CHART_TOOLS],active:tool,onPick:name=>api.setTool(name)});
+    renderRail(dock,{groups:[CHART_TOOLS.filter(name=>!locked(name))],active:tool,onPick:name=>api.setTool(name)});
     const controls=el('div','tool-controls'),lines=[];
     if(fixing.a)fillRepeatHint(controls,lines);
     else if(folding)lines.push('Click the bar number where a part that repeats starts');
@@ -404,7 +406,7 @@ export function mountChartPage(root,handlers={}){
     if(!data)return;
     model=buildChartModel(data.content,data.music,{onsets:data.suggest?data.onsets:null});
     refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[],repeats:[],cues:[]};
-    occById=new Map(model.projection.occurrences.map(o=>[o.id,o]));cueMap=placeCues(model,data.content.cues);
+    occById=new Map(model.projection.occurrences.map(o=>[o.id,o]));cueMap=placeCues(model,[...(data.content.cues||[]),...(handlers.planNotes?.()||[])]);   // plus the notes of the arrangement playing now (they're its, not the song's)
     notices.replaceChildren();for(const w of model.warnings)notices.append(el('p','chart-notice',w));
     fixSel=fixing.a?fixSelection():{ids:new Set()};
     cutTimes=cutPoints();
@@ -559,6 +561,16 @@ export function mountChartPage(root,handlers={}){
   }
   // While a repeated part plays, its (×8) lights up and counts down the passes still to come, down to ×1!! on the last one, and gives a
   // small bump on every beat. Paused, or anywhere else, it is the plain (×8) again.
+  /** How many more times this progression plays, counting this time. A show's loop over some of its passes (on their bar lines) multiplies
+   *  them: the Solo's four passes looped four times count down from ×16, not ×4 four times over. ∞ while the loop runs until you leave it. */
+  function timesLeft(r,target,loop){
+    const passes=r.group.passes||[],p=(target.passNumber||1)-1,plain=Math.max(1,r.chunk.repeat-p);
+    if(!loop?.enabled||!('left' in loop))return plain;   // a practice loop has no count
+    const near=(a,b)=>Math.abs(a-b)<.05,first=passes.findIndex(x=>near(x.start,loop.start)),last=passes.findIndex(x=>near(x.end,loop.end));
+    if(first<0||last<first||p<first||p>last)return plain;
+    if(loop.left===null)return Infinity;
+    return (last-p+1)+(loop.left-1)*(last-first+1)+(passes.length-1-last);
+  }
   function paintRepeatCount(target,transport){
     if(!refs.repeats.length)return;
     const seconds=transport.seconds,playing=!!transport.playing;
@@ -568,8 +580,8 @@ export function mountChartPage(root,handlers={}){
       if(m){const points=[...m.beats,m.end];let i=0;while(i<points.length-2&&points[i+1]<=seconds)i++;beat={key:m.id+':'+i,length:Math.max(.08,points[i+1]-points[i])};}
     }
     for(const r of refs.repeats){
-      const live=playing&&target?.groupId===r.group.id,left=live?Math.max(1,r.chunk.repeat-(target.passNumber||1)+1):0;
-      const text=live?'×'+left+(left===1?'!!':''):'(×'+r.chunk.repeat+')';
+      const live=playing&&target?.groupId===r.group.id,left=live?timesLeft(r,target,transport.loop):0;
+      const text=live?(left===Infinity?'×∞':'×'+left+(left===1?'!!':'')):'(×'+r.chunk.repeat+')';
       if(r.text!==text){r.text=text;r.node.textContent=text;}
       r.node.classList.toggle('live',live);r.node.classList.toggle('last',live&&left===1);
       if(live&&beat&&r.beat!==beat.key){
@@ -611,6 +623,12 @@ export function mountChartPage(root,handlers={}){
     const lane=el('span','cue-lane'),typing=editing?.kind==='cue'&&editing.groupId===g.id&&editing.chunkKey===chunk.key;
     for(const {cue,passNumber} of cueMap.get(chunk.key)||[]){
       if(typing&&editing.cueId===cue.id){lane.append(cueEditor(g,chunk,cue));continue;}
+      if(cue.plan){   // a note from the arrangement playing: read here, changed on the Perform tab
+        const n=el('button','cue plan');n.type='button';n.title='A note in the arrangement “'+cue.plan+'”, at '+clock(cue.start)+'. It shows only while that arrangement plays. Change it on the Perform tab.';
+        if(g.passCount>1)n.append(el('span','cue-pass',String(passNumber)));
+        n.append(el('span','cue-text',cue.text));n.onclick=e=>{e?.stopPropagation?.();seekPass[g.id]=passNumber;seek(cue.start);};
+        refs.cues.push({node:n,cue,chunkKey:chunk.key,passNumber});lane.append(n);continue;
+      }
       const b=el('button','cue');b.type='button';b.title='Cue at '+clock(cue.start)+(g.passCount>1?', pass '+passNumber:'');
       if(g.passCount>1)b.append(el('span','cue-pass',String(passNumber)));
       b.append(el('span','cue-text',cue.text));
@@ -1020,7 +1038,7 @@ export function mountChartPage(root,handlers={}){
     getKeys:()=>({...held}),
     // play, edit, timing or cue (the rail, V E T Q, Esc for play). Refused while a line is being typed or saved.
     setTool(next){
-      if(!CHART_TOOLS.includes(next)||next===tool)return tool;
+      if(!CHART_TOOLS.includes(next)||next===tool||locked(next))return tool;
       if(blocked())return tool;
       tool=next;folding=false;fixing.a=fixing.b=null;
       if((tool==='timing')===(mode==='timing'))keepPlace(paintActs);      // the same view: only the Edit tool's word lines come and go
@@ -1034,6 +1052,8 @@ export function mountChartPage(root,handlers={}){
     // The rail and its note are shared with the lead sheet: take them back when the chart is shown again.
     showTools(){if(data&&dock.dataset?.owner!=='chart')renderTools();},
     // nav: the chart as written; timing: drawn true to time (the Timing tool). Printing asks for the chart as written.
+    /** A show's controls opened or closed: put down a tool it doesn't offer, and draw the rail again. */
+    refreshTools(){if(locked(tool)){if(mode==='timing')api.setMode('nav');api.setTool('play');}else renderTools();},
     setMode(next){
       if(next==='timing')api.setTool('timing');else if(next==='nav'&&tool==='timing')api.setTool('play');
       return mode;
@@ -1061,7 +1081,7 @@ export function mountChartPage(root,handlers={}){
     updatePlayback,
     update(value){
       if(draft?.node&&draft.node.isConnected===false)draft=null;          // a line that is no longer on the page is not being typed in
-      const nextKey=JSON.stringify([value.documentId,value.revision,value.content,value.music,!!value.suggest,value.onsets?.length||0,value.onsets?.[0],value.melody?.length||0,value.key||null,value.waveform?.run??null,value.waveform?.duration??null]);
+      const nextKey=JSON.stringify([value.documentId,value.revision,value.content,value.music,!!value.suggest,value.onsets?.length||0,value.onsets?.[0],value.melody?.length||0,value.key||null,value.waveform?.run??null,value.waveform?.duration??null,handlers.planNotes?.()||null]);   // the playing arrangement's notes redraw it too
       if(data?.documentId!==value.documentId){if(draft?.dirty)return;key=null;editing=null;fixing.a=fixing.b=null;foldGroup=null;for(const k of Object.keys(targetPass))delete targetPass[k];for(const k of Object.keys(seekPass))delete seekPass[k];}
       data=value;
       if(nextKey!==key&&!draft&&!saving){key=nextKey;render();}else updatePlayback(value.transport);

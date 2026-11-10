@@ -125,7 +125,7 @@ export function createMidiImport(ctx){
         }
         if(!list.children.length)list.append(el('p','choice-text','No songs match.'));
       };
-      const actions=el('div','choice-actions'),cancel=button('Cancel','secondary choice-cancel');actions.append(cancel);dialog.append(actions);
+      const actions=el('div','choice-actions'),cancel=button('Cancel','secondary choice-cancel btn-cancel');actions.append(cancel);dialog.append(actions);
       let done=false;const finish=id=>{if(done)return;done=true;try{dialog.close();}catch{}dialog.remove();resolve(id);};
       cancel.onclick=()=>finish(null);dialog.oncancel=e=>{e.preventDefault();finish(null);};search.oninput=render;
       search.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();list.querySelector('.mi-song')?.click();}};   // Enter takes the top match
@@ -172,7 +172,7 @@ export function createMidiImport(ctx){
     const add=button('Add a MIDI file…','btn'),custom=button('Add custom MIDI data','btn blue','A new file laid out on this song\'s beats, ready to play or draw into in your DAW');
     const folder=button('Show folder','secondary');
     const top=el('div','mi-manager-actions');top.append(add,custom,folder,input);
-    const actions=el('div','choice-actions'),close=button('Done','btn');actions.append(close);
+    const actions=el('div','choice-actions'),close=button('Done','btn btn-ok');actions.append(close);
     dialog.append(intro,top,list,note,actions);
     let done=false;const finish=()=>{if(done)return;done=true;clearInterval(watch);try{dialog.close();}catch{}dialog.remove();};
     close.onclick=finish;dialog.oncancel=e=>{e.preventDefault();finish();};
@@ -256,7 +256,7 @@ export function createMidiImport(ctx){
     const panel=el('div','mi-panel');root.append(panel);
     const head=el('header','mi-head');
     const title=el('div','mi-title');title.append(el('h2','','Line up your MIDI'),el('small','',`${name} → ${c.title||'this song'}`));
-    const cancel=button('Cancel','btn'),save=button(isNew?'Save':'Save changes','btn blue');head.append(title,cancel,save);
+    const cancel=button('Cancel','btn btn-cancel'),save=button(isNew?'Save':'Save changes','btn blue');head.append(title,cancel,save);
     const bar=el('div','mi-toolbar');
     const modes=el('div','mi-seg');modes.setAttribute('role','group');modes.setAttribute('aria-label','How to place the file');
     const beatsMode=button('Follow the song\'s beats','','Lays the file\'s beats on the beats found in the recording: a missing or wrong tempo, drift and a live feel all come out right');

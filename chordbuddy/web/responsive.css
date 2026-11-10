@@ -1,0 +1,54 @@
+/* SCALING. Loaded last, so it has the final word on how big the frame of the app is. The other stylesheets give each part its look; this one
+   lets the parts that frame the page (the sidebar, the mixer, the gutters, the player bar) shrink with the window instead of keeping a fixed
+   size and leaving the chart whatever is left. Each size is a range, clamp(smallest, share of the window, largest): at a large window
+   everything is as it was designed, and on a laptop the frame gives up room before the music does.
+   Hiding things at small sizes is a separate step; nothing here hides anything. */
+:root{
+  --gutter:clamp(8px,1.5vw,26px);     /* the main column's side margins */
+  --gap:clamp(8px,1vw,18px);          /* between the page and the mixer, and between panels */
+  --side-w:clamp(210px,16vw,268px);   /* the sidebar */
+  --rack-w:clamp(300px,22vw,372px);   /* the mixer: below 300 its seven strips get too narrow to read or press */
+}
+
+/* ---- the frame ---- */
+.app{grid-template-columns:var(--side-w) minmax(0,1fr)}
+.side{padding:clamp(10px,1.6vh,18px) clamp(8px,1vw,14px) clamp(8px,1.2vh,14px)}
+.brand{margin-bottom:clamp(4px,1vh,14px)}
+.main{padding:0 var(--gutter)}
+.top{padding:clamp(6px,1.2vh,14px) 0 clamp(4px,.8vh,10px)}
+.work{gap:var(--gap);padding-bottom:clamp(6px,1vh,12px)}
+.player{margin:0 calc(-1 * var(--gutter));padding:clamp(6px,1vh,10px) var(--gutter) clamp(6px,1.1vh,12px)}
+
+/* ---- the mixer: its width, and its faders' height, follow the window ---- */
+.rack{width:var(--rack-w);padding:clamp(8px,.9vw,12px);gap:clamp(6px,1vh,10px)}
+.rack .strips{gap:clamp(3px,.4vw,6px)}
+.rack .track{height:clamp(110px,20vh,190px)}
+.rack input[type=range]{min-width:0}   /* a slider's built-in width is about 130px: without this the volume rows push past the mixer's edge */
+
+/* ---- the player bar: its columns share the width, and on a short window it gets shorter ---- */
+@media (min-width:901px){.nav-grid{grid-template-columns:clamp(200px,18vw,250px) minmax(0,1fr) clamp(120px,11vw,170px);gap:var(--gap)}}
+@media (max-height:860px){
+  .nav-left{gap:6px}
+  .nowchord{height:44px;min-width:52px;font-size:24px}
+  .cbtn{width:36px;height:36px}
+  .cbtn.play{width:46px;height:46px}
+  .cbtn.play .ic{width:22px;height:22px}
+  .practice-timeline{gap:5px}
+  .practice-scrubber{height:88px}   /* the waveform under the section names gives up the height; the names and playhead keep theirs */
+}
+
+/* ---- the same on the narrow layout the other stylesheets already have ---- */
+@media (max-width:900px){
+  .app{grid-template-columns:var(--side-w) minmax(0,1fr)}
+  .main{padding:0 var(--gutter)}
+  .player{margin:0 calc(-1 * var(--gutter));padding:8px var(--gutter)}
+}
+@media (max-width:1100px){.rack{width:var(--rack-w)}}
+
+/* ---- the Perform tab: its boxes sit inside one another, so their padding adds up; each gives up some on a smaller window ---- */
+.pf.vx{gap:clamp(6px,1vh,12px)}
+.pf .vx-bar{padding:clamp(6px,.8vh,10px) clamp(8px,.8vw,12px);gap:clamp(6px,.6vw,10px)}
+.pf .vx-col{padding:clamp(8px,.8vw,12px)}
+.pf-prepare{gap:var(--gap)}
+.rack :is(.mute,.solo){padding-left:0;padding-right:0}      /* the letter needs the room more than the button needs side padding */
+.rack .strip-label{font-size:clamp(8px,.62vw,9.5px)}        /* VOCALS, DRUMS... still fit when the strips narrow */

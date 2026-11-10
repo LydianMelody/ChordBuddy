@@ -161,3 +161,12 @@ def test_the_sample_show_file_is_one_the_app_accepts(service,song):
     text=(Path(__file__).parent/'fixtures'/'sample-show.json').read_text('utf-8').replace('sample-song',song)
     result=post(service,'/api/show/import',{'bundle':json.loads(text)})
     assert result['missing_songs']==[] and result['show_id']
+
+
+def test_a_show_file_carries_each_arrangement_as_it_is_now_not_the_version_the_show_was_given(service,song):
+    save(service,body(song,cues=[{'id':'old'}]))
+    post(service,'/api/show/save',{'body':show(entries=[{'id':'e1','songId':song,'performanceId':'perf1','revision':1}]),'base':0})
+    save(service,body(song,cues=[{'id':'saved later'}]),base=1)
+    assert json.load(request(service,'/api/show/show1/export'))['performances'][0]['body']['cues']==[{'id':'saved later'}]
+    post(service,'/api/performance/draft',{'body':body(song,cues=[{'id':'not saved yet'}]),'base':2})
+    assert json.load(request(service,'/api/show/show1/export'))['performances'][0]['body']['cues']==[{'id':'not saved yet'}],'what you are working on in Prepare'

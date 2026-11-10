@@ -1,16 +1,22 @@
-// The Prepare page: a song's arrangement on a timeline, and the Show page: songs in order, with how long it all takes. The sections run along the
-// top, one column per bar; below them the Arrangement lane holds repeats, and the Tracks, Visuals, MIDI and Markers lanes hold actions. Everything that can be
-// dragged or clicked can also be typed into: the action list and inspector on the right reach every action, by keyboard. Each edit is saved as a draft at once;
+// The Prepare page: a song's arrangement, laid out the way the chart is, with its section names, wrapped rows of bars, zoom and snap. Each bar shows its chords, a colored flag
+// per action at its place in the bar, and a strip where it repeats. Everything that can be dragged or clicked can also be typed into: the action list and
+// inspector on the right reach every action, by keyboard. Play follows the arrangement, flags and all, with a playhead on the bars. Each edit is saved as a draft at once;
 // Save makes a revision a show can use. Pure parts (lanes, Undo) are exported so they can be tested without a page.
 import {askChoice,askText} from './dialogs.js';
+import {openActionEditor} from './action-editor.js';
+import {beatAt,chordsInMeasure,isNoChordLabel} from './chart-layout.js';
+import {applyRows} from './row-layout.js';
+import {DEFAULT_ZOOM,autoSnap,barTargets,beatPx,nearestTarget,stepZoom} from './timing-geometry.js';
+import {SNAP_QUARTERS} from './musical-grid.js';
+import {LANES,NEW_ACTION,isOlderMixerFlag,keyframeForFlag,laneOf,plannedMixAt} from './performance-plan.js';
 import {icon} from './icons.js';
 import {renderRail,watchRail} from './tool-rail.js';
-import {ACTIONS,STEM_ROLES,checkAction,describeAction,domainOf} from './performance-actions.js';
+import {describeAction} from './performance-actions.js';
 import {addressPosition,compilePerformance,endForBeats,gridFingerprint} from './performance-compiler.js';
-import {clockText,pathSeconds,showSeconds,spareText} from './performance-duration.js';
-import {COMMANDS,learnFrom} from './performance-midi.js';
-import {messagesFor} from './performance-midi.js';
-import {addRepeat,address,copyCues,moveCue,copyPass,copyPreviousPass,defaultPolicy,editPass,newEntry,newPerformance,newShow,removePass,removeRegion,resetPass,setPlays,POLICIES,movePass,customizedPasses} from './performance-model.js';
+import {clockText,pathSeconds} from './performance-duration.js';
+import {fourBarRange,sectionRange} from './performance-runner.js';
+import {messagesFor,tempoAt} from './performance-midi.js';
+import {addRepeat,rehomeStrayCues,address,beatValue,copyCues,copyPass,copyPreviousPass,editPass,newEntry,newPerformance,removePass,removeRegion,resetPass,setPlays,movePass,customizedPasses} from './performance-model.js';
 
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 const btn=(cls,text,title,run,iconName)=>{const b=el('button','btn '+cls,text);b.type='button';if(iconName)b.insertAdjacentHTML('afterbegin',icon(iconName));if(title)b.title=title;if(run)b.onclick=run;return b;};
@@ -24,53 +30,77 @@ function menu(label,items){
 function menuItem(text,title,run,danger=false){const b=el('button','text-button'+(danger?' danger':''),text);b.type='button';b.title=title;b.onclick=run;return b;}
 const uid=()=>globalThis.crypto.randomUUID().replaceAll('-','').slice(0,16);
 
-export const LANES=Object.freeze([['tracks','Tracks','Mutes, levels and solos'],['visuals','Visuals','Which visualization, and what it does'],['midi','MIDI','Messages to a pedal or other device'],['markers','Markers','Notes on the stage screen']]);
-export const laneOf=action=>{const d=domainOf(action);return d==='tracks'||d==='rate'?'tracks':d==='visuals'?'visuals':d==='midi'?'midi':'markers';};
+export {LANES,NEW_ACTION,laneOf};
 export const POLICY_LABELS=Object.freeze({'until-released':'You win until you release it (usual)','next-cue':'Until the next planned change','next-section':'Until the next section','locked':'Follow the plan only (controls locked)'});
-const STEM_NAMES={bass:'Bass',drums:'Drums',other:'Other',vocals:'Vocals',piano:'Piano',lead:'Lead guitar',rhythm:'Rhythm guitar'};
 
-// A new action of each kind, ready to adjust.
-export const NEW_ACTION={
-  'track.set':()=>({type:'track.set',track:'lead',mute:true}),
-  'master.set':()=>({type:'master.set',value:1,ramp:0}),
-  'rate.set':()=>({type:'rate.set',percent:100}),
-  'visual.scene':({scenes})=>({type:'visual.scene',scene:scenes[0]?.id||'abstract'}),
-  'visual.switch':()=>({type:'visual.switch',name:'lyrics',value:true}),
-  'visual.patch':()=>({type:'visual.patch',patch:'song'}),
-  'visual.input':()=>({type:'visual.input',input:'',value:1,ramp:0}),
-  'visual.trigger':()=>({type:'visual.trigger',input:''}),
-  'midi.helix':({device})=>({type:'midi.helix',device:device||'Line 6 Helix',channel:1,snapshot:1}),
-  'midi.cc':({device})=>({type:'midi.cc',device:device||'Line 6 Helix',channel:1,controller:1,value:127}),
-  'midi.pc':({device})=>({type:'midi.pc',device:device||'Line 6 Helix',channel:1,program:0}),
-  'midi.note':({device})=>({type:'midi.note',device:device||'Line 6 Helix',channel:1,note:60,velocity:100,length:.5}),
-  'marker.text':()=>({type:'marker.text',text:'Note'}),
-};
-const LANE_TYPES={tracks:['track.set','master.set','rate.set'],visuals:['visual.scene','visual.patch','visual.switch','visual.input','visual.trigger'],midi:['midi.helix','midi.cc','midi.pc','midi.note'],markers:['marker.text']};
-// The fields each action shows in the inspector. kind: number, text, check, track, optional-number.
-const FIELDS={
-  'track.set':[['track','track','Track'],['mute','tristate','Mute'],['solo','tristate','Solo'],['gain','optional','Level (0 to 1)',{min:0,max:1,step:.05}],['ramp','optional','Over this many seconds',{min:0,max:600,step:.5}]],
-  'master.set':[['value','number','Overall volume (0 to 1)',{min:0,max:1,step:.05}],['ramp','optional','Over this many seconds (a fade)',{min:0,max:600,step:.5}]],
-  'rate.set':[['percent','number','Speed (%)',{min:50,max:125,step:5}]],
-  'visual.scene':[['scene','scene','Visualization']],
-  'visual.switch':[['name','choice','What',{choices:[['lyrics','The lyrics'],['calm','Calm mode']]}],['value','check','On']],
-  'visual.patch':[['patch','choice','Connections',{choices:[['song','This song’s own'],['usual','Your usual ones'],['default','The defaults']]}]],
-  'visual.input':[['input','input','Part of the visualization',{wants:'level'}],['value','number','Value (0 to 1)',{min:0,max:1,step:.05}],['ramp','optional','Over this many seconds',{min:0,max:600,step:.5}]],
-  'visual.trigger':[['input','input','Effect to fire',{wants:'trigger'}]],
-  'midi.helix':[['device','device','Device'],['channel','number','MIDI channel',{min:1,max:16,step:1}],['setlist','optional','Setlist (1 to 8)',{min:1,max:8,step:1}],['preset','optional','Preset (1 to 128)',{min:1,max:128,step:1}],['snapshot','optional','Snapshot (1 to 8)',{min:1,max:8,step:1}]],
-  'midi.cc':[['device','device','Device'],['channel','number','MIDI channel',{min:1,max:16,step:1}],['controller','number','Controller',{min:0,max:127,step:1}],['value','number','Value',{min:0,max:127,step:1}]],
-  'midi.pc':[['device','device','Device'],['channel','number','MIDI channel',{min:1,max:16,step:1}],['program','number','Program',{min:0,max:127,step:1}]],
-  'midi.note':[['device','device','Device'],['channel','number','MIDI channel',{min:1,max:16,step:1}],['note','number','Note (60 is middle C)',{min:0,max:127,step:1}],['velocity','number','Velocity',{min:1,max:127,step:1}],['length','number','Length (seconds)',{min:.01,max:60,step:.05}]],
-  'marker.text':[['text','text','Note to show']],
-};
-
-/** Undo for whole values: every edit keeps the value before it. */
+/** Undo for whole values, by name: every edit keeps the value before it and a name for the change, like the chart's history.
+ *  merge: a change with the same name as the last one, made right after it (typing a number), adds to that step instead of making another. */
 export class History{
   constructor(value,limit=200){this.value=value;this.past=[];this.future=[];this.limit=limit;}
-  push(next){if(next===this.value)return next;this.past.push(this.value);if(this.past.length>this.limit)this.past.shift();this.future=[];this.value=next;return next;}
-  undo(){if(!this.past.length)return null;this.future.push(this.value);this.value=this.past.pop();return this.value;}
-  redo(){if(!this.future.length)return null;this.past.push(this.value);this.value=this.future.pop();return this.value;}
+  push(next,label='Change the arrangement',{merge=false}={}){
+    if(next===this.value)return next;
+    if(merge&&this.past.at(-1)?.label===label){this.value=next;this.future=[];return next;}
+    this.past.push({value:this.value,label});if(this.past.length>this.limit)this.past.shift();this.future=[];this.value=next;return next;
+  }
+  undo(){if(!this.past.length)return null;const step=this.past.pop();this.future.push({value:this.value,label:step.label});this.value=step.value;return this.value;}
+  redo(){if(!this.future.length)return null;const step=this.future.pop();this.past.push({value:this.value,label:step.label});this.value=step.value;return this.value;}
   get canUndo(){return this.past.length>0;}
   get canRedo(){return this.future.length>0;}
+  /** The names: what Undo takes back, newest first, and what Redo puts back, next first. */
+  get undoLabels(){return this.past.map(s=>s.label).reverse();}
+  get redoLabels(){return this.future.map(s=>s.label).reverse();}
+}
+/** A change to an arrangement, in words, worked out from before and after: what the History menu and Undo call it. */
+export function changeLabel(before,after,position,measures){
+  if(!before||!after)return 'Change the arrangement';
+  if(before.name!==after.name)return `Rename to ${after.name}`;   // the menu and the note put the whole name of a step in quotes
+  const barOf=seconds=>(measures.find(m=>seconds>=m.start&&seconds<m.end)||measures.at(-1))?.number;
+  const listOf=p=>new Map(allActions(p,position).map(x=>[x.cue.id,x]));
+  const was=listOf(before),now=listOf(after);
+  const added=[...now.values()].filter(x=>!was.has(x.cue.id)),removed=[...was.values()].filter(x=>!now.has(x.cue.id));
+  const moved=[],changed=[];
+  for(const [id,x] of now){const old=was.get(id);if(!old)continue;if(JSON.stringify(old.cue.action)!==JSON.stringify(x.cue.action))changed.push(x);else if(JSON.stringify(old.cue.at)!==JSON.stringify(x.cue.at))moved.push(x);}
+  const one=(verb,x,where=true)=>`${verb} ${describeAction(x.cue.action)}${where?` at bar ${barOf(x.seconds)}`:''}`;
+  const regionsBefore=before.regions.length,regionsAfter=after.regions.length;
+  if(regionsAfter>regionsBefore)return regionsAfter-regionsBefore===1?'Add a loop':`Add ${regionsAfter-regionsBefore} loops`;
+  if(regionsAfter<regionsBefore)return 'Remove a loop';
+  if(added.length===1&&!removed.length)return one('Add',added[0]);
+  if(removed.length===1&&!added.length)return one('Remove',removed[0]);
+  if(added.length&&!removed.length)return `Add ${added.length} actions`;
+  if(removed.length&&!added.length)return `Remove ${removed.length} actions`;
+  if(added.length||removed.length)return 'Change the actions in a pass';
+  if(changed.length===1)return one('Change',changed[0]);
+  if(moved.length===1)return `Move ${describeAction(moved[0].cue.action)} to bar ${barOf(moved[0].seconds)}`;
+  if(changed.length||moved.length)return `Change ${changed.length+moved.length} actions`;
+  if(JSON.stringify(before.regions)!==JSON.stringify(after.regions))return 'Change a loop';
+  return 'Change the arrangement';
+}
+/** A planned loop's size, as the player's loop readout names it: four bars or fewer, or longer. */
+export const loopFamily=bars=>bars<=4?'bars':'section';
+const isLoopFlag=a=>a?.type==='command'&&(a.command==='loop-bars'||a.command==='loop-section');
+/** Loop flags from before planned loops: each becomes a loop over the same bars, playing the same number of times (none: until you
+ *  leave it), so it plays as it did. One that would overlap a loop already there stays a flag (it still works); a second flag for the
+ *  same bars, which only cancelled the first, goes. Only Every play's flags: a pass's own loop flag stays as it is. */
+export function loopFlagsToLoops(performance,measures,sections,position){
+  const SR=44100,next=structuredClone(performance);let made=0,kept=0;
+  const spans=()=>next.regions.map(r=>[position(r.start),position(r.end)]);
+  for(const cue of performance.cues){
+    const a=cue.action;if(a?.type!=='command'||(a.command!=='loop-bars'&&a.command!=='loop-section'))continue;
+    const at=position(cue.at);if(!Number.isFinite(at))continue;
+    const range=a.command==='loop-bars'?fourBarRange(measures,sections,Math.round(at*SR),a.params?.bars??4):sectionRange(measures,sections,Math.round(at*SR));
+    if(!range){kept++;continue;}
+    const start=range.start/SR,end=range.end/SR,same=spans().some(([x,y])=>Math.abs(x-start)<.002&&Math.abs(y-end)<.002);
+    if(!same&&spans().some(([x,y])=>x<end-.002&&y>start+.002)){kept++;continue;}
+    next.cues=next.cues.filter(c=>c.id!==cue.id);
+    if(same)continue;
+    const first=measures.findIndex(m=>Math.abs(m.start-start)<.002),last=measures.findIndex(m=>Math.abs(m.end-end)<.002);
+    if(first<0||last<0){next.cues.push(cue);kept++;continue;}
+    const to=measures[last],endAt=last===measures.length-1?{measure:to.id,beat:{n:to.beats.length,d:1}}:address(measures[last+1].id);
+    const plays=Number.isInteger(a.params?.plays)&&a.params.plays>=2?a.params.plays:'live';
+    const added=addRepeat(next,{start:address(measures[first].id),end:endAt,plays,family:loopFamily(last-first+1),id:`loop-${cue.id}`});
+    next.regions=added.regions;made++;
+  }
+  return {performance:next,made,kept};
 }
 /** What differs between a show's songs and its set list's. */
 export function listDiff(showSongs,listSongs){
@@ -110,42 +140,52 @@ export function inputChoices(scenes,wants){
   }
   return out;
 }
+const nameKey=name=>String(name||'').toLowerCase().replace(/[^a-z]/g,'');
+let rememberedZoom=Math.min(DEFAULT_ZOOM,1),rememberedSnap=true,rememberedList=false;   // the list of every action starts hidden: the flags on the bars are the plan
+/** Which plays an action happens on, in words, for the list and the flags. */
+export function playWords(cue,scope,region){
+  const base=scopeWords(scope,region),first=cue.when?.first?(scope.kind==='shared'?'First time only':`${base}, first time only`):base;
+  return cue.enabled===false?`Off · ${first}`:first;
+}
+/** The list's words for a planned loop. */
+export function repeatWords(region,firstBar,lastBar){
+  const bars=firstBar===lastBar?`bar ${firstBar}`:`bars ${firstBar} to ${lastBar}`;
+  return {title:`Loop ${bars}`,plays:region.plays==='live'?'Until you leave it':`${region.plays} plays in all`};
+}
 const barAtFrame=(measures,seconds)=>measures.find(m=>seconds>=m.start&&seconds<m.end)||measures.at(-1);
 
-/** The Prepare page. deps: {api, songId, scenes(): [{id,name}], devices(): [names], grid (loadSongGrid's result), onClose, onPreview(performance, fromSeconds, sendMidi), onStopPreview, previewing(), showError}. */
+/** The Prepare page. deps: {api, songId, scenes(): [{id,name}], devices(): [names], grid (loadSongGrid's result), onClose, playhead(): the song's position in seconds, playing(), seek(seconds), onPlanChange(): the arrangement to play changed, showError}. */
 export function mountPrepare(root,deps){
   const {api,grid,songId}=deps,measures=grid.measures,position=at=>{const f=addressPosition(measures)(at);return f/44100;};
-  let records=[],record=null,history=null,selection={kind:'none'},scope={kind:'shared'},regionId=null,tool='select',disposed=false,saveTimer=null,filter='all',status='',sendMidi=false,listFocus=null;
-  let wide=46;
+  let records=[],record=null,history=null,selection={kind:'none'},scope={kind:'shared'},regionId=null,tool='select',disposed=false,saveTimer=null,filter='all',status='',listFocus=null,movedNote=null;
+  let zoom=rememberedZoom,snapping=rememberedSnap,showList=rememberedList,editorOpen=null;
 
   const panel=el('div','vx pf');panel.setAttribute('role','region');panel.setAttribute('aria-label','Prepare');
   const bar=el('header','vx-bar');
-  const title=el('h2','vx-title','Prepare');title.insertAdjacentHTML('afterbegin',icon('layers'));
   const pick=el('label','vx-pick'),choice=el('select','vx-visual');pick.append(el('span','vx-cap','Performance'),choice);choice.title='Which saved arrangement of this song to edit. Original arrangement plays the song as it is.';
   const newB=btn('','New','Make a new arrangement of this song, starting from the song as it is',()=>makeNew());
   const dup=menuItem('Duplicate…','Make a copy of this arrangement under a new name',()=>duplicate());
   const ren=menuItem('Rename…','Give this arrangement a different name',()=>rename());
   const del=menuItem('Delete…','Remove this arrangement. A show that already uses it keeps working.',()=>remove(),true);
   const saved=el('span','pf-saved');saved.setAttribute('role','status');
-  const undoB=btn('sq','', 'Undo your last change here (Ctrl+Z)',()=>undo(),'undo');undoB.setAttribute('aria-label','Undo');
-  const redoB=btn('sq','', 'Redo (Ctrl+Shift+Z)',()=>redo(),'redo');redoB.setAttribute('aria-label','Redo');
-  const saveB=btn('hot','Save','Save this arrangement as a new version that a show can use',()=>save());
-  const close=btn('sq','', 'Close and go back to the chart. Your work stays as a draft.',()=>deps.onClose(),'x');close.setAttribute('aria-label','Close Prepare');
-  bar.append(title,pick,newB,menu('More for this arrangement',[dup,ren,el('hr','more-sep'),del]),el('span','vx-gap'),saved,undoB,redoB,saveB,close);
-  const facts=el('div','pf-facts');const musicLength=el('b'),problems=el('div','pf-problems');problems.setAttribute('role','status');
-  const preview=btn('','Preview from here','Play this arrangement from the selected bar. MIDI stays off unless you tick Send to hardware.',()=>startPreview(),'play');
-  const stopPreview=btn('','Stop','Stop the preview',()=>{deps.onStopPreview?.();paint();});
-  const hw=el('label','pf-check'),hwBox=el('input');hwBox.type='checkbox';hwBox.onchange=()=>{sendMidi=hwBox.checked;};hw.append(hwBox,el('span','','Send to hardware'));hw.title='While previewing, also send this arrangement’s MIDI to your devices. Off, nothing reaches them.';
-  facts.append(el('span','vx-cap','Music'),musicLength,el('span','vx-gap'),preview,stopPreview,hw);
+  const saveB=btn('hot','Save','Save this arrangement as a version you can come back to. Shows already play it as it is now, saved or not.',()=>save());
+  const performB=btn('hot','Perform','',()=>deps.performSet?.run(),'play');
+  const facts=el('span','pf-facts');const musicLength=el('b'),problems=el('div','pf-problems');problems.setAttribute('role','status');
+  facts.title='How long the music lasts, played as this arrangement';facts.append(el('span','vx-cap','Music'),musicLength);
+  const midiSetup=btn('','MIDI setup','Connect a pedal or controller, and teach its switches to run Chord Buddy during a show',()=>deps.onMidiSetup());
+  // what you changed by hand while it plays here (the mixer, the speed) wins over the plan until you let go of it: this lets go of all of it
+  const defaultsB=btn('','Switch to song defaults','Let go of every change you made by hand while it plays, so it goes back to what you planned for it',()=>deps.releaseLive?.());defaultsB.hidden=true;
+  bar.append(pick,newB,menu('More for this arrangement',[dup,ren,el('hr','more-sep'),del]),facts,saved,saveB,defaultsB,midiSetup,performB);   // Undo, Redo and History are the top bar's, as in every view
   const stage=el('div','pf-prepare');
   const rail=el('nav','tool-rail');rail.setAttribute('aria-label','Prepare tools');
-  const left=el('section','vx-col pf-timeline');const passBar=el('div','pf-passes');const scroller=el('div','pf-scroll');left.append(passBar,scroller);
+  const left=el('section','vx-col pf-timeline');const passBar=el('div','pf-passes');const scroller=el('div','pf-scroll'),legend=el('div','pf-legend');left.append(passBar,legend,scroller);
   const side=el('section','vx-col pf-sidebar');const inspector=el('div','pf-inspector'),listHead=el('div','vx-head'),listFilter=el('select','vx-visual pf-filter'),list=el('ol','pf-list');
-  listFilter.setAttribute('aria-label','Which actions to list');for(const [v,t] of [['all','All lanes'],...LANES.map(([k,l])=>[k,l])]){const o=el('option','',t);o.value=v;listFilter.append(o);}listFilter.onchange=()=>{filter=listFilter.value;drawList();};
+  listFilter.setAttribute('aria-label','Which actions to list');for(const [v,t] of [['all','All kinds'],...LANES.map(([k,l])=>[k,l])]){const o=el('option','',t);o.value=v;listFilter.append(o);}listFilter.onchange=()=>{filter=listFilter.value;drawList();};
   listHead.append(el('b','','Actions'),listFilter);
-  side.append(inspector,listHead,list);
+  const closeSide=btn('sq pf-side-close','','Close: clear the selection (Esc)',()=>{selection={kind:'none'};paint();},'x');closeSide.setAttribute('aria-label','Close');
+  side.append(closeSide,inspector,listHead,list);
   stage.append(rail,left,side);
-  panel.append(bar,facts,problems,stage);root.replaceChildren(panel);watchRail(rail);
+  panel.append(bar,problems,stage);root.replaceChildren(panel);watchRail(rail);
 
   function keydown(event){
     const typing=/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName);
@@ -154,7 +194,7 @@ export function mountPrepare(root,deps){
     if((event.ctrlKey||event.metaKey)&&String(event.key).toLowerCase()==='v'&&!typing&&clipboard&&selection.kind==='bars'){event.preventDefault();event.stopPropagation();pasteAt(selection.from);return;}
     if(typing||event.ctrlKey||event.altKey||event.metaKey)return;
     const k=String(event.key).toLowerCase();
-    if(k==='v'){setTool('select');event.stopPropagation();}else if(k==='n'){setTool('repeat');event.stopPropagation();}else if(k==='a'){setTool('action');event.stopPropagation();}
+    if(k==='v'){setTool('select');event.stopPropagation();}else if(k==='a'){setTool('action');event.stopPropagation();}
     else if(event.key==='Delete'&&selection.kind==='cue'){deleteSelected();event.stopPropagation();}
     else if(event.key==='Delete'&&selection.kind==='cues'){deleteMany(selection.ids);event.stopPropagation();}
     else if(event.key==='Escape'){selection={kind:'none'};paint();event.stopPropagation();}
@@ -162,8 +202,8 @@ export function mountPrepare(root,deps){
 
   const perf=()=>history?.value||null;
   const compiled=()=>perf()?compilePerformance(perf(),{measures,frames:grid.frames}):null;
-  function setTool(name){tool=name;drawRail();}
-  function drawRail(){renderRail(rail,{groups:[['prepare-select','prepare-repeat','prepare-action']],active:{select:'prepare-select',repeat:'prepare-repeat',action:'prepare-action'}[tool],onPick:name=>setTool({'prepare-select':'select','prepare-repeat':'repeat','prepare-action':'action'}[name])});}
+  function setTool(name){tool=name;paint();}
+  function drawRail(){renderRail(rail,{groups:[['prepare-select','prepare-action']],active:{select:'prepare-select',action:'prepare-action'}[tool],onPick:name=>setTool({'prepare-select':'select','prepare-action':'action'}[name])});}
 
   // ---- records
   async function reload(chooseId=null){
@@ -173,10 +213,17 @@ export function mountPrepare(root,deps){
   }
   async function open(id){
     clearTimeout(saveTimer);
-    if(!id){record=null;history=null;selection={kind:'none'};paint();return;}
+    if(!id){record=null;history=null;selection={kind:'none'};status='';paint();deps.onPlanChange?.();return;}
     const full=await api('/api/performance/'+encodeURIComponent(id));
-    record=full;history=new History(full.draft||full.body);selection={kind:'none'};scope={kind:'shared'};regionId=null;status=full.draft?'Draft kept. Save to make a version a show can use.':'Saved';paint();
+    record=full;history=new History(full.draft||full.body);selection={kind:'none'};scope={kind:'shared'};regionId=null;status=full.draft?'Draft kept. Shows play it as it is now. Save to keep a version you can go back to.':'Saved';
+    const fixed=rehomeStrayCues(history.value,position);
+    if(fixed.moved){change(fixed.performance);status=moveWords(fixed.moved);movedNote={id,status};}
+    const loops=loopFlagsToLoops(history.value,measures,grid.sections,position);
+    if(loops.made||loops.performance.cues.length!==history.value.cues.length){change(loops.performance);status=`${loops.made===1?'A loop flag is':`${loops.made} loop flags are`} now ${loops.made===1?'a loop':'loops'} (the purple bands), playing the same bars the same number of times. Undo puts ${loops.made===1?'it':'them'} back.`;movedNote={id,status};}
+    else if(movedNote?.id===id){status=movedNote.status;movedNote=null;}   // opened again straight after: still say what moved
+    paint();deps.onPlanChange?.();
   }
+  const moveWords=n=>`${n===1?'An action':`${n} actions`} past the end of a loop ${n===1?'was':'were'} filed under one of its passes, where ${n===1?'it':'they'} couldn’t play. Moved to Every play.`;
   const askName=(titleText,value='')=>askText({title:titleText,label:'Name',value,action:'OK'});
   async function makeNew(){
     const name=await askName('A name for this arrangement','Live version');if(!name)return;
@@ -195,16 +242,22 @@ export function mountPrepare(root,deps){
   }
   async function save(){
     if(!record)return;clearTimeout(saveTimer);
-    try{const r=await api('/api/performance/save',{body:{...perf(),grid:gridFingerprint(measures)},base:record.head});record={...record,...r};status=`Saved · version ${r.head}`;paint();}
+    try{const r=await api('/api/performance/save',{body:{...perf(),grid:gridFingerprint(measures)},base:record.head});record={...record,...r};records=records.map(x=>x.id===record.id?{...x,has_draft:false,head:r.head}:x);status=`Saved · version ${r.head}`;paint();}
     catch(error){status='Not saved';deps.showError(error);paint();}
   }
   function change(next){
-    if(!history)return;history.push(next);status='Draft not saved yet';
-    clearTimeout(saveTimer);saveTimer=setTimeout(saveDraft,600);paint();
+    if(!history)return;
+    const fixed=rehomeStrayCues(next,position);next=fixed.performance;
+    const label=changeLabel(history.value,next,position,measures),now=Date.now(),merge=now-lastChangeAt<1500;lastChangeAt=now;
+    history.push(next,label,{merge});status=fixed.moved?moveWords(fixed.moved):'Draft not saved yet';
+    if(fixed.moved&&scope.kind==='pass')scope={kind:'shared'};
+    clearTimeout(saveTimer);saveTimer=setTimeout(saveDraft,600);paint();deps.onPlanChange?.();
   }
-  async function saveDraft(){if(!record||!history)return;try{await api('/api/performance/draft',{body:perf(),base:record.head});if(!disposed&&status==='Draft not saved yet'){status='Draft kept. Save to make a version a show can use.';saved.textContent=status;}}catch(error){status='Draft not saved';deps.showError(error);if(!disposed)paint();}}
-  function undo(){if(history?.undo()){clearSelectionIfGone();status='Draft not saved yet';clearTimeout(saveTimer);saveTimer=setTimeout(saveDraft,600);paint();}}
-  function redo(){if(history?.redo()){clearSelectionIfGone();status='Draft not saved yet';clearTimeout(saveTimer);saveTimer=setTimeout(saveDraft,600);paint();}}
+  async function saveDraft(){if(!record||!history)return;try{await api('/api/performance/draft',{body:perf(),base:record.head});if(!disposed&&status==='Draft not saved yet'){status='Draft kept. Shows play it as it is now. Save to keep a version you can go back to.';saved.textContent=status;}}catch(error){status='Draft not saved';deps.showError(error);if(!disposed)paint();}}
+  let lastChangeAt=0;
+  // each step says what it was (deps.onStepped), so the app can show "Undid …" with a way back, as the other views do
+  function undo(){lastChangeAt=0;const label=history?.undoLabels[0];if(history?.undo()){deps.onStepped?.({undid:true,count:1,label});clearSelectionIfGone();status='Draft not saved yet';clearTimeout(saveTimer);saveTimer=setTimeout(saveDraft,600);paint();deps.onPlanChange?.();}}
+  function redo(){lastChangeAt=0;const label=history?.redoLabels[0];if(history?.redo()){deps.onStepped?.({undid:false,count:1,label});clearSelectionIfGone();status='Draft not saved yet';clearTimeout(saveTimer);saveTimer=setTimeout(saveDraft,600);paint();deps.onPlanChange?.();}}
   function clearSelectionIfGone(){if(selection.kind==='cue'&&!allActions(perf(),position).some(x=>x.cue.id===selection.id))selection={kind:'none'};}
 
   // ---- editing actions, in whichever scope they belong to
@@ -212,12 +265,43 @@ export function mountPrepare(root,deps){
     if(targetScope.kind==='shared'){const next=structuredClone(perf());edit(next.cues);change(next);return;}
     change(editPass(perf(),targetScope.regionId,targetScope.passId,program=>edit(program),position,uid));
   }
-  function addActionAt(measure,type){
+  const editorContext=frame=>({tempo:tempoAt({measures,bpm:grid.tempo?.bpm,constant:grid.tempo?.constant},frame/44100),scenes:deps.scenes,inputs:wants=>inputChoices(deps.scenes(),wants),device:deps.devices()[0],mix:plannedMixAt(compiled(),frame),currentMix:deps.currentMix});
+  /** The action screen, for something new at this spot. */
+  function chooseAction(measure,beat={n:0,d:1}){
     if(!perf()){makeNew();return;}
-    const action=NEW_ACTION[type]({scenes:deps.scenes(),device:deps.devices()[0]});
+    const value=beat.n/beat.d,at={measure:measure.id,beat};
+    openActionEditor({title:`What should happen at bar ${measure.number}${value?`, beat ${value+1}`:''}?`,ctx:editorContext(position(at)*44100),
+      onAdd:action=>{if(disposed)return;if(scope.kind==='shared'&&isLoopFlag(action)){addLoopAt(measure,action);return;}const id=uid();programEdit(scope,cues=>cues.push({id,at,action}));selection={kind:'cue',id};paint();}});
+  }
+  /** A loop chosen in the Action picker, for every play: a planned loop (the purple band) from the start of this bar, over its number of bars
+   *  or this whole section. A pass's own loop action stays a flag, pressed as L or R would be when the music gets there. */
+  function addLoopAt(measure,action){
+    const p=action.params||{},i=measures.indexOf(measure);
+    let first=i,last=Math.min(measures.length-1,i+Math.max(1,p.bars??4)-1);
+    if(action.command==='loop-section'){
+      const range=sectionRange(measures,grid.sections,Math.round(measure.start*SR));
+      if(range){first=measures.findIndex(m=>Math.round(m.start*SR)===range.start);last=measures.findIndex(m=>Math.round(m.end*SR)===range.end);}
+      if(first<0||last<0){first=i;last=i;}
+    }
+    const start=measures[first].start,end=measures[last].end;
+    const clash=perf().regions.find(r=>position(r.start)<end-.002&&position(r.end)>start+.002);
+    if(clash){const a=barAtFrame(measures,position(clash.start)),b=barAtFrame(measures,position(clash.end)-.001);status=`That loop would overlap the one at ${a===b?`bar ${a.number}`:`bars ${a.number} to ${b.number}`}. Change or remove that one first.`;paint();return;}
+    const to=measures[last],endAt=last===measures.length-1?{measure:to.id,beat:{n:to.beats.length,d:1}}:address(measures[last+1].id);
     const id=uid();
-    programEdit(scope,cues=>cues.push({id,at:address(measure.id),action}));
+    change(addRepeat(perf(),{start:address(measures[first].id),end:endAt,plays:Number.isInteger(p.plays)&&p.plays>=2?p.plays:'live',family:loopFamily(last-first+1),id},uid));
+    scope={kind:'shared'};selection={kind:'none'};paint();
+  }
+  /** The action screen, for one already on the song. */
+  function openCue(id){
+    const item=find(id);if(!item)return;
     selection={kind:'cue',id};paint();
+    editorOpen?.close();
+    const m=measures.find(x=>x.id===item.cue.at.measure);
+    const frame=position(item.cue.at)*44100;
+    editorOpen=openActionEditor({title:`At bar ${m?.number??'?'}`,action:item.cue.action,ctx:editorContext(frame),
+      onChange:action=>updateCue(id,()=>({action})),extras:host=>drawTiming(host,id),
+      tools:[btn('','Copy','Copy this action, to paste at another bar (Ctrl+C). Select a bar, then Paste.',()=>{copySelected();editorOpen?.close();}),btn('danger','Delete','Remove this action. Undo brings it back.',()=>{editorOpen?.close();deleteSelected();})],
+      onClose:()=>{editorOpen=null;paint();}});
   }
   const find=id=>allActions(perf(),position).find(x=>x.cue.id===id);
   function updateCue(id,patch){const item=find(id);if(!item)return;programEdit(item.scope,cues=>{const c=cues.find(x=>x.id===id);Object.assign(c,patch(c));});}
@@ -226,11 +310,25 @@ export function mountPrepare(root,deps){
   let dragging=null,clipboard=null,sweep=null,swept=false;
   document.addEventListener('pointerup',()=>{if(sweep){const moved=selection.kind==='bars'&&selection.from!==selection.to;sweep=null;if(moved){swept=true;paint();setTimeout(()=>{swept=false;},0);}}});
   function markBars(){for(const b of scroller.querySelectorAll('.pf-bar')){const m=measures.find(x=>String(x.id)===b.dataset.bar);b.classList.toggle('on',selection.kind==='bars'&&m&&m.start>=selection.from.start&&m.start<=selection.to.start);}}
-  function dropOn(measure){
+  const FINEST=64;
+  /** The place in a bar under the pointer, the way the chart's Timing finds it. Magnet on: the nearest line of the grid the zoom draws, or a chord. Off: exactly where it's dropped. */
+  function beatUnder(node,measure,clientX){
+    const box=node.getBoundingClientRect(),beats=measure.beats.length,x=clientX-box.left,width=Math.max(1,box.width);
+    const onsets=chordsInMeasure(grid.chords||[],measure).filter(c=>!c.continued).map(c=>c.start);
+    const target=snapping?nearestTarget(barTargets(measure,{snap:autoSnap(zoom),onsets}).filter(t=>t.beat<beats-1e-6),x,width,beats):null;
+    const beat=target?target.beat:Math.max(0,Math.min(beats,x/width*beats));
+    return {n:Math.min(beats*FINEST-1,Math.round(beat*FINEST)),d:FINEST};
+  }
+  /** While a flag is dragged, a line shows where it would land. */
+  function markDrop(bar,measure,clientX){
+    const beat=beatUnder(bar,measure,clientX);
+    let mark=bar.querySelector('.pf-drop-mark');
+    if(!mark){mark=el('span','pf-drop-mark');bar.append(mark);}
+    mark.style.left=`${beat.n/beat.d/measure.beats.length*100}%`;
+  }
+  function dropOn(measure,beat){
     const item=dragging&&find(dragging);dragging=null;if(!item)return;
-    const moved=moveCue(item.cue,measure);
-    if(!moved){status=`That spot isn’t in bar ${measure.number}: it has fewer beats.`;saved.textContent=status;return;}
-    updateCue(item.cue.id,()=>({at:moved.at}));
+    updateCue(item.cue.id,()=>({at:{measure:measure.id,beat}}));
   }
   // Several actions at once: tick them in the list. Copy and paste go by bars, so a copy keeps its place in the bar.
   const selectedIds=()=>selection.kind==='cues'?selection.ids:selection.kind==='cue'?[selection.id]:[];
@@ -253,86 +351,211 @@ export function mountPrepare(root,deps){
     selection={kind:'none'};paint();
   }
 
-  // ---- the timeline
+  // ---- the timeline: the chart's sections and rows of bars
+  function layOut(){for(const row of scroller.querySelectorAll('.bars'))applyRows(row);placeLoopCounts();}
   function drawTimeline(){
-    const p=perf(),rows=[];
-    const grid_=el('div','pf-grid');grid_.style.setProperty('--bars',measures.length);grid_.style.setProperty('--bar',wide+'px');
-    const col=m=>measures.indexOf(m)+2;
-    const label=(text,tip)=>{const n=el('div','pf-lane-name',text);if(tip)n.title=tip;return n;};
-    // sections
-    grid_.append(label('Sections','The song’s sections, from the chart. Click one to select its bars.'));
-    for(const s of grid.sections){
-      const first=barAtFrame(measures,s.start),last=barAtFrame(measures,Math.max(s.start,s.end-.001));
-      const b=el('button','pf-section-block',s.name);b.type='button';b.style.gridColumn=`${col(first)} / ${col(last)+1}`;b.style.gridRow='1';b.title=`${s.name}: bars ${first.number} to ${last.number}. Click to select these bars.`;
-      b.onclick=()=>{selection={kind:'bars',from:first,to:last,name:s.name};paint();};
-      grid_.append(b);
-    }
-    // bar numbers
-    grid_.append(label('Bars'));
-    for(const m of measures){
-      const b=el('button','pf-bar',String(m.number));b.type='button';b.style.gridColumn=String(col(m));b.style.gridRow='2';b.setAttribute('aria-label',`Bar ${m.number}`);b.dataset.bar=m.id;
-      const inSelection=selection.kind==='bars'&&m.start>=selection.from.start&&m.start<=selection.to.start;
-      b.classList.toggle('on',inSelection);
-      // click a bar; drag across bars, or Shift-click a second one, for a range (From bar and To bar on the right do the same)
-      b.onpointerdown=event=>{if(event.button===0&&!event.shiftKey){sweep=m;}};
-      b.onpointerenter=()=>{if(sweep&&sweep!==m){const a=sweep;selection={kind:'bars',from:a.start<=m.start?a:m,to:a.start<=m.start?m:a};markBars();}};
-      b.onclick=event=>{
-        if(swept){swept=false;paint();return;}
-        if(event.shiftKey&&selection.kind==='bars'){const a=selection.from,z=m;selection={kind:'bars',from:a.start<=z.start?a:z,to:a.start<=z.start?z:a};}
-        else selection={kind:'bars',from:m,to:m};
-        paint();
-      };
-      grid_.append(b);
-    }
-    // arrangement
-    grid_.append(label('Arrangement','Repeats. Select some bars, then choose Repeat to add one.'));
-    for(const r of p?.regions||[]){
-      const start=position(r.start),end=position(r.end);
-      if(!Number.isFinite(start)||!Number.isFinite(end))continue;
-      const first=barAtFrame(measures,start),last=barAtFrame(measures,Math.max(start,end-.001));
-      const b=el('button','pf-repeat'+(regionId===r.id?' on':''),r.plays==='live'?'Until released':`× ${r.plays}`);b.type='button';b.style.gridColumn=`${col(first)} / ${col(last)+1}`;b.style.gridRow='3';b.title=`Repeats bars ${first.number} to ${last.number}. Click to choose a pass and edit it.`;
-      b.onclick=()=>{regionId=r.id;scope={kind:'pass',regionId:r.id,passId:r.passes[0]?.id,index:0};selection={kind:'region',id:r.id};paint();};
-      grid_.append(b);
-    }
-    // lanes
+    const p=perf(),flow=el('div','chart-flow pf-flow');flow.style.setProperty('--beat',beatPx(zoom)+'px');
     const inScope=item=>scope.kind==='shared'?item.scope.kind==='shared':item.scope.regionId===scope.regionId&&item.scope.passId===scope.passId;
     const items=p?allActions(p,position):[];
     const ownPass=scope.kind==='pass'?perf().regions.find(r=>r.id===scope.regionId):null,pass=ownPass?(scope.passId==='further'?ownPass.further:ownPass.passes.find(x=>x.id===scope.passId)):null;
     const followShared=scope.kind==='pass'&&!pass?.program;
-    LANES.forEach(([key,name,tip],i)=>{
-      const rowIndex=4+i;
-      grid_.append(label(name,tip));
-      for(const m of measures){
-        const cell=el('button','pf-cell');cell.type='button';cell.style.gridColumn=String(col(m));cell.style.gridRow=String(rowIndex);cell.setAttribute('aria-label',`${name}, bar ${m.number}: add an action`);cell.title=tool==='action'?`Add to ${name} at bar ${m.number}`:'';
-        cell.onclick=()=>{
-          if(tool==='action'){addActionAt(m,LANE_TYPES[key][0]);return;}
-          selection={kind:'bars',from:m,to:m};paint();
-        };
-        cell.ondragover=event=>{if(dragging){event.preventDefault();cell.classList.add('drop');}};
-        cell.ondragleave=()=>cell.classList.remove('drop');
-        cell.ondrop=event=>{event.preventDefault();cell.classList.remove('drop');dropOn(m);};
-        grid_.append(cell);
+    const shown=items.filter(x=>inScope(x)||(followShared&&x.scope.kind==='shared'));
+    const loops=loopBands(shown);
+    // each bar in the section it starts in; bars before the first section sit in a row of their own
+    const groups=[];
+    for(const m of measures){
+      const section=grid.sections.find(x=>m.start>=x.start-1e-6&&m.start<x.end-1e-6)||null;
+      if(groups.at(-1)?.section!==section)groups.push({section,bars:[]});
+      groups.at(-1).bars.push(m);
+    }
+    for(const {section,bars} of groups){
+      const sec=el('section','sec pf-sec');sec.dataset.name=nameKey(section?.name);
+      if(section){
+        const head=el('div','sec-head'),name=el('button','sec-name',section.name);name.type='button';name.title=`${section.name}: bars ${bars[0].number} to ${bars.at(-1).number}. Click to select these bars.`;
+        name.onclick=()=>{selection={kind:'bars',from:bars[0],to:bars.at(-1),name:section.name};paint();deps.seek?.(bars[0].start);};
+        head.append(name,el('span','sec-time',clockText(section.start)));sec.append(head);
       }
-      const shown=items.filter(x=>laneOf(x.cue.action)===key&&(inScope(x)||(followShared&&x.scope.kind==='shared')));
-      for(const x of shown){
-        const m=barAtFrame(measures,x.seconds);if(!m)continue;
-        const chip=el('button','pf-chip'+(selection.kind==='cue'&&selection.id===x.cue.id?' on':'')+(x.scope.kind==='shared'&&scope.kind==='pass'?' shared':''),describeAction(x.cue.action));chip.type='button';chip.style.gridColumn=String(col(m));chip.style.gridRow=String(rowIndex);chip.title=describeAction(x.cue.action);
-        chip.onclick=()=>{selection={kind:'cue',id:x.cue.id};paint();};
-        chip.draggable=true;chip.ondragstart=()=>{dragging=x.cue.id;};chip.ondragend=()=>{dragging=null;};
-        grid_.append(chip);
+      const row=el('div','bars'+(bars.some(m=>loops.some(l=>inLoop(l,m)))?' has-loop':''));
+      bars.forEach((m,i)=>row.append(drawBar(m,i===bars.length-1,shown,loops)));
+      sec.append(row);flow.append(sec);
+    }
+    legend.replaceChildren();
+    for(const [kind,name,tip] of LANES){const key=el('span',`pf-key kind-${kind}`);key.title=tip;key.insertAdjacentHTML('afterbegin',icon('flag'));key.append(name);legend.append(key);}
+    if(p&&!items.length)legend.append(el('span','pf-none',tool==='action'?'Nothing planned yet. Click a place in a bar to choose what should happen there.':'Nothing planned yet. Choose the Action tool, then click a place in a bar.'));
+    const keep=scroller.scrollTop;
+    scroller.replaceChildren(flow);layOut();scroller.scrollTop=keep;
+  }
+  function drawBar(m,last,shown,loops){
+    const inSelection=selection.kind==='bars'&&m.start>=selection.from.start&&m.start<=selection.to.start;
+    const bar=el('div','bar tbar pf-bar'+(last?' last':'')+(inSelection?' on':''));bar.dataset.bar=m.id;bar.style.setProperty('--beats',m.beats.length);
+    bar.style.setProperty('--bp',beatPx(zoom)+'px');bar.style.setProperty('--sp',beatPx(zoom)*SNAP_QUARTERS[autoSnap(zoom)]+'px');
+    bar.title=tool==='action'?`Click a place in bar ${m.number} to choose what should happen there`:`Click to select bar ${m.number}. Drag across bars to select several.`;
+    // click a bar; drag across bars, or Shift-click a second one, for a range (From bar and To bar on the right do the same)
+    bar.onpointerdown=event=>{if(event.button===0&&!event.shiftKey&&tool!=='action'&&!event.target.closest('button'))sweep=m;};
+    bar.onpointerenter=()=>{if(sweep&&sweep!==m){const a=sweep;selection={kind:'bars',from:a.start<=m.start?a:m,to:a.start<=m.start?m:a};markBars();}};
+    const pick=event=>{
+      if(swept){swept=false;paint();return;}
+      if(tool==='action'){chooseAction(m,beatUnder(bar,m,event.clientX));return;}
+      if(event.shiftKey&&selection.kind==='bars'){const a=selection.from,z=m;selection={kind:'bars',from:a.start<=z.start?a:z,to:a.start<=z.start?z:a};}
+      else{selection={kind:'bars',from:m,to:m};deps.seek?.(m.start);}   // the playhead comes here, and Play goes on from here
+      paint();
+    };
+    bar.onclick=event=>{if(!event.target.closest('button'))pick(event);};
+    bar.ondragover=event=>{if(dragging){event.preventDefault();bar.classList.add('drop');markDrop(bar,m,event.clientX);}};
+    bar.ondragleave=event=>{if(bar.contains(event.relatedTarget))return;bar.classList.remove('drop');bar.querySelector('.pf-drop-mark')?.remove();};
+    bar.ondrop=event=>{event.preventDefault();bar.classList.remove('drop');bar.querySelector('.pf-drop-mark')?.remove();dropOn(m,beatUnder(bar,m,event.clientX));};
+    const number=el('button','bar-no',String(m.number));number.type='button';number.setAttribute('aria-label',tool==='action'?`Bar ${m.number}: choose what should happen here`:`Select bar ${m.number}`);
+    number.onclick=event=>{if(tool==='action')chooseAction(m);else pick(event);};
+    const chords=el('div','pf-chord-line');
+    for(const c of chordsInMeasure(grid.chords||[],m)){
+      if(c.continued||isNoChordLabel(c.label))continue;
+      const chord=el('span','pf-chord',c.label);chord.style.left=`${c.beat/m.beats.length*100}%`;chord.dataset.start=c.start;chord.dataset.end=c.end;chords.append(chord);
+    }
+    const flags=el('div','pf-flag-line'),taken=new Map();
+    for(const x of shown){
+      if(x.cue.at.measure!==m.id)continue;
+      const kind=laneOf(x.cue.action),kindName=LANES.find(([k])=>k===kind)[1],words=`${kindName}: ${describeAction(x.cue.action)}`,spot=beatValue(x.cue.at);
+      const flag=el('button',`pf-flag kind-${kind}`+(selection.kind==='cue'&&selection.id===x.cue.id?' on':'')+(x.scope.kind==='shared'&&scope.kind==='pass'?' shared':'')+(x.cue.when?.first?' first':''));flag.type='button';flag.title=`${words}. ${playWords(x.cue,x.scope,perf().regions.find(r=>r.id===x.scope.regionId))}. Click to change it, or drag it to another place.`;flag.setAttribute('aria-label',words);flag.insertAdjacentHTML('afterbegin',icon('flag'));
+      const before=taken.get(spot)||0;taken.set(spot,before+1);
+      flag.style.left=`calc(${spot/m.beats.length*100}% + ${before*16}px)`;
+      flag.onclick=()=>openCue(x.cue.id);
+      flag.draggable=true;flag.ondragstart=event=>{dragging=x.cue.id;event.dataTransfer?.setData('text/plain',x.cue.id);if(event.dataTransfer)event.dataTransfer.effectAllowed='move';};flag.ondragend=()=>{dragging=null;};
+      flags.append(flag);
+      if(x.cue.action?.type==='marker.text'){   // a note reads like a chart cue: its words beside its flag, lit while its bar plays
+        const note=el('button','pf-note'+(x.cue.enabled===false?' off':''),x.cue.action.text||'');note.type='button';note.title=`A note in this arrangement. During a show it shows on the chart here, and in Coming up before it. Click to change it.`;
+        note.style.left=`calc(${spot/m.beats.length*100}% + ${before*16+14}px)`;note.onclick=()=>openCue(x.cue.id);flags.append(note);
       }
-    });
-    const keep=scroller.scrollLeft;
-    scroller.replaceChildren(grid_);scroller.scrollLeft=keep;
-    void rows;
+    }
+    bar.append(number,flags,chords);
+    for(const loop of loops)if(inLoop(loop,m))bar.append(drawLoopPiece(loop,m));
+    return bar;
+  }
+
+  // ---- loops: a purple band of flags over the bars a loop flag goes round (the timeline's loop is purple too), with how many times
+  // it plays. While that loop is going round, the count lights up, counts down the plays still to come (×1!! on the last) and bumps on
+  // every beat, as a repeat's count does on the Chart tab. A loop you start with L or R while playing gets a band too, while it lasts.
+  const SR=44100,near=(a,b)=>Math.abs(a-b)<.002;
+  let loopBadges=[],drawnLive='';
+  const liveKey=live=>live?`${live.start}-${live.end}`:'';
+  const inLoop=(loop,m)=>m.start>=loop.start-1e-6&&m.start<loop.end-1e-6;
+  function loopBands(shown){
+    const shownNow=deps.loopShown?.(),live=shownNow&&!shownNow.regionId?shownNow:null,out=[];drawnLive=liveKey(live);
+    for(const x of shown){
+      const a=x.cue.action;if(a?.type!=='command'||(a.command!=='loop-bars'&&a.command!=='loop-section'))continue;
+      const at=position(x.cue.at);if(!Number.isFinite(at))continue;
+      const range=a.command==='loop-bars'?fourBarRange(measures,grid.sections,Math.round(at*SR),a.params?.bars??4):sectionRange(measures,grid.sections,Math.round(at*SR));
+      if(!range||out.some(l=>near(l.start,range.start/SR)&&near(l.end,range.end/SR)))continue;
+      const plays=Number.isInteger(a.params?.plays)&&a.params.plays>=2?a.params.plays:null;
+      out.push({start:range.start/SR,end:range.end/SR,plays,label:range.label,cueId:x.cue.id});
+    }
+    // a planned loop (the Loop tool): the same band, and its count opens it to change it or edit a pass
+    for(const r of perf()?.regions||[]){
+      const start=position(r.start),end=position(r.end);if(!Number.isFinite(start)||!Number.isFinite(end))continue;
+      const first=barAtFrame(measures,start),last=barAtFrame(measures,Math.max(start,end-.001));
+      out.push({start,end,plays:r.plays==='live'?null:r.plays,label:first===last?`bar ${first.number}`:`bars ${first.number}–${last.number}`,cueId:null,regionId:r.id});
+    }
+    // a loop you start with L or R takes the place of any planned one under it while it lasts: one band, never one over another
+    if(live&&!out.some(l=>near(l.start,live.start/SR)&&near(l.end,live.end/SR))){
+      const a=live.start/SR,b=live.end/SR;
+      for(let i=out.length-1;i>=0;i--)if(out[i].start<b-.002&&out[i].end>a+.002)out.splice(i,1);
+      out.push({start:a,end:b,plays:null,label:live.label,cueId:null});
+    }
+    for(const l of out)l.bars=measures.filter(m=>inLoop(l,m));
+    loopBadges=[];
+    return out;
+  }
+  const loopFlag=end=>`<svg class="pf-loop-flag ${end}" viewBox="0 0 28 40" aria-hidden="true"><path d="M2 1V40"/><path d="M2 1.5h24l-6 7.5 6 7.5H2z"/></svg>`;
+  function drawLoopPiece(loop,m){
+    const piece=el('div','pf-loop'),i=loop.bars.indexOf(m),n=loop.bars.length;
+    const times=loop.plays?`${loop.plays} times`:'until you leave it';
+    piece.title=loop.regionId||loop.cueId?`Loops ${loop.label}, ${times}. Click its flags, band or count to change it.`:`You’re looping ${loop.label}. Press the same loop key again to leave it.`;
+    if(loop.regionId||loop.cueId){piece.classList.add('editable');piece.onclick=event=>{event.stopPropagation();openLoopBand(loop);};}   // like any flag: its flags, band and count open its action
+    piece.append(el('i','pf-loop-band'));
+    if(i===0)piece.insertAdjacentHTML('beforeend',loopFlag('start'));
+    if(i===n-1)piece.insertAdjacentHTML('beforeend',loopFlag('end'));
+    if(i===Math.floor(n/2)){
+      const text=loop.plays?`×${loop.plays}`:'∞',badge=el('button','pf-loop-count'+(n%2?'':' edge')+(loop.regionId&&regionId===loop.regionId?' on':''),text);badge.type='button';
+      badge.title=loop.regionId||loop.cueId?`Plays ${times}. While it plays, this counts down the plays still to come. Click to change the loop.`:`Loops ${times}.`;
+      badge.setAttribute('aria-label',`Loop: ${loop.label}, ${times}`);
+      if(!loop.regionId&&!loop.cueId)badge.disabled=true;
+      piece.append(badge);loopBadges.push({node:badge,loop,text,beat:null});
+    }
+    return piece;
+  }
+  /** A loop's count sits in the middle of the last row its band reaches, so it's never cut off at a row's edge. Runs after rows are laid out. */
+  function placeLoopCounts(){
+    for(const b of loopBadges){
+      const nodes=b.loop.bars.map(m=>scroller.querySelector(`.pf-bar[data-bar="${CSS.escape(String(m.id))}"]`)).filter(Boolean);if(!nodes.length)continue;
+      const top=Math.max(...nodes.map(n=>n.offsetTop)),row=nodes.filter(n=>Math.abs(n.offsetTop-top)<4);
+      const host=row[Math.floor(row.length/2)]?.querySelector('.pf-loop');if(!host)continue;
+      b.node.classList.toggle('edge',row.length%2===0);
+      if(b.node.parentNode!==host)host.append(b.node);
+    }
+  }
+  /** The action screen for a loop, as for any flag: Loop bars, its number of bars and plays. A planned loop's passes are in the panel on the right. */
+  function openLoopBand(loop){
+    if(loop.cueId){openCue(loop.cueId);return;}
+    const r=perf().regions.find(x=>x.id===loop.regionId);if(!r)return;
+    const id=r.id,first=barAtFrame(measures,position(r.start)),last=barAtFrame(measures,position(r.end)-.001),count=measures.indexOf(last)-measures.indexOf(first)+1;
+    regionId=id;if(selection.kind==='region')selection={kind:'none'};paint();
+    editorOpen?.close();
+    const passes=btn('','Edit one pass…','Give one time round its own actions, or choose what happens when the loop ends, in the panel on the right',()=>{editorOpen?.close();scope={kind:'pass',regionId:id,passId:perf().regions.find(x=>x.id===id)?.passes[0]?.id,index:0};selection={kind:'region',id};paint();});
+    editorOpen=openActionEditor({title:`At bar ${first.number}`,action:{type:'command',command:'loop-bars',params:{bars:count,...(Number.isInteger(r.plays)&&r.plays>=2?{plays:r.plays}:{})}},ctx:editorContext(first.start*SR),
+      onChange:action=>changeLoop(id,action),
+      tools:[passes,btn('danger','Delete','Remove this loop, and every pass’s own actions with it. Undo brings it back.',()=>{editorOpen?.close();regionId=null;scope={kind:'shared'};selection={kind:'none'};change(removeRegion(perf(),id));})],
+      onClose:()=>{editorOpen=null;if(selection.kind!=='region')regionId=null;paint();}});
+  }
+  /** A change made in a loop's action screen. Another number of bars or plays changes the loop; another kind of action replaces it with a flag. */
+  function changeLoop(id,action){
+    const r=perf().regions.find(x=>x.id===id);if(!r)return;
+    const firstI=measures.indexOf(barAtFrame(measures,position(r.start)));
+    if(!isLoopFlag(action)){
+      const cue=uid(),next=removeRegion(perf(),id);next.cues.push({id:cue,at:structuredClone(r.start),action});
+      editorOpen?.close();regionId=null;scope={kind:'shared'};change(next);openCue(cue);return;
+    }
+    let lastI=Math.min(measures.length-1,firstI+Math.max(1,action.params?.bars??4)-1);
+    if(action.command==='loop-section'){const range=sectionRange(measures,grid.sections,Math.round(measures[firstI].start*SR));const e=range&&measures.findIndex(m=>Math.round(m.end*SR)===range.end);if(e>=firstI)lastI=e;}
+    const start=measures[firstI].start,end=measures[lastI].end;
+    if(perf().regions.some(x=>x.id!==id&&position(x.start)<end-.002&&position(x.end)>start+.002)){status='That would overlap another loop. Make this one shorter, or remove the other first.';paint();return;}
+    const next=structuredClone(perf()),region=next.regions.find(x=>x.id===id),to=measures[lastI];
+    region.end=lastI===measures.length-1?{measure:to.id,beat:{n:to.beats.length,d:1}}:address(measures[lastI+1].id);region.family=loopFamily(lastI-firstI+1);
+    const plays=Number.isInteger(action.params?.plays)&&action.params.plays>=2?action.params.plays:'live';
+    change(plays===region.plays?next:setPlays(next,id,plays,uid));
+  }
+  /** Every 40 ms, with the playhead: the count of the loop going round now. */
+  function paintLoopCount(seconds){
+    const now=deps.loopShown?.()??null,live=now&&!now.regionId?now:null;
+    if(liveKey(live)!==drawnLive){drawTimeline();return;}   // a loop you started (or that ended) gets its band (or loses it)
+    if(!loopBadges.length)return;
+    const playing=!!deps.playing?.();let beat=null;
+    if(playing){
+      const m=measures.find(m=>seconds>=m.start&&seconds<m.end);
+      if(m){const points=[...m.beats,m.end];let i=0;while(i<points.length-2&&points[i+1]<=seconds)i++;beat={key:m.id+':'+i,length:Math.max(.08,points[i+1]-points[i])};}
+    }
+    for(const b of loopBadges){
+      // lit: the plan going round, or a live loop over these same bars (L in a planned loop keeps going round it, ∞)
+      const on=playing&&!!now&&(now.regionId?b.loop.regionId===now.regionId:near(b.loop.start,now.start/SR)&&near(b.loop.end,now.end/SR));
+      const left=on?now.left:null;
+      const text=on?(left?'×'+left+(left===1?'!!':''):'∞'):(b.loop.plays?`×${b.loop.plays}`:'∞');
+      if(b.text!==text){b.text=text;b.node.textContent=text;}
+      b.node.classList.toggle('live',on);b.node.classList.toggle('last',on&&left===1);
+      if(on&&beat&&b.beat!==beat.key){
+        b.beat=beat.key;b.node.style.setProperty('--beat-len',beat.length.toFixed(3)+'s');
+        b.node.dataset.beat=b.node.dataset.beat==='a'?'b':'a';                 // a fresh animation name restarts the bump on the beat
+      }else if(!on&&b.beat){b.beat=null;delete b.node.dataset.beat;}
+    }
   }
 
   function drawPasses(){
     passBar.replaceChildren();
-    const zoom=(delta,label,iconName)=>{const b=btn('sq','',label,()=>{wide=Math.max(30,Math.min(160,wide+delta));paint();},iconName);b.setAttribute('aria-label',label);return b;};
-    const zooms=el('span','pf-zoom');zooms.append(el('span','vx-cap','Bars'),zoom(-16,'Make the bars narrower, to see more of the song','down'),zoom(16,'Make the bars wider, to read the actions in them','up'));
+    const zoomButton=(direction,label,iconName)=>{const b=btn('sq','',`${label} (Ctrl+wheel)`,()=>zoomBy(direction),iconName);b.setAttribute('aria-label',label);return b;};
+    const magnet=btn('sq magnet'+(snapping?' on':''),'',`Snap to the grid. On: a dragged flag lands on the ${autoSnap(zoom)} grid, which gets finer as you zoom in. Off: it lands exactly where you drop it.`,()=>{snapping=rememberedSnap=!snapping;paint();},'magnet');magnet.setAttribute('aria-label','Snap to the grid');magnet.setAttribute('aria-pressed',String(snapping));
+    const count=perf()?allActions(perf(),position).length+perf().regions.length:0;
+    const listB=btn('pf-list-toggle'+(showList?' on':''),`Actions${count?` (${count})`:''}`,showList?'Hide the list of every action and loop. The flags on the bars still show them all.':'Show every action and loop in a list, in song order, to find one, or tick several to copy or delete them together',()=>{showList=rememberedList=!showList;paint();},'list');
+    listB.setAttribute('aria-pressed',String(showList));if(!perf())listB.hidden=true;
+    const zooms=el('span','pf-zoom');zooms.append(listB,magnet,zoomButton(-1,'Zoom out, to see more of the song','minus'),zoomButton(1,'Zoom in, to place actions more finely','plus'));
     const p=perf();if(!p){passBar.append(zooms);return;}
-    queueMicrotask(()=>passBar.append(zooms));
+    queueMicrotask(()=>{passBar.querySelector('.pf-zoom')?.remove();passBar.append(zooms);});
     const region=p.regions.find(r=>r.id===regionId);
     const tab=(text,on,run,tip,custom=false)=>{const b=el('button','btn pf-tab'+(on?' on':'')+(custom?' custom':''),text);b.type='button';b.setAttribute('aria-pressed',String(on));b.title=tip;b.onclick=run;return b;};
     passBar.append(el('span','vx-cap','Editing'));
@@ -342,43 +565,44 @@ export function mountPrepare(root,deps){
     if(region.plays==='live')passBar.append(tab('Further passes',scope.passId==='further',()=>{scope={kind:'pass',regionId:region.id,passId:'further',index:null};paint();},'Used by every pass after the planned ones, until you leave the loop.',!!region.further?.program));
   }
 
+  function zoomBy(direction){const next=stepZoom(zoom,direction);if(next===zoom)return;zoom=rememberedZoom=next;paint();}
+  scroller.addEventListener('wheel',event=>{if(!event.ctrlKey)return;event.preventDefault();event.stopPropagation();zoomBy(event.deltaY<0?1:-1);},{passive:false});
+  const watchWidth=typeof ResizeObserver==='function'?new ResizeObserver(()=>layOut()):null;watchWidth?.observe(scroller);
+
   // ---- the inspector
   function field(labelText,control,help){const row=el('label','pf-field');row.append(el('span','pf-field-name',labelText),control);if(help)row.title=help;return row;}
   function numberInput(value,{min,max,step},onChange,optional=false){const i=el('input');i.type='number';if(min!==undefined)i.min=min;if(max!==undefined)i.max=max;if(step!==undefined)i.step=step;i.value=value??'';i.onchange=()=>{if(i.value===''&&optional){onChange(undefined);return;}const v=Number(i.value);if(Number.isFinite(v))onChange(v);};return i;}
-  function drawActionFields(item){
-    const a=item.cue.action,frag=[];
-    const set=patch=>updateCue(item.cue.id,c=>{const action={...c.action,...patch};for(const k of Object.keys(action))if(action[k]===undefined)delete action[k];return {action};});
-    const typeSel=el('select');
-    const lane=laneOf(a);for(const t of LANE_TYPES[lane]){const o=el('option','',ACTIONS[t].label);o.value=t;typeSel.append(o);}
-    typeSel.value=a.type;typeSel.onchange=()=>updateCue(item.cue.id,()=>({action:NEW_ACTION[typeSel.value]({scenes:deps.scenes(),device:deps.devices()[0]})}));
-    frag.push(field('What',typeSel));
-    for(const [key,kind,name,o={}] of FIELDS[a.type]||[]){
-      let control;
-      if(kind==='number')control=numberInput(a[key],o,v=>set({[key]:v}));
-      else if(kind==='optional')control=numberInput(a[key],o,v=>set({[key]:v}),true);
-      else if(kind==='text'){control=el('input');control.value=a[key]??'';control.onchange=()=>set({[key]:control.value});}
-      else if(kind==='check'){control=el('input');control.type='checkbox';control.checked=!!a[key];control.onchange=()=>set({[key]:control.checked});}
-      else if(kind==='tristate'){control=el('select');for(const [v,t] of [['','No change'],['on','On'],['off','Off']]){const n=el('option','',t);n.value=v;control.append(n);}control.value=a[key]===undefined?'':a[key]?'on':'off';control.onchange=()=>set({[key]:control.value===''?undefined:control.value==='on'});}
-      else if(kind==='track'){control=el('select');for(const r of STEM_ROLES){const n=el('option','',STEM_NAMES[r]);n.value=r;control.append(n);}control.value=a[key];control.onchange=()=>set({[key]:control.value});}
-      else if(kind==='choice'){control=el('select');for(const [v,t] of o.choices){const n=el('option','',t);n.value=v;control.append(n);}control.value=a[key];control.onchange=()=>set({[key]:control.value});}
-      else if(kind==='scene'){control=el('select');for(const s of deps.scenes()){const n=el('option','',s.name||s.id);n.value=s.id;control.append(n);}control.value=a[key];control.onchange=()=>set({[key]:control.value});}
-      else if(kind==='device'){control=el('input');control.setAttribute('list','pf-devices');control.value=a[key]??'';control.onchange=()=>set({[key]:control.value});}
-      else {
-        const parts=inputChoices(deps.scenes(),o.wants);
-        control=el('select');const none=el('option','','Choose…');none.value='';control.append(none);
-        for(const [v,t] of parts){const n=el('option','',t);n.value=v;control.append(n);}
-        if(a[key]&&!parts.some(([v])=>v===a[key])){const n=el('option','',a[key]);n.value=a[key];control.append(n);}
-        control.value=a[key]??'';control.onchange=()=>set({[key]:control.value});
-      }
-      frag.push(field(name,control));
+  /** Where and when an action happens, in the Details pane of the action screen. */
+  function drawTiming(host,id){
+    const item=find(id);if(!item)return;
+    const box=el('div','pf-timing');host.append(el('h3','vx-cap','When'),box);
+    const m=measures.find(x=>x.id===item.cue.at.measure);
+    const barInput=numberInput(m?.number,{min:measures[0].number,max:measures.at(-1).number,step:1},v=>{const t=measures.find(x=>x.number===v);if(t)updateCue(id,c=>({at:address(t.id,c.at.beat.n,c.at.beat.d)}));});
+    const beatInput=numberInput(beatValue(item.cue.at)+1,{min:1,max:(m?.beats.length||4)+.99,step:.25},v=>updateCue(id,c=>({at:{measure:c.at.measure,beat:{n:Math.round((v-1)*16),d:16}}})));
+    const when=el('select');when.title='Whether this happens each time the music gets here, or only the first time. Going round a loop counts as getting here again.';for(const [v,t] of [['every','Every time it comes round'],['first','The first time only']]){const n=el('option','',t);n.value=v;when.append(n);}when.value=item.cue.when?.first?'first':'every';when.onchange=()=>updateCue(id,()=>({when:when.value==='first'?{first:true}:undefined}));
+    const lead=numberInput(item.cue.leadMs??0,{min:0,max:2000,step:5},v=>updateCue(id,()=>({leadMs:v})));
+    const order=numberInput(item.cue.order,{min:0,max:99,step:1},v=>updateCue(id,()=>({order:v})),true);
+    const enabled=el('input');enabled.type='checkbox';enabled.checked=item.cue.enabled!==false;enabled.onchange=()=>updateCue(id,()=>({enabled:enabled.checked}));
+    box.append(field('Bar',barInput),field('Beat',beatInput,'1 is the start of the bar'),field('When',when),field('Early by (ms)',lead,'Do it this much ahead of the beat, for a pedal or preset that takes a moment to change'),field('Order on this spot',order,'For two actions that set the same thing at the same moment: the lower number goes first'),field('On',enabled,'Off: the action stays on the song but does nothing'));
+    const action=item.cue.action;
+    if(isOlderMixerFlag(action))box.append(btn('','Turn into a mixer keyframe','Replace this with a keyframe of the whole mixer as it stands here, with this change in it',()=>{const action=keyframeForFlag(compiled(),position(item.cue.at)*44100,item.cue.action);updateCue(id,()=>({action}));editorOpen?.close();openCue(id);}));
+    if(action.device){
+      const wire=el('details','pf-wire');wire.append(el('summary','','Exact MIDI bytes'),el('code','',messagesFor(action,0).map(x=>x.bytes.map(b=>b.toString(16).toUpperCase().padStart(2,'0')).join(' ')).join('  ·  ')));
+      const said=el('small','');said.setAttribute('role','status');
+      const send=btn('','Send this now','Send it to the device right now, to try it. This does change what the device is doing.',async()=>{
+        const a=find(id)?.cue.action;if(!a)return;
+        try{const c=await api('/api/midi/connect',{name:a.device});if(!c.output){said.textContent=c.error||`${a.device} isn’t connected.`;return;}
+          const {clock}=await api('/api/midi/status');await api('/api/midi/schedule',{device:a.device,events:messagesFor(a,clock+.01)});said.textContent='Sent. That means it left this computer, not that the device acted on it.';}
+        catch(error){deps.showError(error);}
+      });
+      box.append(wire,send,said);
     }
-    return frag;
   }
   function drawInspector(){
     inspector.replaceChildren();
     const p=perf();
     if(!p){
-      inspector.append(el('h3','pf-title','Original arrangement'),el('p','pf-none','The song as it is, start to finish. To add repeats, mutes, visuals or MIDI, make an arrangement. The chart and the recording don’t change.'),btn('hot','Make an arrangement','Start a named arrangement of this song',()=>makeNew(),'plus'));
+      inspector.append(el('h3','pf-title','Original arrangement'),el('p','pf-none','The song as it is, start to finish. To add loops, mutes, visuals or MIDI, make an arrangement. The chart and the recording don’t change.'),btn('hot','Make an arrangement','Start a named arrangement of this song',()=>makeNew(),'plus'));
       return;
     }
     if(selection.kind==='cues'){
@@ -391,62 +615,22 @@ export function mountPrepare(root,deps){
     if(selection.kind==='cue'){
       const item=find(selection.id);if(!item)return;
       const m=measures.find(x=>x.id===item.cue.at.measure);
-      const barInput=numberInput(m?.number,{min:measures[0].number,max:measures.at(-1).number,step:1},v=>{const t=measures.find(x=>x.number===v);if(t)updateCue(item.cue.id,()=>({at:address(t.id,item.cue.at.beat.n,item.cue.at.beat.d)}));});
-      const beatInput=numberInput(item.cue.at.beat.n/item.cue.at.beat.d+1,{min:1,max:(m?.beats.length||4)+.99,step:.5},v=>{updateCue(item.cue.id,()=>({at:{measure:item.cue.at.measure,beat:{n:Math.round((v-1)*16),d:16}}}));});
-      const when=el('select');for(const [v,t] of [['every','Every time it comes round'],['first','The first time only']]){const n=el('option','',t);n.value=v;when.append(n);}when.value=item.cue.when?.first?'first':'every';when.onchange=()=>updateCue(item.cue.id,()=>({when:when.value==='first'?{first:true}:undefined}));
-      const lead=numberInput(item.cue.leadMs??0,{min:0,max:2000,step:5},v=>updateCue(item.cue.id,()=>({leadMs:v})));
-      const order=numberInput(item.cue.order,{min:0,max:99,step:1},v=>updateCue(item.cue.id,()=>({order:v})),true);
-      const enabled=el('input');enabled.type='checkbox';enabled.checked=item.cue.enabled!==false;enabled.onchange=()=>updateCue(item.cue.id,()=>({enabled:enabled.checked}));
-      const problem=checkAction(item.cue.action);
-      inspector.append(el('h3','pf-title',describeAction(item.cue.action)),el('p','pf-scope',scopeWords(item.scope,p.regions.find(r=>r.id===item.scope.regionId))),...drawActionFields(item),field('Bar',barInput),field('Beat',beatInput,'1 is the start of the bar'),field('When',when),field('Early by (ms)',lead,'Send it this much ahead of the beat, for a pedal or preset that takes a moment to change'),field('Order on this spot',order,'For two actions that set the same thing at the same moment: the lower number goes first'),field('On',enabled));
-      if(problem)inspector.append(el('p','pf-problem',problem));
-      if(!problem&&item.cue.action.device){
-        const wire=el('details','pf-wire');wire.append(el('summary','','Exact MIDI bytes'),el('code','',messagesFor(item.cue.action,0).map(m=>m.bytes.map(b=>b.toString(16).toUpperCase().padStart(2,'0')).join(' ')).join('  ·  ')));
-        const send=btn('','Send this now','Send it to the device right now, to try it. This does change what the device is doing.',async()=>{
-          try{const c=await api('/api/midi/connect',{name:item.cue.action.device});if(!c.output){status=c.error||`${item.cue.action.device} isn’t connected.`;saved.textContent=status;return;}
-            const {clock}=await api('/api/midi/status');await api('/api/midi/schedule',{device:item.cue.action.device,events:messagesFor(item.cue.action,clock+.01)});status='Sent. That means it left this computer, not that the device acted on it.';saved.textContent=status;}
-          catch(error){deps.showError(error);}
-        });
-        inspector.append(wire,send);
-      }
-      inspector.append(btn('','Copy','Copy this action, to paste at another bar (Ctrl+C). Select a bar, then Paste.',()=>copySelected()));
-      inspector.append(btn('danger','Delete this action','Remove it (Delete). Undo brings it back.',()=>deleteSelected()));
+      inspector.append(el('h3','pf-title',describeAction(item.cue.action)),el('p','pf-scope',`Bar ${m?.number??'?'} · ${playWords(item.cue,item.scope,p.regions.find(r=>r.id===item.scope.regionId))}`));
+      const row=el('div','pf-add-actions');
+      row.append(btn('hot','Change…','Open this action’s details',()=>openCue(item.cue.id)),btn('','Copy','Copy this action, to paste at another bar (Ctrl+C). Select a bar, then Paste.',()=>copySelected()),btn('danger','Delete','Remove it (Delete). Undo brings it back.',()=>deleteSelected()));
+      inspector.append(row);
       return;
     }
-    if(selection.kind==='bars'){
-      const {from,to}=selection,count=measures.indexOf(to)-measures.indexOf(from)+1;
-      const seconds=to.end-from.start;
-      inspector.append(el('h3','pf-title',count===1?`Bar ${from.number}`:`Bars ${from.number} to ${to.number}`));
-      const setRange=(a,b)=>{const low=measures.find(x=>x.number===a),high=measures.find(x=>x.number===b);if(low&&high&&low.start<=high.start){selection={kind:'bars',from:low,to:high};paint();}};
-      const fromBar=numberInput(from.number,{min:measures[0].number,max:measures.at(-1).number,step:1},v=>setRange(v,Math.max(v,to.number)));
-      const toBar=numberInput(to.number,{min:measures[0].number,max:measures.at(-1).number,step:1},v=>setRange(Math.min(v,from.number),v));
-      inspector.append(field('From bar',fromBar),field('To bar',toBar));
-      const plays=numberInput(2,{min:1,max:256,step:1},()=>paintRepeatHint());plays.setAttribute('aria-label','Total plays');
-      const until=el('input');until.type='checkbox';
-      const key=el('select');for(const [v,t] of [['bars','L leaves or switches it'],['section','R leaves or switches it']]){const n=el('option','',t);n.value=v;key.append(n);}key.value=count>4?'section':'bars';
-      const hint=el('p','pf-hint');
-      const paintRepeatHint=()=>{const n=Number(plays.value)||1;plays.disabled=until.checked;hint.textContent=until.checked?`Plays until you leave it. Planned as four plays (${clockText(seconds*4)}), an estimate that grows if you stay longer.`:`The original play and ${n-1} repeat${n===2?'':'s'}: adds ${clockText(seconds*(n-1))}.`;};
-      until.onchange=paintRepeatHint;paintRepeatHint();
-      const beats=numberInput('',{min:1,max:64,step:1},()=>{},true);
-      const add=btn('hot','Repeat','Repeat these bars',()=>{
-        let end=to===measures.at(-1)?{measure:to.id,beat:{n:to.beats.length,d:1}}:address(measures[measures.indexOf(to)+1].id);
-        if(beats.value!==''){const r=endForBeats(measures,from.id,Number(beats.value));if(r.error){hint.textContent=r.error;return;}end=r.end;}
-        try{const id=uid();change(addRepeat(perf(),{start:address(from.id),end,plays:until.checked?'live':Number(plays.value)||1,family:key.value,id},uid));regionId=id;scope={kind:'shared'};selection={kind:'region',id};paint();}catch(error){hint.textContent=error.message;}
-      },'loop');
-      inspector.append(field('Total plays',plays,'Counting the first play'),field('Until released',until,'Keep repeating until you leave it during the show'),field('Or just the first (beats)',beats,'Repeat only this many beats from the start of the selection. It must end on a bar line.'),field('Leaving it',key),hint,add);
-      if(clipboard?.length)inspector.append(btn('',`Paste ${clipboard.length===1?'the copied action':`${clipboard.length} copied actions`} here`,'Put copies here (Ctrl+V), keeping their places in the bar and their spacing',()=>pasteAt(from)));
-      const here=el('div','pf-add-actions');inspector.append(el('h3','vx-cap','Add at the start'));
-      for(const [k,name] of LANES){const b=btn('',name,`Add to ${name} at bar ${from.number}`,()=>addActionAt(from,LANE_TYPES[k][0]));here.append(b);}inspector.append(here);
+    if(selection.kind==='bars'){   // selecting bars moves the playhead; with something copied, it's where Paste puts it
+      const {from,to}=selection;
+      if(clipboard?.length){inspector.append(el('h3','pf-title',from===to?`Bar ${from.number}`:`Bars ${from.number} to ${to.number}`),btn('',`Paste ${clipboard.length===1?'the copied action':`${clipboard.length} copied actions`} here`,'Put copies here (Ctrl+V), keeping their places in the bar and their spacing',()=>pasteAt(from)));}
       return;
     }
     if(selection.kind==='region'){
       const r=p.regions.find(x=>x.id===selection.id);if(!r){selection={kind:'none'};return drawInspector();}
       const first=barAtFrame(measures,position(r.start)),last=barAtFrame(measures,position(r.end)-.001);
-      inspector.append(el('h3','pf-title',`Repeat: bars ${first.number} to ${last.number}`));
-      const plays=numberInput(r.plays==='live'?4:r.plays,{min:1,max:256,step:1},v=>change(setPlays(perf(),r.id,v,uid)));plays.disabled=r.plays==='live';
-      const until=el('input');until.type='checkbox';until.checked=r.plays==='live';until.onchange=()=>change(setPlays(perf(),r.id,until.checked?'live':Math.max(1,r.passes.length),uid));
-      const key=el('select');for(const [v,t] of [['bars','L leaves or switches it'],['section','R leaves or switches it']]){const n=el('option','',t);n.value=v;key.append(n);}key.value=r.family;key.onchange=()=>{const next=structuredClone(perf());next.regions.find(x=>x.id===r.id).family=key.value;change(next);};
-      inspector.append(field('Total plays',plays),field('Until released',until),field('Leaving it',key));
+      inspector.append(el('h3','pf-title',`Loop: bars ${first.number} to ${last.number}`));
+      inspector.append(el('p','pf-hint',`${r.plays==='live'?'Plays until you leave it':`${r.plays} plays`}. Choose a pass above to give it its own actions.`),btn('','Change the loop…','Its number of bars and plays, or delete it',()=>openLoopBand({regionId:r.id})));
       if(scope.kind==='pass'){
         const words=el('p','pf-hint',customizedPasses(r).includes(scope.passId)?'This pass has its own actions.':'This pass follows Every play until you change it.');
         const row=el('div','pf-add-actions');
@@ -469,38 +653,44 @@ export function mountPrepare(root,deps){
       const exit=el('div','pf-exit');exit.append(el('h3','vx-cap','When it ends'));
       const exitItems=r.onExit||[];
       exitItems.forEach((a,i)=>{const line=el('div','pf-exit-row');line.append(el('span','',describeAction(a)),btn('sq','', 'Remove',()=>{const next=structuredClone(perf());next.regions.find(x=>x.id===r.id).onExit.splice(i,1);change(next);},'x'));exit.append(line);});
-      const kind=el('select');kind.setAttribute('aria-label','An action for when this repeat ends');for(const [t,def] of Object.entries(ACTIONS))if(t!=='visual.input'&&t!=='visual.trigger'){const o=el('option','',def.label);o.value=t;kind.append(o);}
-      exit.append(kind,btn('','Add','Runs at the end of the repeat, however you left it',()=>{const next=structuredClone(perf());next.regions.find(x=>x.id===r.id).onExit.push(NEW_ACTION[kind.value]({scenes:deps.scenes(),device:deps.devices()[0]}));change(next);}));
-      inspector.append(exit,btn('danger','Remove this repeat','Take the repeat out, and every pass’s own actions with it. Undo brings it back.',()=>{regionId=null;scope={kind:'shared'};selection={kind:'none'};change(removeRegion(perf(),r.id));}));
+      exit.append(btn('','Add…','Choose something to happen at the end of the loop, however you left it',()=>openActionEditor({title:'What should happen when this loop ends?',ctx:editorContext(position(r.end)*44100),onAdd:action=>{const next=structuredClone(perf());next.regions.find(x=>x.id===r.id).onExit.push(action);change(next);}})));
+      inspector.append(exit);
       return;
     }
-    inspector.append(el('p','pf-none','Select some bars to repeat them or add actions, or click an action to change it.'));
+    inspector.append(el('p','pf-none','Choose the Action tool to add an action or a loop. Click a flag to change it.'));
   }
   function drawList(){
     const keep=document.activeElement?.dataset?.cue;
     list.replaceChildren();
     const p=perf();if(!p)return;
     const items=allActions(p,position).filter(x=>filter==='all'||laneOf(x.cue.action)===filter);
-    if(!items.length)list.append(el('li','pf-none','None yet.'));
+    // repeats change what plays as much as any flag does, so they're listed with them, in song order
+    const repeats=filter==='all'||filter==='control'?p.regions:[];
+    if(!items.length&&!repeats.length)list.append(el('li','pf-none','None yet.'));
+    const addRepeatRow=r=>{
+      const first=barAtFrame(measures,position(r.start)),last=barAtFrame(measures,position(r.end)-.001),words=repeatWords(r,first.number,last.number),li=el('li','pf-list-item pf-list-repeat');
+      const b=el('button','pf-list-row'+(selection.kind==='region'&&selection.id===r.id?' on':''));b.type='button';b.dataset.region=r.id;b.title='Click to change or remove this loop';
+      b.append(el('b','',`Bar ${first.number}`),el('span','',words.title),el('small','',words.plays));
+      b.onclick=()=>{openLoopBand({regionId:r.id});scroller.querySelector('.pf-loop-count.on')?.scrollIntoView({block:'nearest'});};
+      li.append(b);list.append(li);
+    };
+    const waiting=[...repeats].sort((a,c)=>position(a.start)-position(c.start));
     const errors=new Set(compiled()?.errors.map(e=>e.ref));
     for(const x of items){
+      while(waiting.length&&position(waiting[0].start)<=x.seconds)addRepeatRow(waiting.shift());
       const m=barAtFrame(measures,x.seconds),li=el('li');
       const b=el('button','pf-list-row'+(selection.kind==='cue'&&selection.id===x.cue.id?' on':''));b.type='button';b.dataset.cue=x.cue.id;
-      b.append(el('b','',`Bar ${m.number}`),el('span','',describeAction(x.cue.action)),el('small','',scopeWords(x.scope,p.regions.find(r=>r.id===x.scope.regionId))));
+      b.append(el('b','',`Bar ${m.number}`),el('span','',describeAction(x.cue.action)),el('small','',playWords(x.cue,x.scope,p.regions.find(r=>r.id===x.scope.regionId))));
       if(errors.has(x.cue.id))b.append(el('em','pf-warn','Needs a look'));
-      b.onclick=()=>{selection={kind:'cue',id:x.cue.id};if(x.scope.kind==='pass'){regionId=x.scope.regionId;scope=x.scope;}else if(scope.kind==='pass'){scope={kind:'shared'};}paint();scroller.querySelector('.pf-chip.on')?.scrollIntoView({block:'nearest',inline:'center'});};
+      b.onclick=()=>{if(x.scope.kind==='pass'){regionId=x.scope.regionId;scope=x.scope;}else if(scope.kind==='pass'){scope={kind:'shared'};}openCue(x.cue.id);scroller.querySelector('.pf-flag.on')?.scrollIntoView({block:'nearest'});};
       const tick=el('input');tick.type='checkbox';tick.className='pf-tick';tick.setAttribute('aria-label',`Select: bar ${m.number}, ${describeAction(x.cue.action)}`);tick.title='Tick several to copy or delete them together';
       tick.checked=selection.kind==='cues'?selection.ids.includes(x.cue.id):false;
       tick.onchange=()=>{const now=new Set(selection.kind==='cues'?selection.ids:selection.kind==='cue'?[selection.id]:[]);if(tick.checked)now.add(x.cue.id);else now.delete(x.cue.id);selection=now.size?{kind:'cues',ids:[...now]}:{kind:'none'};paint();};
       li.className='pf-list-item';li.append(tick,b);list.append(li);
     }
+    waiting.forEach(addRepeatRow);
     if(keep)list.querySelector(`[data-cue="${CSS.escape(keep)}"]`)?.focus();
     void listFocus;
-  }
-  function startPreview(){
-    if(!perf())return;
-    const from=selection.kind==='bars'?selection.from.start:selection.kind==='cue'?find(selection.id)?.seconds??0:0;
-    deps.onPreview?.(perf(),from,sendMidi);paint();
   }
   function paint(){
     if(disposed)return;
@@ -509,31 +699,60 @@ export function mountPrepare(root,deps){
     choice.replaceChildren(...opts);choice.value=record?.id||'';
     choice.onchange=()=>open(choice.value||null).catch(deps.showError);
     const editing=!!perf();
+    const setName=deps.performSet?.name();performB.disabled=!setName;performB.lastChild.textContent=setName?`Perform ${setName}`:'Perform';
+    performB.title=setName?`Get the set list “${setName}” ready to play. It plays the saved version of each song’s arrangement, and nothing plays until you press Start.`:'Choose a set list on the left to perform it.';
     for(const b of [dup,ren,del,saveB])b.disabled=!editing;
-    undoB.disabled=!history?.canUndo;redoB.disabled=!history?.canRedo;saved.textContent=status;
+    saved.textContent=status;
     const c=compiled();
     musicLength.textContent=clockText(c?pathSeconds(c.segments).music:grid.frames/44100)+(c&&c.requiresLiveControl?' (estimated; needs you there)':'');
     problems.replaceChildren();
     for(const e of c?.errors||[])problems.append(el('p','pf-problem',e.message));
     for(const w of c?.warnings||[])problems.append(el('p','pf-note',w.message));
-    const previewing=!!deps.previewing?.();preview.hidden=previewing;stopPreview.hidden=!previewing;preview.disabled=!editing||(c&&!c.ok);
+    saved.title=status;
+    // With the list open, the column on the right holds it and what you selected. With it closed, the bars get the room, and what you
+    // select opens over their right edge, so selecting a bar never moves the bars under your pointer.
+    listHead.hidden=list.hidden=!showList;
+    const floating=editing&&!showList;
+    stage.classList.toggle('no-list',floating);side.hidden=floating&&(selection.kind==='none'||(selection.kind==='bars'&&!clipboard?.length));
     drawRail();drawPasses();drawTimeline();drawInspector();drawList();
+    deps.onHistory?.();
   }
   const devices=el('datalist');devices.id='pf-devices';for(const d of deps.devices())devices.append(Object.assign(el('option'),{value:d}));panel.append(devices);
   paint();
   reload().catch(deps.showError);
-  // while a preview plays, the bar it's on lights up
-  let wasPreviewing=false;
-  const previewTimer=setInterval(()=>{
-    const now=!!deps.previewing?.();
-    if(now!==wasPreviewing){wasPreviewing=now;preview.hidden=now;stopPreview.hidden=!now;}
-    const frame=deps.previewFrame?.();
-    for(const b of scroller.querySelectorAll('.pf-bar.now'))b.classList.remove('now');
-    if(!Number.isFinite(frame))return;
-    const m=barAtFrame(measures,frame/44100),b=m&&scroller.querySelector(`.pf-bar[data-bar="${CSS.escape(String(m.id))}"]`);
-    if(b){b.classList.add('now');const left=b.offsetLeft-scroller.scrollLeft;if(left<96||left>scroller.clientWidth-60)scroller.scrollLeft=b.offsetLeft-120;}
-  },200);
-  return {paint,keydown,get performance(){return perf();},get selection(){return selection;},setSelection(value){selection=value;paint();},change,dispose(){disposed=true;clearInterval(previewTimer);clearTimeout(saveTimer);saveDraft();root.replaceChildren();}};
+  // the playhead: where the song is, playing or not, on the bars as they're laid out here
+  const head=el('span','pf-playhead');head.setAttribute('aria-hidden','true');
+  let headBar=null,headTick=0;
+  function drawHead(){
+    if(disposed)return;
+    const seconds=deps.playhead?.();if(!Number.isFinite(seconds))return;
+    paintLoopCount(seconds);
+    defaultsB.hidden=!(deps.liveChanges?.()>0);
+    const m=seconds<measures[0].start?measures[0]:barAtFrame(measures,seconds);
+    if(m!==headBar||!head.isConnected){
+      scroller.querySelector('.pf-bar.now')?.classList.remove('now');
+      for(const chord of scroller.querySelectorAll('.pf-chord.now'))chord.classList.remove('now');   // the bar it leaves lets go of its chord
+      const node=scroller.querySelector(`.pf-bar[data-bar="${CSS.escape(String(m.id))}"]`);if(!node)return;
+      const moved=m!==headBar;headBar=m;node.classList.add('now');node.append(head);
+      if(moved&&deps.playing?.())node.scrollIntoView({block:'nearest'});
+    }
+    const inBar=Math.max(m.start,Math.min(m.end,seconds));
+    head.style.left=`${(inBar>=m.end?m.beats.length:beatAt(m,inBar))/m.beats.length*100}%`;
+    for(const chord of headBar&&scroller.querySelector('.pf-bar.now')?.querySelectorAll('.pf-chord')||[])chord.classList.toggle('now',seconds>=Number(chord.dataset.start)&&seconds<Number(chord.dataset.end));
+  }
+  headTick=setInterval(drawHead,40);
+  /** The top bar's Undo, Redo and History, for this page: the names of the steps, and going several at once. */
+  const historyApi={
+    get canUndo(){return !!history?.canUndo;},get canRedo(){return !!history?.canRedo;},
+    get undoLabels(){return history?.undoLabels??[];},get redoLabels(){return history?.redoLabels??[];},
+    undo,redo,
+    /** steps: back (negative) or forward (positive) through the history, in one go. */
+    go(steps){if(!history)return;lastChangeAt=0;const labels=steps<0?history.undoLabels:history.redoLabels,label=labels[Math.min(Math.abs(steps),labels.length)-1];let moved=false;for(let i=0;i<Math.abs(steps);i++)moved=(steps<0?history.undo():history.redo())!==null||moved;if(moved){deps.onStepped?.({undid:steps<0,count:Math.abs(steps),label});clearSelectionIfGone();status='Draft not saved yet';clearTimeout(saveTimer);saveTimer=setTimeout(saveDraft,600);paint();deps.onPlanChange?.();}},
+  };
+  return {paint,keydown,history:historyApi,get performance(){return perf();},
+    /** What Play should follow: the arrangement as it stands, or null for the song as it is, or while it has a problem. */
+    plan(){const c=compiled();return perf()&&c?.ok?perf():null;},
+    get selection(){return selection;},setSelection(value){selection=value;paint();},change,dispose(){disposed=true;clearInterval(headTick);editorOpen?.close();watchWidth?.disconnect();clearTimeout(saveTimer);if(status==='Draft not saved yet')saveDraft();root.replaceChildren();}};
 }
 
 const pad2=n=>String(n).padStart(2,'0');
@@ -543,221 +762,4 @@ export function nextTimeOfDay(text,now){
   const [h,m]=String(text).split(':').map(Number),d=new Date(now);d.setHours(h,m,0,0);
   if(d.getTime()<=now)d.setDate(d.getDate()+1);
   return d.getTime();
-}
-/** The next message a device sends, or null after 15 seconds. */
-async function nextInput(api){
-  const {last}=await api('/api/midi/events?after=999999999');
-  const deadline=Date.now()+15000;
-  while(Date.now()<deadline){
-    const r=await api(`/api/midi/events?after=${last}&wait=1`);
-    const press=r.events.find(e=>(e.bytes[0]&0xF0)!==0x80&&(e.bytes[2]??1)>0);
-    if(press)return press;
-  }
-  return null;
-}
-/** The Show page: the set in order, its timing, its rules, and Perform. deps: {api, songs(): [{id,title,artist}], setlists(): [{id,name,song_ids}], onClose, onPerform(show), showError, midi: {ports(), connect(name)}}. */
-export function mountShow(root,deps){
-  const {api}=deps;
-  let batch=new Set(),shows=[],record=null,show=null,history=null,timer=null,performances=new Map(),lengths=new Map(),status='',disposed=false,ports=null,dragging=null;
-  const panel=el('div','vx pf');panel.setAttribute('role','region');panel.setAttribute('aria-label','Shows');
-  const bar=el('header','vx-bar'),title=el('h2','vx-title','Shows');title.insertAdjacentHTML('afterbegin',icon('list'));
-  const pick=el('label','vx-pick'),choice=el('select','vx-visual');choice.setAttribute('aria-label','Which saved show to edit');pick.append(choice);choice.title='Which saved show to edit';
-  const newB=btn('','New','Make a new show, from a set list or empty',()=>make());
-  const del=menuItem('Delete…','Remove this show',()=>remove(),true);
-  const saved=el('span','pf-saved');saved.setAttribute('role','status');
-  const undoB=btn('sq','', 'Undo',()=>undo(),'undo');undoB.setAttribute('aria-label','Undo');const redoB=btn('sq','', 'Redo',()=>redo(),'redo');redoB.setAttribute('aria-label','Redo');
-  const saveB=btn('','Save','Save this show',()=>save());
-  const fromList=menuItem('Update from set list…','See what has changed in the set list this show came from, and choose whether to bring it in. It never changes by itself.',()=>updateFromList());
-  const exportB=menuItem('Export to a file','Save this show and its arrangements to a file, to keep or to use on another computer. The recordings aren’t included.',()=>exportShow());
-  const importB=menuItem('Import from a file…','Bring in a show from a file. Its songs must already be in this library.',()=>importInput.click());
-  const importInput=el('input');importInput.type='file';importInput.accept='.json,application/json';importInput.hidden=true;importInput.onchange=()=>importShow();
-  const go=btn('hot','Perform','Save this show and open Perform. Nothing plays until you press Start there.',()=>perform(),'play');
-  const close=btn('sq','', 'Close and go back to the chart',()=>deps.onClose(),'x');close.setAttribute('aria-label','Close the show page');
-  bar.append(title,pick,newB,menu('More for this show',[fromList,exportB,importB,el('hr','more-sep'),del]),importInput,el('span','vx-gap'),saved,undoB,redoB,saveB,go,close);
-  const body=el('div','pf-show-body'),left=el('section','vx-col pf-entries'),right=el('section','vx-col pf-settings');
-  const rows=el('ol','pf-rows'),add=el('div','pf-add'),footer=el('div','pf-footer');left.append(el('div','vx-head'),rows,add,footer);left.firstChild.append(el('b','','The set'));
-  body.append(left,right);panel.append(bar,body);root.replaceChildren(panel);
-  const change=next=>{history.push(next);show=history.value;status='Draft not saved yet';clearTimeout(timer);timer=setTimeout(draft,600);paint();};
-  async function draft(){if(disposed||!record)return;try{await api('/api/show/draft',{body:show,base:record.head});}catch(error){deps.showError(error);}}
-  function undo(){if(history?.undo()){show=history.value;paint();}}
-  function redo(){if(history?.redo()){show=history.value;paint();}}
-  async function reload(chooseId=null){shows=await api('/api/shows');await open(chooseId||record?.id||shows[0]?.id||null);}
-  async function open(id){
-    if(!id){record=null;show=null;history=null;paint();return;}
-    const r=await api('/api/show/'+encodeURIComponent(id));record=r;show=r.draft||r.body;history=new History(show);status=r.draft?'Draft not saved yet':'Saved';await loadFacts();paint();
-  }
-  async function make(){
-    const lists=deps.setlists().filter(l=>l.id!=='default');
-    const name=await askText({title:'A name for this show',label:'Name',value:'Friday set',action:'Next'});if(!name)return;
-    let chosen=lists[0]?.id??'';
-    const answer=lists.length?await askChoice({title:'Start from a set list?',message:'It fills the show with that list’s songs, in order. Later changes to the list won’t touch the show.',choices:[{id:'list',label:'Use this set list',kind:'primary'},{id:'empty',label:'Start empty'}],radios:{label:'Set list',value:chosen,options:lists.map(l=>({id:l.id,label:l.name})),onChange:id=>{chosen=id;}}}):'empty';
-    if(answer===null)return;
-    const list=answer==='list'?lists.find(l=>l.id===chosen):null;
-    const body={...newShow({name,sourceList:list?.id??null,id:uid()})};
-    body.entries=(list?.song_ids||[]).map(songId=>newEntry({songId,performanceId:null,revision:null,id:uid()}));
-    try{const r=await api('/api/show/save',{body,base:0});await reload(r.id);}catch(error){deps.showError(error);}
-  }
-  async function remove(){if(!record)return;if(await askChoice({title:`Remove the show “${show.name}”?`,choices:[{id:'remove',label:'Remove',kind:'danger'}]})!=='remove')return;try{await api('/api/show/delete',{id:record.id});record=null;show=null;await reload();}catch(error){deps.showError(error);}}
-  async function save(){if(!record)return null;clearTimeout(timer);try{const r=await api('/api/show/save',{body:show,base:record.head});record={...record,...r};status=`Saved · version ${r.head}`;paint();return r;}catch(error){status='Not saved';deps.showError(error);paint();return null;}}
-  async function perform(){const r=await save();if(r)deps.onPerform(r.body);}
-  async function updateFromList(){
-    const list=deps.setlists().find(l=>l.id===show?.sourceList);
-    if(!list){await askChoice({title:'No set list to update from',message:'This show wasn’t made from a set list, or that list is gone.',choices:[],cancel:'OK'});return;}
-    const diff=listDiff(show.entries.map(e=>e.songId),list.song_ids),name=id=>deps.songs().find(s=>s.id===id)?.title??'A song';
-    if(!diff.added.length&&!diff.removed.length){await askChoice({title:'Nothing has changed',message:`“${list.name}” has the same songs as this show.`,choices:[],cancel:'OK'});return;}
-    const message=[diff.added.length?`New in the list: ${diff.added.map(name).join(', ')}.`:'',diff.removed.length?`No longer in the list: ${diff.removed.map(name).join(', ')}.`:'','Songs already in the show keep their arrangements and gaps.'];
-    if(await askChoice({title:`Update from “${list.name}”?`,message,choices:[{id:'update',label:'Update the show',kind:'primary'}]})!=='update')return;
-    change(applyListDiff(show,list.song_ids,uid));loadFacts().then(paint);
-  }
-  async function exportShow(){
-    if(!record)return;
-    try{const bundle=await api(`/api/show/${encodeURIComponent(record.id)}/export`);const url=URL.createObjectURL(new Blob([JSON.stringify(bundle,null,1)],{type:'application/json'}));const a=el('a');a.href=url;a.download=`${show.name.replace(/[\\/:*?"<>|]/g,'-')}.show.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}
-    catch(error){deps.showError(error);}
-  }
-  async function importShow(){
-    const file=importInput.files?.[0];importInput.value='';if(!file)return;
-    try{
-      if(file.size>8*1024*1024)throw Error('That file is too large to be a show.');
-      const bundle=JSON.parse(await file.text()),r=await api('/api/show/import',{bundle});
-      if(r.missing_songs?.length){await askChoice({title:'Some songs aren’t in this library',message:[`Import these first, then import the show again: ${r.missing_songs.map(x=>x.title||x.id).join(', ')}.`],choices:[],cancel:'OK'});return;}
-      const installed=new Set((deps.scenes?.()||[]).map(x=>x.id)),absent=(r.required_scenes||[]).filter(id=>!installed.has(id));
-      if(absent.length)await askChoice({title:'Some visualizations aren’t here',message:[`This show uses: ${absent.join(', ')}.`,'A show file carries their names and connections, never their code. Add them to the My Visuals folder, or the show won’t start until they’re changed in Prepare.'],choices:[],cancel:'OK'});
-      await reload(r.show_id);
-    }catch(error){deps.showError(error);}
-  }
-  async function loadFacts(){
-    if(!show)return;
-    await Promise.all([...new Set(show.entries.map(e=>e.songId))].map(async id=>{if(!performances.has(id)){try{performances.set(id,await api('/api/performances/'+encodeURIComponent(id)));}catch{performances.set(id,[]);}}}));
-    await Promise.all(show.entries.map(async e=>{
-      const key=`${e.songId}|${e.performanceId}|${e.revision}`;if(lengths.has(key))return;
-      try{lengths.set(key,await deps.entryLength(e));}catch{lengths.set(key,null);}
-    }));
-  }
-  const entryChange=(i,patch)=>{const next=structuredClone(show);Object.assign(next.entries[i],patch);change(next);loadFacts().then(paint);};
-  function totals(){
-    const list=show.entries.map((e,i)=>{const r=lengths.get(`${e.songId}|${e.performanceId}|${e.revision}`);return {segments:r?.segments||[],transition:i===0?null:e.transition||show.transitions};});
-    return showSeconds(list);
-  }
-  function paint(){
-    if(disposed)return;
-    choice.replaceChildren(...shows.map(s=>{const o=el('option','',s.name);o.value=s.id;return o;}));choice.value=record?.id||'';choice.onchange=()=>open(choice.value).catch(deps.showError);
-    for(const b of [del,saveB,go,exportB])b.disabled=!show;fromList.disabled=!show?.sourceList;undoB.disabled=!history?.canUndo;redoB.disabled=!history?.canRedo;saved.textContent=status;
-    rows.replaceChildren();add.replaceChildren();footer.replaceChildren();right.replaceChildren();
-    if(!show){rows.append(el('p','pf-none','Make a new show to start: a set list can fill it for you.'));return;}
-    const songs=deps.songs();
-    show.entries.forEach((e,i)=>{
-      const song=songs.find(s=>s.id===e.songId),length=lengths.get(`${e.songId}|${e.performanceId}|${e.revision}`);
-      const row=el('li','pf-row');row.draggable=true;row.ondragstart=()=>{dragging=i;};row.ondragover=event=>event.preventDefault();row.ondrop=()=>{if(dragging===null||dragging===i)return;const next=structuredClone(show);next.entries.splice(i,0,next.entries.splice(dragging,1)[0]);dragging=null;change(next);};
-      const words=el('div','pf-set-words');words.append(el('b','',`${i+1}. ${song?.title??'A song that’s gone'}`),el('small','',song?.artist||''));
-      const which=el('select');which.setAttribute('aria-label',`Which arrangement of ${song?.title??'this song'}`);const originals=el('option','','Original arrangement');originals.value='';which.append(originals);
-      const saved_=performances.get(e.songId)||[];
-      for(const p of saved_){const o=el('option','',`${p.name} (version ${p.head})`);o.value=`${p.id}|${p.head}`;which.append(o);}
-      which.value=e.performanceId?`${e.performanceId}|${e.revision}`:'';if(e.performanceId&&which.value===''){const o=el('option','',`Version ${e.revision} (older)`);o.value=`${e.performanceId}|${e.revision}`;which.append(o);which.value=o.value;}
-      which.onchange=()=>{const [id,rev]=which.value.split('|');entryChange(i,{performanceId:id||null,revision:id?Number(rev):null});};
-      const gap=el('select');gap.setAttribute('aria-label',`How ${song?.title??'this song'} starts`);for(const [v,t] of [['immediate','Right after the last song'],['gap','After a gap'],['control','When you press Next song']]){const o=el('option','',t);o.value=v;gap.append(o);}
-      gap.value=e.transition?.kind||'immediate';gap.onchange=()=>entryChange(i,{transition:{kind:gap.value,seconds:gap.value==='gap'?(e.transition?.seconds??5):0,expected:gap.value==='control'?30:undefined}});
-      const seconds=numberField(e.transition?.seconds??5,0,600,v=>entryChange(i,{transition:{...e.transition,kind:'gap',seconds:v}}));seconds.hidden=gap.value!=='gap';seconds.setAttribute('aria-label','Gap in seconds');seconds.title='Seconds of silence before this song';
-      const countIn=numberField(e.transition?.countIn??0,0,60,v=>entryChange(i,{transition:{kind:e.transition?.kind||'immediate',seconds:e.transition?.seconds??0,...e.transition,countIn:v}}));countIn.setAttribute('aria-label',`Count-in seconds for ${song?.title??'this song'}`);countIn.title='More silence just before this song, to count yourself in. 0 for none. A count-in on the recording itself plays as usual.';
-      const pickBatch=el('input');pickBatch.type='checkbox';pickBatch.className='pf-tick';pickBatch.checked=batch.has(e.id);pickBatch.setAttribute('aria-label',`Select ${song?.title??'this song'} to set its start along with others`);pickBatch.title='Tick several to set how they start, all at once';pickBatch.onchange=()=>{if(pickBatch.checked)batch.add(e.id);else batch.delete(e.id);paint();};
-      const up=btn('sq','', 'Earlier in the set',()=>{const next=structuredClone(show);next.entries.splice(i-1,0,next.entries.splice(i,1)[0]);change(next);},'up');up.disabled=i===0;up.setAttribute('aria-label',`Move ${song?.title??'this song'} earlier`);
-      const down=btn('sq','', 'Later in the set',()=>{const next=structuredClone(show);next.entries.splice(i+1,0,next.entries.splice(i,1)[0]);change(next);},'down');down.disabled=i===show.entries.length-1;down.setAttribute('aria-label',`Move ${song?.title??'this song'} later`);
-      const out=btn('sq','', 'Take this song out of the show',()=>{const next=structuredClone(show);next.entries.splice(i,1);change(next);},'x');out.setAttribute('aria-label',`Take ${song?.title??'this song'} out`);
-      const time=el('span','pf-length',length?clockText(length.music):'…');
-      const flags=el('small','pf-flag',length?.live?'Needs you there':'');
-      const line=el('div','pf-row-start');
-      const labelled=(text,control,unit)=>{const l=el('label','pf-inline');l.append(el('span','',text),control);if(unit)l.append(el('span','',unit));return l;};
-      if(i===0)line.append(el('span','pf-note-plain','Starts when you press Start'));
-      else{const secondsLabel=labelled('',seconds,'seconds');secondsLabel.hidden=gap.value!=='gap';line.append(labelled('Starts',gap),secondsLabel,labelled('Count-in',countIn,'seconds'));}
-      const mine=saved_.find(p=>p.id===e.performanceId);
-      if(mine&&mine.head>e.revision)line.append(btn('',`Use version ${mine.head}`,`A newer version of “${mine.name}” is saved. This show still plays version ${e.revision}, as it was when you picked it.`,()=>entryChange(i,{revision:mine.head})));
-      if(mine?.has_draft)line.append(el('span','pf-flag','Has unsaved changes in Prepare'));
-      row.append(pickBatch,words,which,time,flags,up,down,out,line);rows.append(row);
-    });
-    const addSong=el('select','vx-visual');addSong.setAttribute('aria-label','A song to add');for(const s of songs){const o=el('option','',s.title);o.value=s.id;addSong.append(o);}
-    const addB=btn('','Add song','Add this song to the end. The same song can go in twice, each with its own arrangement.',()=>{const next=structuredClone(show);next.entries.push(newEntry({songId:addSong.value,performanceId:null,revision:null,id:uid()}));change(next);loadFacts().then(paint);});
-    add.append(addSong,addB);
-    if(batch.size){
-      const kind=el('select');kind.setAttribute('aria-label','How the ticked songs start');for(const [v,t] of [['immediate','Right after the last song'],['gap','After a gap'],['control','When you press Next song']]){const o=el('option','',t);o.value=v;kind.append(o);}
-      const secs=numberField(5,0,600,()=>{});secs.setAttribute('aria-label','Gap in seconds for the ticked songs');
-      add.append(el('span','vx-cap',`${batch.size} ticked`),kind,secs,btn('','Set for ticked','Give all the ticked songs this start',()=>{const next=structuredClone(show);for(const e of next.entries)if(batch.has(e.id))e.transition={kind:kind.value,seconds:kind.value==='gap'?Number(secs.value)||0:0,expected:kind.value==='control'?30:undefined,countIn:e.transition?.countIn??0};batch=new Set();change(next);}));
-    }
-    const t=totals();
-    const fact=(label,value)=>{const n=el('div','pf-fact');n.append(el('span','vx-cap',label),el('b','',value));return n;};
-    footer.append(fact('Music',clockText(t.music)),fact('Gaps',clockText(t.gaps+t.holds)),fact('Planned total',t.unknown?`${clockText(t.planned)} and a wait`:clockText(t.planned)));
-    const slotMinutes=show.target?.slotSeconds?show.target.slotSeconds/60:'';
-    if(slotMinutes)footer.append(fact('In your slot',spareText(show.target.slotSeconds-t.planned)));
-    if(Number.isFinite(show.target?.finishAtEpoch))footer.append(fact('If you start now',spareText((show.target.finishAtEpoch-Date.now())/1000-t.planned)));
-    if(show.entries.some(e=>lengths.get(`${e.songId}|${e.performanceId}|${e.revision}`)?.live)||show.entries.some(e=>e.transition?.kind==='control'))footer.append(el('p','pf-note','Needs you there: it has a loop or a wait that lasts until you release it, so the finish time is an estimate.'));
-    // settings
-    right.append(el('h3','pf-title','This show'));
-    right.append(field2('Slot length (minutes)',numberField(slotMinutes,0,600,v=>{const next=structuredClone(show);next.target=v?{slotSeconds:v*60}:null;change(next);},true),'How long you have, counted from when you press Start. The clocks count down to this during the show.'));
-    const finishAt=el('input');finishAt.type='time';finishAt.value=Number.isFinite(show.target?.finishAtEpoch)?clockValue(show.target.finishAtEpoch):'';
-    finishAt.onchange=()=>{const next=structuredClone(show);next.target=finishAt.value?{finishAtEpoch:nextTimeOfDay(finishAt.value,Date.now()),finishText:finishAt.value}:null;change(next);};
-    right.append(field2('Or finish by (clock time)',finishAt,'A time on the clock instead of a length. The next time it comes round. Setting this replaces the slot length.'));
-    const nameInput=el('input');nameInput.value=show.name;nameInput.onchange=()=>{if(nameInput.value.trim())change({...structuredClone(show),name:nameInput.value.trim()});};right.append(field2('Name',nameInput));
-    const keep=el('input');keep.type='checkbox';keep.checked=!!show.keepVisualsWhenMuted;keep.onchange=()=>change({...structuredClone(show),keepVisualsWhenMuted:keep.checked});
-    right.append(field2('Keep visuals when a stem is muted',keep,'Off: muting a stem also stops what it moves in the visuals. On: its visuals keep going, handy when you play that part yourself.'));
-    const clockDevice=el('input');clockDevice.setAttribute('list','pf-show-devices');clockDevice.value=show.midiClock?.device||'';clockDevice.placeholder='Off';clockDevice.onchange=()=>change({...structuredClone(show),midiClock:clockDevice.value.trim()?{device:clockDevice.value.trim()}:null});
-    right.append(field2('Send MIDI clock to',clockDevice,'A device name. Delays and the like on it can then follow the song’s real tempo. Leave empty for none.'));
-    const carry=el('input');carry.type='checkbox';carry.checked=!!show.carryOverrides;carry.onchange=()=>change({...structuredClone(show),carryOverrides:carry.checked});
-    right.append(field2('Keep live changes into the next song',carry,'Off: each song starts from its plan. On: what you changed by hand stays until you release it.'));
-    right.append(el('h3','vx-cap','When you change something by hand'));
-    const policy=show.policy||defaultPolicy();
-    const policySelect=(key,label)=>{const s=el('select');s.className='pf-wide';if(key!=='all'){const o=el('option','','Same as above');o.value='';s.append(o);}for(const v of POLICIES){const o=el('option','',POLICY_LABELS[v]);o.value=v;s.append(o);}s.value=policy[key]||'';s.onchange=()=>{const next=structuredClone(show);next.policy={...policy,[key]:s.value||null};change(next);};return field2(label,s);};
-    right.append(policySelect('all','Usually'),policySelect('tracks','Tracks'),policySelect('visuals','Visuals'),policySelect('midi','MIDI'),policySelect('rate','Speed'));
-    right.append(el('h3','vx-cap','MIDI devices'));
-    const portList=el('div','pf-ports');right.append(portList);
-    const refresh=btn('','Find devices','List the MIDI devices connected to this computer',()=>findPorts(portList));portList.append(refresh);
-    if(ports)drawPorts(portList);
-  }
-  function field2(labelText,control,help){const row=el('label','pf-field');row.append(el('span','pf-field-name',labelText),control);if(help)row.title=help;return row;}
-  function numberField(value,min,max,onChange,optional=false){const i=el('input');i.type='number';i.min=min;i.max=max;i.value=value;i.onchange=()=>{if(i.value===''&&optional){onChange(null);return;}const v=Number(i.value);if(Number.isFinite(v))onChange(v);};return i;}
-  async function findPorts(node){try{ports=await api('/api/midi/ports');drawPorts(node);}catch(error){deps.showError(error);}}
-  function drawPorts(node){
-    node.replaceChildren();
-    if(!ports.available){node.append(el('p','pf-note',ports.reason));return;}
-    const names=[...new Set([...ports.outputs,...ports.inputs].map(p=>p.name))];
-    if(!names.length)node.append(el('p','pf-none','No MIDI devices found.'));
-    for(const name of names){
-      const row=el('div','pf-port');const on=ports.outputs.concat(ports.inputs).some(p=>p.name===name&&p.open);
-      const needs=el('label','pf-check'),needBox=el('input');needBox.type='checkbox';needBox.checked=!!show?.devices?.find?.(d=>d.name===name&&d.critical);
-      needBox.onchange=()=>{const next=structuredClone(show);next.devices=[...(next.devices||[]).filter(d=>d.name!==name),...(needBox.checked?[{name,critical:true}]:[])];change(next);};
-      needs.append(needBox,el('span','','This show needs it'));needs.title='Ticked: the show won’t start without it, and stops at the next bar if it’s disconnected. Not ticked: the show plays on without it and lists what it missed.';
-      row.append(el('span','',name),el('small','',on?'Connected':'Not connected'),needs,btn('',on?'Disconnect':'Connect',on?'Let go of this device so another program can use it':'Open this device. Nothing is sent to it until a show or a preview does.',async()=>{try{const r=await api(on?'/api/midi/disconnect':'/api/midi/connect',{name});if(r.error)deps.showError(Error(r.error));await findPorts(node);}catch(error){deps.showError(error);}}));
-      node.append(row);
-    }
-    node.append(btn('','Look again','List the MIDI devices again',()=>findPorts(node)));
-    const monitor=el('pre','pf-monitor');monitor.hidden=true;
-    const watching=btn('','Watch incoming MIDI','For 20 seconds, list every message arriving from connected devices, to check they reach this computer. Nothing is sent.',async()=>{
-      monitor.hidden=false;monitor.textContent='Listening…';watching.disabled=true;
-      try{
-        let {last}=await api('/api/midi/events?after=999999999');const lines=[],deadline=Date.now()+20000;
-        while(Date.now()<deadline&&!disposed){const r=await api(`/api/midi/events?after=${last}&wait=1`);last=r.last;for(const e of r.events)lines.push(`${e.device}: ${e.bytes.map(b=>b.toString(16).toUpperCase().padStart(2,'0')).join(' ')}`);monitor.textContent=lines.length?lines.slice(-12).join('\n'):'Listening… nothing yet.';}
-        const status=await api('/api/midi/status'),clocks=Object.entries(status.clock_in||{}).filter(([,c])=>c.seconds_ago<3).map(([n])=>n);
-        const clockLine=clocks.length?`MIDI clock is arriving from ${clocks.join(', ')}, so it is reaching this computer.`:'';
-        monitor.textContent=lines.length?[`${lines.length} messages:`,...lines.slice(-12),clockLine].filter(Boolean).join('\n'):clockLine?`${clockLine}\nNothing else arrived: no buttons or foot switches pressed.`:'Nothing arrived. Its clock may be off, and a foot switch only sends once it’s set up on the device.';
-      }catch(error){monitor.textContent=error.message;}
-      watching.disabled=false;
-    });
-    node.append(watching,monitor);
-    node.append(el('h3','vx-cap','Foot switches and buttons'));
-    const open=ports.inputs.some(p=>p.open);
-    if(!open)node.append(el('p','pf-none','Connect a device to teach it controls.'));
-    for(const [command,label] of Object.entries(COMMANDS)){
-      const mapped=deps.mappings().filter(m=>m.command===command);
-      const row=el('div','pf-port');row.append(el('span','',label),el('small','',mapped.length?mapped.map(m=>`${m.device}: ${(m.status&0xF0)===0xB0?`CC ${m.data1}`:`message ${m.status} ${m.data1}`}, channel ${(m.status&15)+1}`).join('; '):'Not set'));
-      const learn=btn('','Learn','Press this, then the switch or button on your device. Only a control you teach here does anything in a show.',async()=>{
-        learn.textContent='Press it now…';learn.disabled=true;
-        try{const event=await nextInput(api);if(event)deps.saveMappings([...deps.mappings().filter(m=>m.command!==command),learnFrom(event,command)]);}catch(error){deps.showError(error);}
-        drawPorts(node);
-      });learn.disabled=!open;row.append(learn);
-      if(mapped.length)row.append(btn('','Forget','Stop this control doing anything',()=>{deps.saveMappings(deps.mappings().filter(m=>m.command!==command));drawPorts(node);}));
-      node.append(row);
-    }
-  }
-  function keydown(event){
-    if((event.ctrlKey||event.metaKey)&&String(event.key).toLowerCase()==='z'&&!/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)){event.preventDefault();event.stopPropagation();if(event.shiftKey)redo();else undo();}
-  }
-  paint();reload().catch(deps.showError);
-  return {paint,keydown,get show(){return show;},dispose(){disposed=true;clearTimeout(timer);draft();root.replaceChildren();}};
 }

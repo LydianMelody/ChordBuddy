@@ -25,7 +25,7 @@ export class Transport{
  // the chart, the keys and a visualizer all still work and all go the same way. What it reports here is what every view reads.
  attachPerformer(performer){this.clearSession();this.performer=performer;this.beforeShow={mix:structuredClone(this.state.mix),rate:this.state.rate};this.state.playIntent=false;this.state.playing=false;this.emit();}
  detachPerformer(){this.performer=null;if(this.beforeShow){this.state.mix=this.beforeShow.mix;this.state.rate=this.beforeShow.rate;this.beforeShow=null;}this.state.playIntent=false;this.state.playing=false;this.state.buffering=false;this.state.loop=noLoop();this.state.levels=null;this.state.visualMix=null;this.emit();}
- performerReport(values){Object.assign(this.state,values);this.emit();}
+ performerReport(values){if(!this.performer)return;Object.assign(this.state,values);this.emit();}   // after the show lets go, a late report can't move the playhead
  subscribe(fn){this.listeners.add(fn);fn(this.getSnapshot());return()=>this.listeners.delete(fn);}
  getDiagnostics(){return this.diagnostics?{...this.diagnostics}:null;}
  getSnapshot(){return {...this.state,mix:structuredClone(this.state.mix)};}
@@ -60,15 +60,21 @@ export class Transport{
   this.state.error=error?.message||String(error);this.emit();
  }
  async play(){
-  if(this.performer){this.performer.resume();return;}
+  if(this.performer){if(this.performer.playPressed)this.performer.playPressed();else this.performer.resume();return;}   // a show's Play also starts it, or goes on to a song that waits for you
+  this.countNext=true;   // Play counts in, when a count-in is set (countIn below); a seek while playing doesn't
   if(!this.state.ready)return;
+  // stopped at the very end of the song: Play starts it over
+  if(!this.state.playIntent&&this.state.duration>0&&(this.ranOut||this.state.seconds>=this.state.duration-.25)&&!this.state.loop?.enabled)await this.seek(0);
+  this.ranOut=false;
+  // Prepare plays the song the way it's planned, with its flags; planPlay takes over when there's a plan to follow
+  if(this.planPlay?.(this.state.seconds))return;
   this.state.playIntent=true;this.state.error=null;
   if(this.active){
    const serial=this.serial,pcm=this.pcm;
    try{
     await pcm.resume();
     if(serial!==this.serial||pcm!==this.pcm||!this.state.playIntent)return;
-    pcm.play(true);
+    this.startSound(pcm);
    }catch(error){
     if(serial!==this.serial||pcm!==this.pcm)return;
     this.failPlayback(error);throw error;
@@ -81,7 +87,7 @@ export class Transport{
  async seek(seconds){
   if(this.performer){if(Number.isFinite(seconds))this.performer.navigate(Math.round(seconds*44100));return;}
   if(!this.state.ready||!Number.isFinite(seconds))return;
-  const target=Math.max(0,Math.min(this.state.duration,seconds));this.state.seeks++;
+  const target=Math.max(0,Math.min(this.state.duration,seconds));this.state.seeks++;this.ranOut=false;
   if(!this.active&&!this.state.buffering){this.state.seconds=target;this.emit();return;}
   await this.handoff(this.pendingManifest||this.currentManifest||this.separation,target);
  }
@@ -93,6 +99,7 @@ export class Transport{
   if(this.performer){
    // In a show only L and R loop. A custom range is made in Prepare.
    if(!value||!value.enabled)this.performer.exitLoop();else if(value.implicit)this.performer.pressLoop(value.kind==='bars'?'bars':'section');
+   else throw Error('While the show plays, L loops four bars and R loops the section. To loop a stretch of your own, plan a repeat for it in Prepare.');
    return;
   }
   const next=value?{enabled:!!value.enabled,start:value.start??null,end:value.end??null,implicit:!!value.implicit,...(value.implicit&&value.kind?{kind:String(value.kind)}:{})}:noLoop();
@@ -151,7 +158,7 @@ export class Transport{
      this.state.seconds=Math.min(this.state.duration,Math.max(0,heardSeconds(m,this.primed,this.state.rate/100)));
      this.state.levels=this.state.playIntent&&Array.isArray(m.levels)?m.levels:null;
      this.state.playing=this.state.playIntent&&m.state==='playing'&&m.contextState!=='suspended';this.state.buffering=m.state==='buffering';
-     if(m.state==='ended')this.state.playIntent=false;this.emit();
+     if(m.state==='ended'){this.state.playIntent=false;this.ranOut=true;}else if(m.state==='playing')this.ranOut=false;this.emit();
     },onError:error=>{if(current())this.failPlayback(error);}});
     if(serial!==this.serial){pcm.dispose();return;}this.pcm=pcm;
    }
@@ -164,11 +171,18 @@ export class Transport{
    this.state.buffering=false;this.priming=false;this.pendingManifest=null;this.pcm.mix(this.state.mix);this.pcm.mode(manifest.stems===false?'original':'stems');this.pcm.rate?.(this.state.rate/100);
    const pcm=this.pcm;await pcm.resume();
    if(serial!==this.serial||pcm!==this.pcm)return;
-   pcm.play(this.state.playIntent);this.emit();
+   if(this.state.playIntent)this.startSound(pcm);else pcm.play(false);this.emit();
   }catch(error){
    if(serial!==this.serial)return;
    this.failPlayback(error,seconds);throw error;
   }
+ }
+ /** Starts the sound, after a count-in if Play asked for one. countIn(seconds): {startAt} in page seconds, or null for none. */
+ startSound(pcm){
+  const asked=this.countNext;this.countNext=false;
+  const plan=asked?this.countIn?.(this.state.seconds):null;
+  if(plan&&pcm.playAt?.(plan.startAt))return;
+  pcm.play(true);
  }
  dispose(){this.clearSession();this.state.playIntent=false;this.state.playing=false;this.listeners.clear();}
 }

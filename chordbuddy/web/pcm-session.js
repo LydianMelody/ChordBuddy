@@ -1,4 +1,10 @@
 // One worklet and fetch worker per song session. All stream messages are versioned.
+/** When a frame the worklet is rendering now will be heard, in page seconds. The context's own timestamp says how long the sound takes to reach the speakers, and doesn't wobble with how busy the page is. */
+export function heardAt(context,frame){
+ const stamp=context.getOutputTimestamp?.();
+ if(stamp?.performanceTime>0)return (stamp.performanceTime+(frame/context.sampleRate-stamp.contextTime)*1000)/1000;
+ return performance.now()/1000+(context.outputLatency||context.baseLatency||0);
+}
 export async function createPcmSession({token,onPosition,onError}){
  const context=new AudioContext({sampleRate:44100,latencyHint:'interactive'});
  if(context.sampleRate!==44100){await context.close();throw Error('This audio device cannot create the required 44.1 kHz stem player. Processed playback is unavailable on this device.');}
@@ -19,7 +25,7 @@ export async function createPcmSession({token,onPosition,onError}){
   if(m.type==='reset-ack'&&pending)pending.start();
   if(m.type==='ready'&&pending){clearTimeout(pending.timer);pending.resolve();pending=null;}
   if(m.type==='error'){rejectPending();onError(m.error);return;}
-  if(m.type==='position')onPosition({...m,latency:context.outputLatency||context.baseLatency||0,contextState:context.state});
+  if(m.type==='position')onPosition({...m,latency:context.outputLatency||context.baseLatency||0,contextState:context.state,heardAt:heardAt(context,m.contextFrame+(m.hold||0))});
  };
  worker.onerror=event=>{rejectPending();onError(event.message||'Stem stream failed');};
  const send=(type,value)=>node.port.postMessage({type,value,generation:version,runId});
@@ -43,7 +49,14 @@ export async function createPcmSession({token,onPosition,onError}){
    if(pending||runId===null)return false;
    version++;node.port.postMessage({type:'loop',previous:version-1,generation:version,runId,loop});return true;
   },
-  resume:()=>context.resume(),play:value=>send('play',value),mix:value=>send('mix',value),mode:value=>send('mode',value),rate:value=>send('rate',value),
+  resume:()=>context.resume(),play:value=>send('play',value),
+  /** Start playing so the music is heard at `seconds` (page seconds), after a count-in. */
+  playAt(seconds){
+   const stamp=context.getOutputTimestamp?.();
+   if(!(stamp?.performanceTime>0)){send('play',true);return false;}
+   const frame=Math.round((seconds-stamp.performanceTime/1000+stamp.contextTime)*context.sampleRate);
+   node.port.postMessage({type:'play',value:true,at:frame,generation:version,runId});return true;
+  },mix:value=>send('mix',value),mode:value=>send('mode',value),rate:value=>send('rate',value),
   dispose(){if(disposed)return;disposed=true;rejectPending();worker.terminate();clockNode.port.postMessage({type:'dispose'});clockNode.disconnect();node.disconnect();context.close().catch(()=>{});}
  };
 }

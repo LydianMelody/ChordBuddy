@@ -109,7 +109,7 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 /* The main area shows the open song, or All songs */
 .library-page{display:none}
 #app[data-view="library"] .library-page{display:flex;flex-direction:column;flex:1;min-height:0;gap:10px;padding:8px 0 18px}
-#app[data-view="library"] :is(#song-controls,#song-actions,#empty-state,#locked-panel,#lock-banner,#work){display:none!important}
+#app[data-view="library"] :is(#song-controls,#song-actions,#more-tools,#empty-state,#locked-panel,#lock-banner,#work){display:none!important}
 .library-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .library-head h2{margin:0;font:800 34px/1 var(--g);font-stretch:80%;text-transform:uppercase}
 .library-search{margin:0 0 0 auto;width:min(320px,100%)}
@@ -191,7 +191,8 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 .more-pop .text-button .ic{width:16px;height:16px}
 .more-pop .text-button em{font-style:normal}
 /* Settings: the ink colors sit in the menu as a row of dots */
-.settings-pop{min-width:220px}
+.settings-pop{min-width:260px;max-height:calc(100vh - 80px);overflow-y:auto}
+.settings-song{display:flex;flex-direction:column;gap:4px}
 .settings-pop .themes{align-self:flex-start;margin:0 6px 4px}
 /* Visualizer: a button with its name, like Export */
 #visual-menu>summary{display:inline-flex;align-items:center;gap:6px}
@@ -204,11 +205,24 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 .primary:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
 .secondary{background:var(--page);color:var(--ink);border:2px solid var(--ink);border-radius:10px;padding:6px 12px;font-weight:700;font-size:12.5px;gap:6px}
 .secondary:hover{background:var(--hl)}
+/* Dialog answers, the same everywhere: green says yes, keep it (OK, Done); red says no, take it back (Cancel). Fixed colors, so they mean
+   the same in every theme and in the dark look, with dark text that reads on both. The class is doubled to win over .btn.blue and .hot. */
+.btn-ok.btn-ok{background:#3DBE6E;color:#14161C;border-color:var(--ink)}
+.btn-cancel.btn-cancel{background:#E2453C;color:#14161C;border-color:var(--ink)}
+.btn-ok.btn-ok:hover{background:#56D184}
+.btn-cancel.btn-cancel:hover{background:#EC6158}
+:is(.btn-ok,.btn-cancel):disabled{opacity:.5}
 .secondary .ic{width:15px}
 .text-button{color:var(--soft);font-weight:700;font-size:12.5px}
 .text-button:hover{color:var(--ink);text-decoration:underline}
 input,select,textarea{border:2px solid var(--ink);border-radius:9px;background:var(--page);color:var(--ink);font-family:inherit}
 input:focus,select:focus,textarea:focus{border-color:var(--ink);box-shadow:3px 3px 0 var(--a2)}
+.alert-box{position:relative;flex:none}
+.alert-box .alert{padding-right:44px}
+.alert-close{position:absolute;top:13px;right:8px;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--ink);cursor:pointer}
+.alert-close:hover{background:rgba(0,0,0,.12)}
+.alert-close svg{width:16px;height:16px}
+.alert.hidden+.alert-close{display:none}
 .alert{flex:none;margin:6px 0;padding:10px 14px;border:var(--bd) solid var(--ink);border-radius:12px;background:var(--hl);color:var(--ink);font-size:13px;font-weight:600;white-space:pre-wrap;box-shadow:3px 3px 0 var(--ink)}
 
 /* ---------- Job panel / empty state ---------- */
@@ -229,12 +243,15 @@ input:focus,select:focus,textarea:focus{border-color:var(--ink);box-shadow:3px 3
 
 /* ---------- Workspace: toolbar + paper desk ---------- */
 .workspace{flex:1;min-height:0;display:flex;flex-direction:column}
-.toolbar{flex:none;padding:0 0 8px;justify-content:space-between}
+.toolbar{flex:none;padding:0;margin-bottom:8px;justify-content:space-between}
 .toolbar .hist{margin-left:auto}
-.document-tabs.tabs{gap:4px;flex-wrap:wrap}
-.tabs .document-tab{display:flex;align-items:center;gap:6px;padding:7px 12px;border:2px solid transparent;border-radius:10px;font-weight:800;font-size:13.5px;color:var(--soft);background:none}
-.tabs .document-tab.selected{border-color:var(--ink);color:var(--ink);background:var(--page)}
-.tabs .document-tab:not(.selected):hover{border-color:var(--line)}
+.document-tabs.tabs{gap:2px;flex-wrap:wrap}
+.toolbar{border-bottom:2px solid var(--ink)}
+.document-tabs.tabs{align-self:flex-end;margin-bottom:-2px}
+.tabs .document-tab{display:flex;align-items:center;gap:6px;padding:7px 16px;border:2px solid var(--ink);border-bottom-color:var(--ink);border-radius:10px 10px 0 0;font-weight:800;font-size:14px;color:var(--ink);background:color-mix(in srgb,var(--ink) 8%,var(--page))}
+.tabs .document-tab.selected{border-bottom-color:var(--hl);color:#1a1a1a;background:var(--hl)}
+.tabs .document-tab:not(.selected):hover{background:var(--page)}
+.tabs .document-tab.show-running:not(.selected){background:var(--a1);color:var(--onA1)}
 .hist .secondary{width:auto;height:34px;padding:0 10px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .hist .text-button{width:auto;height:auto;border:0;display:inline;white-space:nowrap}
 .hist .secondary em{font-style:normal}
@@ -269,6 +286,11 @@ dialog{border:var(--bd) solid var(--ink);border-radius:16px;background:var(--pag
 .choice-text{margin:8px 0;color:var(--soft)}
 .choice-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:16px}
 .choice-actions .btn{height:36px}
+/* A dialog's answers all look alike, whatever made them: Cancel and Close (built as .secondary) get the same border, corners, text and shadow
+   as the OK beside them, so no answer looks less like a button than another. The color says what it does, not the shape. */
+.choice-actions .secondary{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border:var(--bd) solid var(--ink);border-radius:12px;font-size:14px;font-weight:800;box-shadow:3px 3px 0 var(--ink)}
+.choice-actions .secondary:disabled{opacity:.45;cursor:default}   /* faded, shadow kept, as a disabled .btn is */
+.choice-actions .secondary:active:not(:disabled){transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
 .trash-list{display:flex;flex-direction:column;margin-top:8px;max-height:46vh;overflow:auto}
 .trash-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1.5px solid var(--line)}
 .trash-info{flex:1;min-width:0}.trash-info strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.trash-info small{color:var(--soft);font:400 11px var(--m)}
@@ -302,7 +324,7 @@ dialog{border:var(--bd) solid var(--ink);border-radius:16px;background:var(--pag
 @media print{
   @page{size:letter;margin:.55in}
   html,body{height:auto;overflow:visible;background:#fff}
-  dialog,.tool-rail,.tool-options,.tool-status,.tool-note,.tip,.choice-dialog,.side,.fold-open,.top,.toolbar,.player,.rack,.fold-open-right,.lock-banner,.nav-lock,.alert,.job-panel,.confidence-notice,.empty-state,.document-empty,#midi-editor,#chord-strip,.drop-overlay{display:none!important}
+  dialog,.tool-rail,.tool-options,.tool-status,.tool-note,.tip,.choice-dialog,.side,.fold-open,.top,.toolbar,.player,.rack-column,.fold-open-right,.lock-banner,.nav-lock,.alert-box,.job-panel,.confidence-notice,.empty-state,.document-empty,#midi-editor,#chord-strip,.drop-overlay{display:none!important}
   .jartist:empty,.jartist:empty+.jrest::before{display:none}
   #chart-editor,#abc-editor,#midi-editor,.zoom-pill{zoom:1!important}
   .zoom-pill{display:none!important}
@@ -364,7 +386,7 @@ dialog{border:var(--bd) solid var(--ink);border-radius:16px;background:var(--pag
 .work{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;position:relative;padding-bottom:12px}
 .work.hidden{display:none}
 .work>.workspace{min-width:0}
-.app[data-rack="closed"] .rack{display:none}
+.app[data-rack="closed"] .rack-column{display:none}
 .app[data-rack="closed"] .work{grid-template-columns:minmax(0,1fr)}
 .fold-open-right{display:none;position:absolute;right:0;top:4px;z-index:20;box-shadow:2px 2px 0 var(--ink)}
 .app[data-rack="closed"] .fold-open-right{display:grid}
@@ -401,7 +423,7 @@ button.chip.key.set{border-style:solid}
 
 /* ---------- Timing: guess-from-melody switch ---------- */
 .suggest-toggle{display:inline-flex;align-items:center;gap:6px;font:700 12px var(--m);color:var(--ink);cursor:pointer}
-.suggest-toggle input{accent-color:var(--a1);width:15px;height:15px}
+
 .suggest-toggle.off{opacity:.5;cursor:default}
 
 /* ---------- First run: model download ---------- */

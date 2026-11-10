@@ -318,6 +318,28 @@ class Library:
             raise ValueError('A set list with this name already exists') from exc
         return self.setlist(setlist_id)
 
+    def rename_setlist(self,setlist_id,name):
+        if setlist_id=='default':
+            raise ValueError('All songs keeps its name.')
+        name = self.clean_name(name)
+        try:
+            with self.transaction() as db:
+                self.setlist(setlist_id)
+                db.execute('UPDATE setlists SET name=? WHERE id=?',(name,setlist_id))
+        except sqlite3.IntegrityError as exc:
+            raise ValueError('A set list with this name already exists') from exc
+        return self.setlist(setlist_id)
+
+    def delete_setlist(self,setlist_id):
+        # Only the list goes. Its songs stay in the library, and in any other list they're on.
+        if setlist_id=='default':
+            raise ValueError('All songs is your library, so it can’t be deleted.')
+        with self.transaction() as db:
+            self.setlist(setlist_id)
+            db.execute('DELETE FROM memberships WHERE setlist_id=?',(setlist_id,))
+            db.execute('DELETE FROM setlists WHERE id=?',(setlist_id,))
+        return {'deleted':True}
+
     def _add(self,db,setlist_id,song_id):
         position = db.execute('SELECT COALESCE(MAX(position),-1)+1 FROM memberships WHERE setlist_id=?',(setlist_id,)).fetchone()[0]
         db.execute('INSERT OR IGNORE INTO memberships VALUES(?,?,?)',(setlist_id,song_id,position))
@@ -364,7 +386,7 @@ class Library:
     def write_prefs(self,values):
         if not isinstance(values,dict) or len(values)>40:raise ValueError('Expected a few preferences')
         for key,value in values.items():
-            if not isinstance(key,str) or not self.PREF_KEY.fullmatch(key) or not isinstance(value,str) or len(value)>200:raise ValueError('Unknown preference')
+            if not isinstance(key,str) or not self.PREF_KEY.fullmatch(key) or not isinstance(value,str) or len(value)>(64*1024 if key=='cb-midi-mappings' else 200):raise ValueError('Unknown preference')
         with self.transaction() as db:
             for key,value in values.items():db.execute('INSERT OR REPLACE INTO settings VALUES(?,?)',('ui.'+key,value))
             if db.execute("SELECT COUNT(*) FROM settings WHERE key LIKE 'ui.%'").fetchone()[0]>500:raise ValueError('Too many saved preferences')

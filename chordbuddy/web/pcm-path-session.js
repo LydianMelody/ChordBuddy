@@ -1,6 +1,7 @@
 // The browser side of the performance player (the 'stem-path' processor in pcm-worklet.js): one AudioContext for a whole show, so song changes
 // share one output timeline. Two slots, each with its own fetch worker: the song playing, and the next one getting ready.
 // engine(slot) is what performance-runner.js talks to. Practice playback uses pcm-session.js and never comes here.
+import {heardAt} from './pcm-session.js';
 const RATE=44100,PREPARE_FRAMES=RATE*3;
 
 export async function createPathSession({token,onPosition,onError,onHandoff=()=>{},onPrepared=()=>{}}){
@@ -29,7 +30,7 @@ export async function createPathSession({token,onPosition,onError,onHandoff=()=>
     if(m.type==='position'){
       // Heard now: what the worklet has rendered, less what is on its way to the speakers.
       const latency=context.outputLatency||context.baseLatency||0;
-      onPosition({...m,latency,contextState:context.state,at:performance.now()});
+      onPosition({...m,latency,contextState:context.state,at:performance.now(),heardAt:heardAt(context,m.contextFrame)});
       return;
     }
     if(m.type==='ready'){const s=slots[m.slot];if(s.ready&&s.generation===m.generation){clearTimeout(s.timer);s.ready();s.ready=null;}return;}
@@ -70,6 +71,8 @@ export async function createPathSession({token,onPosition,onError,onHandoff=()=>
     /** The song in `slot` ends at its output frame atPlayed; after `gap` frames of silence the song in slot `to` starts on the next sample. */
     handoff(slot,{to,atPlayed,gap=0}){send({type:'handoff',slot,to,atPlayed,gap});},
     cancelHandoff(){send({type:'cancel-handoff'});},
+    /** Silence before the first song, for its count-in. */
+    leadIn(frames){send({type:'lead-in',frames});},
     resume:()=>context.resume(),
     suspend:()=>context.suspend(),
     dispose(){

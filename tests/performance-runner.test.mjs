@@ -39,6 +39,19 @@ test('L loops four real bars from the section start, and only starts wrapping at
  assert.equal(spans[0][1],24,'the first pass carries on to the end of the range');
 });
 
+test('a switch can loop any number of bars; the next press of L is four again', () => {
+ const eight=sim();eight.runSeconds(21);assert.equal(eight.runner.pressLoop('bars',{bars:8}).label,'bars 9–16');
+ const two=sim();two.runSeconds(21);assert.equal(two.runner.pressLoop('bars',{bars:2}).label,'bars 11–12');
+ const four=sim();four.runSeconds(21);four.runner.pressLoop('bars',{bars:2});four.runner.pressLoop('bars',{bars:2});assert.equal(four.runner.pressLoop('bars').label,'bars 9–12');
+});
+
+test('a held change stays over the plan; a nudge shows now, holds nothing, and gives up a hold', () => {
+ const s=sim();s.runSeconds(2);
+ s.runner.setLive('visual.scene','held');assert.ok(s.runner.isOverridden('visual.scene'));
+ s.runner.nudge('visual.scene','for-now');assert.ok(!s.runner.isOverridden('visual.scene'));
+ s.runner.nudge('visual.scene','again');assert.ok(!s.runner.isOverridden('visual.scene'));
+});
+
 test('L then L: finishes the current pass, never at an intervening bar, with no extra wrap', () => {
  const s=sim();s.runSeconds(21);s.runner.pressLoop('bars');s.runSeconds(5);  // now in pass 2, about 18 s
  const r=s.runner.pressLoop('bars');assert.equal(r.type,'exit');
@@ -132,20 +145,53 @@ test('Exit always exits, whatever key made the loop', () => {
  s.runSeconds(30);assert.equal(s.sections().length,1);
 });
 
-test('an authored finite loop: matching key exits early, the other key switches to a live loop, and it does not re-arm', () => {
+test('a planned loop, L: it keeps going round the same bars (∞), L again leaves after this pass (×1!!), L once more puts the plan back', () => {
  const authored=()=>addRepeat(song(),{start:bar(9),end:bar(11),plays:5,family:'bars',id:'r'},uid);
+ const plan=sim(authored());plan.runSeconds(60);const round=x=>x.map(([a,b])=>[Math.round(a*10)/10,Math.round(b*10)/10]);   // the same plays; the last can end a few frames apart
+ // three quick presses, all in the pass you started in: exactly the plan
  const a=sim(authored());a.runSeconds(21);
  assert.equal(a.runner.current.passIndex,1);
- assert.equal(a.runner.pressLoop('bars').type,'exit');
- a.runSeconds(10);
- const spans=a.sections();
- assert.deepEqual(spans.slice(0,2).map(x=>x[1]),[20,spans[1][1]]);
- assert.equal(spans.length,2,'no more wraps');
+ const first=a.runner.pressLoop('bars');assert.equal(first.type,'activate');assert.equal(first.label,'bars 9–10','the planned bars, not four bars around you');
+ assert.equal(a.runner.loopShown().left,null,'∞');
+ assert.equal(a.runner.pressLoop('bars').type,'exit');assert.equal(a.runner.loopShown().left,1,'×1!!');
+ assert.equal(a.runner.pressLoop('bars').type,'resumed');
+ assert.deepEqual([a.runner.loopShown().regionId,a.runner.loopShown().left],['r',4],'the plan again: 4 plays to go, counting this one');
+ a.runSeconds(39);assert.deepEqual(round(a.sections()),round(plan.sections()));
+ // one press: round and round past the plan's five plays
+ const b=sim(authored());b.runSeconds(21);b.runner.pressLoop('bars');b.runSeconds(30);
+ assert.ok(b.runner.heard<F(20)&&b.runner.heard>=F(16),'still in bars 9–10 at 51 s');
+ assert.equal(b.runner.pressLoop('bars').type,'exit');b.runSeconds(10);
+ assert.ok(b.runner.heard>F(20),'it left, on into the song');assert.equal(b.runner.loop,null);
+ // after it has gone round, L L puts the plan's count back: four plays from the one you pressed in, as planned
+ const c=sim(authored());c.runSeconds(21);c.runner.pressLoop('bars');c.runSeconds(6);
+ assert.equal(c.runner.pressLoop('bars').type,'exit');assert.equal(c.runner.pressLoop('bars').type,'resumed');
+ assert.equal(c.runner.loopShown().left,4-c.runner.loop.pass);
+ c.runSeconds(33);assert.deepEqual(round(c.sections()),round(plan.sections()),'the same plays as the plan');
+});
+
+test('a planned loop, R: it loops the whole section instead, R again leaves after this pass, R once more puts the plan back', () => {
+ const authored=()=>addRepeat(song(),{start:bar(9),end:bar(11),plays:5,family:'bars',id:'r'},uid);
+ const plan=sim(authored());plan.runSeconds(60);const round=x=>x.map(([a,b])=>[Math.round(a*10)/10,Math.round(b*10)/10]);   // the same plays; the last can end a few frames apart
+ const a=sim(authored());a.runSeconds(21);
+ const first=a.runner.pressLoop('section');assert.equal(first.type,'activate');assert.match(first.label,/^Verse/);
+ assert.equal(a.runner.pressLoop('section').type,'exit');assert.equal(a.runner.loopShown().left,1);
+ assert.equal(a.runner.pressLoop('section').type,'resumed');
+ a.runSeconds(39);assert.deepEqual(round(a.sections()),round(plan.sections()),'three quick presses: exactly the plan');
  const b=sim(authored());b.runSeconds(21);
- assert.equal(b.runner.pressLoop('section').type,'switch');
+ assert.equal(b.runner.pressLoop('section').type,'activate');
  b.runSeconds(40);
  assert.ok(!b.runner.path.some(p=>p.regionId==='r'),'its unused passes are gone');
  assert.equal(b.runner.loop.kind,'section');
+ const spans=b.sections();assert.deepEqual(spans[1],[16,48],'the rest of the section plays before it goes round: bars 11–24 too');
+ const c=sim(authored());c.runSeconds(21);c.runner.pressLoop('section');c.runner.pressLoop('section');c.runSeconds(10);
+ assert.ok(c.runner.heard>F(20),'R R: the plan ends after the pass you were in');assert.ok(!c.runner.path.some(p=>p.regionId==='r'));
+});
+
+test('an until-released planned loop: L leaves it at once (it is already ∞), and L again takes that back', () => {
+ const s=sim(addRepeat(song(),{start:bar(9),end:bar(11),plays:'live',family:'bars',id:'r'},uid));s.runSeconds(21);
+ assert.equal(s.runner.pressLoop('bars').type,'exit');assert.equal(s.runner.loopShown().left,1);
+ assert.equal(s.runner.pressLoop('bars').type,'resumed');assert.equal(s.runner.loopShown().left,null);
+ s.runSeconds(30);assert.ok(s.runner.heard<F(20)&&s.runner.heard>=F(16),'still going round');
 });
 
 test('an until-released loop never stops by itself, and a further pass adds exactly one pass to the estimate', () => {
@@ -453,4 +499,100 @@ test('a jump answered after the barline has gone is not acted on as if it were i
  const spans=s.sections();
  assert.equal(spans.at(-1)[0],F(40)/RATE);
  assert.ok(Number.isInteger(spans[0][1]/2),`left on a barline: ${spans[0][1]}`);
+});
+
+test('L inside a long planned loop keeps going round all of it, past its plays, and leaving it carries on past it', () => {
+ const s=sim(addRepeat(song(),{start:bar(9),end:bar(25),plays:2,family:'section',id:'solo'},uid));
+ s.runSeconds(21);                                          // bar 11, in pass 1 of the planned loop (16-48 s)
+ const r=s.runner.pressLoop('bars');
+ assert.equal(r.type,'activate');assert.equal(r.label,'bars 9–24');
+ s.runSeconds(64);                                          // the plan would have ended at 80 s
+ assert.ok(s.runner.heard>=F(16)&&s.runner.heard<F(48),'still going round at 85 s');
+ assert.equal(s.runner.pressLoop('bars').type,'exit');
+ s.runSeconds(40);
+ const last=s.sections().at(-1);
+ assert.equal(last[0],16);assert.ok(last[1]>56,'after its last pass it plays on past the loop');
+});
+
+test('quick arrow presses right at a barline, with the engine answering late, all count: none lost, none counted from the wrong bar', () => {
+ const barOf=(r,f)=>r.measures.find(m=>f>=m.start*RATE&&f<m.end*RATE)?.number;
+ const step=(s,secs)=>{const end=s.now+secs;while(s.now<end){s.runSeconds(.02);s.flushAnswers();}};
+ for(const loopFirst of [false,true])for(const at of [45.3,46.2,46.9,47.4,47.7,47.9,47.97])for(const presses of [[-1,-1],[1,1,1,1],[1,-1,1]]){
+  const s=new Sim({performance:addRepeat(song(),{start:bar(9),end:bar(25),plays:2,family:'section',id:'r'},uid),sections:SECTIONS,lateAnswers:true});
+  const r=s.runner;
+  if(loopFirst){step(s,38);r.pressLoop('bars');step(s,3);r.stepBars(1);step(s,3);}
+  step(s,at-s.now);
+  const from=barOf(r,r.heard),want=from+presses.reduce((a,b)=>a+b,0);
+  for(const d of presses){r.stepBars(d);step(s,.09);}
+  step(s,3.5);
+  const landed=r.log.filter(l=>l.type==='jump-committed').at(-1),now=landed?barOf(r,landed.target):null;
+  assert.equal(r.pendingNav&&barOf(r,r.pendingNav.target),null,`nothing left waiting: ${loopFirst?'after a loop, ':''}at ${at} s from bar ${from}, presses ${presses}, now at ${s.now.toFixed(2)} s bar ${barOf(r,r.heard)} | ${r.log.slice(-8).map(l=>l.type+(l.target!==undefined?':'+barOf(r,l.target):'')+(l.at!==undefined?'@'+(l.at/RATE).toFixed(1):'')).join(' > ')}`);
+  assert.ok(now===want,`${loopFirst?'after a loop, ':''}at ${at} s from bar ${from}, presses ${presses}: wanted the last jump to land on bar ${want}; it landed on bar ${now}`);
+ }
+});
+
+test('jumping around a lot: a bar visited long ago is fetched again, so going back there still works', () => {
+ const barOf=(r,f)=>r.measures.find(m=>f>=m.start*RATE&&f<m.end*RATE)?.number;
+ const s=sim();const r=s.runner;s.runSeconds(3);
+ for(const b of [20,30,40,50,10,25,35,45,55,20,30,40]){             // far more than the player keeps fetched ahead
+  r.navigate(Math.round(r.measures[b-1].start*RATE));s.runSeconds(4.5);
+  assert.equal(r.pendingNav,null,`the jump to bar ${b} went`);
+  assert.ok(Math.abs(barOf(r,r.heard)-b)<=2,`it is around bar ${b}: bar ${barOf(r,r.heard)}`);
+ }
+});
+
+test('pressing to leave a loop takes it off the screen at once, while the pass you are in still plays out', () => {
+ const s=sim();s.runSeconds(21);s.runner.pressLoop('bars');s.runSeconds(5);
+ assert.ok(s.runner.snapshot().loop,'shown while looping');
+ assert.equal(s.runner.pressLoop('bars').type,'exit');
+ assert.equal(s.runner.snapshot().loop,null,'gone from the screen at the press');
+ assert.equal(s.runner.snapshot().pending.type,'exit','and it still says it is leaving after this pass');
+ s.runSeconds(12);
+ assert.equal(s.sections()[1][0],16,'the pass played out first');
+});
+
+test('a loop with a number of plays goes round that many times, counting the time through, then carries on by itself', () => {
+ const s=sim();s.runSeconds(21);
+ assert.equal(s.runner.pressLoop('bars',{plays:3}).type,'activate');
+ s.runSeconds(30);
+ const spans=s.sections();
+ assert.equal(spans.filter(([a])=>a===16).length,2,'back to the start of the four bars twice: three plays in all');
+ assert.ok(spans.at(-1)[1]>30,'then on past the loop');
+ assert.equal(s.runner.snapshot().loop,null,'and the loop is off');
+ assert.equal(s.runner.activeLoop(),null,'so the next L starts a new loop instead of leaving an old one');
+});
+test('a loop with no number of plays still runs until you leave it', () => {
+ const s=sim();s.runSeconds(21);s.runner.pressLoop('bars');s.runSeconds(40);
+ assert.ok(s.sections().filter(([a])=>a===16).length>=4);assert.ok(s.runner.snapshot().loop);
+});
+test('a loop flag on a bar’s first beat loops from that bar, though what’s heard is still a moment before it', () => {
+ const s=sim();s.runSeconds(31.9);                      // heard: the end of the bar before bar 17 (32 s)
+ assert.equal(s.runner.pressLoop('bars',{at:F(32)}).label,fourBarRange(G.measures,SECTIONS,F(32),4).label,'measured from the flag');
+ assert.notEqual(fourBarRange(G.measures,SECTIONS,F(31.9),4).label,fourBarRange(G.measures,SECTIONS,F(32),4).label,'(what was heard would have given the bars before)');
+ const k=sim();k.runSeconds(31.9);
+ assert.equal(k.runner.pressLoop('bars').label,fourBarRange(G.measures,SECTIONS,k.runner.heard,4).label,'a foot switch still goes by what you hear');
+});
+test('a loop flag inside the bars it loops doesn’t press again each time round: it plays its number of times', () => {
+ const loopFlag=cue('lf',9,{type:'command',command:'loop-bars',params:{bars:4,plays:3}});
+ const s=sim({...song(),cues:[loopFlag]});
+ const pending=[];const out=s.runner.out;s.runner.out=e=>{out(e);if(e.type==='oneshot'&&e.action?.command==='loop-bars')pending.push(e);};
+ for(let t=0;t<60;t+=.25){s.runSeconds(.25);while(pending.length){const e=pending.shift();s.runner.pressLoop('bars',{bars:e.action.params.bars,plays:e.action.params.plays,at:e.frame});}}
+ const start=pos(bar(9))/RATE,spans=s.sections();
+ assert.equal(spans.filter(([a])=>Math.abs(a-start)<.01).length,2,`back to bar 9 twice after the time through: three plays (${JSON.stringify(spans)})`);
+});
+
+test('loop flags become planned loops over the same bars, playing the same number of times', async () => {
+ const {loopFlagsToLoops}=await import('../chordbuddy/web/performance-prepare.js');
+ const seconds=at=>pos(at)/RATE;
+ const flags=[cue('a',9,{type:'command',command:'loop-bars',params:{bars:4,plays:3}}),cue('twin',10,{type:'command',command:'loop-bars',params:{bars:4,plays:3}}),
+  cue('inside',20,{type:'command',command:'loop-section',params:{}}),cue('chorus',30,{type:'command',command:'loop-section',params:{}}),cue('other',12,{type:'marker.text',text:'hi'})];
+ const {performance:p,made,kept}=loopFlagsToLoops({...song(),cues:flags},G.measures,SECTIONS,seconds);
+ assert.equal(made,2);assert.equal(kept,1,'the Verse loop would overlap bars 9-12, so it stays a flag');
+ assert.deepEqual(p.cues.map(c=>c.id).sort(),['inside','other'],'the twin, which only cancelled the first, goes');
+ const [four,section]=p.regions;
+ assert.deepEqual([four.start,four.end,four.plays,four.family],[bar(9),bar(13),3,'bars']);
+ assert.deepEqual([section.start.measure,section.end.measure,section.plays,section.family],['m25','m60','live','section'],'the Chorus runs to the end of the song');
+ const s=sim({...p,cues:p.cues.filter(c=>c.id==='other'),regions:[four]});s.runSeconds(60);
+ const start=pos(bar(9))/RATE;
+ assert.equal(s.sections().filter(([a])=>Math.abs(a-start)<.01).length,2,'bars 9-12 three times, as the flag played them');
 });

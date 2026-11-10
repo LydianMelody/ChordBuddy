@@ -48,26 +48,25 @@ export const SHORTCUTS=[
     [['K'],'Plain controls: the buttons and mixer keep their usual look instead of matching the visualization'],
     [['F'],'Full screen (in the visualizer window)'],
   ]},
-  {title:'On air (streaming the visualizer)',note:'Turn on with On air at the top. Then these work in the chart and MIDI views too, and change every visualizer, OBS included.',rows:[
+  {title:'Streaming the visualizer',note:'These work in the chart and MIDI views too, and change every visualizer, OBS included. Not in the lead sheet, where C picks the Chords tool.',rows:[
     [['1','–','9'],'Choose a visualization, in the order of the visualizer’s buttons'],
     [['Y'],'Show or hide the lyrics'],
     [['C'],'Calm mode on or off'],
   ]},
-  {title:'During a show',note:'The same keys, but they wait for the music: nothing moves until a bar line, and what’s coming is shown on the Perform view.',rows:[
+  {title:'During a show',note:'The same keys, but they wait for the music: nothing moves until a bar line, and what’s coming is shown in the show controls above the chart.',rows:[
     [['Space'],'Start, pause or resume. Pausing is immediate.'],
-    [['L'],'Loop the four bars you’re in, from the next bar line. Again: leave after this pass. In a section loop: switch to these bars after the pass.'],
-    [['R'],'Loop the section you’re in. Again: leave after this pass. In a four-bar loop: switch to the section after the pass.'],
+    [['L'],'Loop the four bars you’re in, from the next bar line. Again: leave after this pass. In a section loop: switch to these bars after the pass. In a loop you planned: keep going round it until you leave it (L again leaves after this pass, and once more goes back to the plan).'],
+    [['R'],'Loop the section you’re in. Again: leave after this pass. In a four-bar loop: switch to the section after the pass. In a loop you planned: loop the whole section instead (R again leaves after this pass, and once more goes back to the plan).'],
     [['←','/','→'],'Queue a jump to the previous or next bar. Each press moves the queued bar, and the music goes there at the next bar line.'],
     [['Ctrl','←','/','→'],'The same, by section'],
   ]},
   {title:'Prepare',rows:[
     [['V'],'Select tool: click bars and actions to work on them'],
-    [['N'],'Repeat tool: select bars, then choose how many plays'],
-    [['A'],'Action tool: click a lane at a bar to add an action there'],
+    [['A'],'Action tool: click a place in a bar, then choose what should happen there, a loop too'],
     [['Delete'],'Remove the selected action, or all the ticked ones'],
     [['Ctrl','C'],'Copy the selected action, or all the ticked ones'],
     [['Ctrl','V'],'Paste them at the selected bar, keeping their spacing'],
-    [['Ctrl','Z','/','Ctrl','Shift','Z'],'Undo or redo your last change on this page'],
+    [['Ctrl','Z','/','Ctrl','Shift','Z'],'Undo or redo your last change to this arrangement, as the Undo and Redo buttons at the top do. The History button, the clock by them, lists the changes by name to go back several at once.'],
     [['Esc'],'Clear the selection'],
   ]},
   {title:'Anywhere',rows:[

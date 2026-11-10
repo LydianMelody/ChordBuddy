@@ -28,6 +28,22 @@
 .master b{font:700 11px var(--m);text-transform:uppercase}
 .master input{flex:1;accent-color:var(--ink)}
 .master output{font:700 11px var(--m);width:30px;text-align:right}
+/* The click and the cue track: only you hear these, so they sit apart from the music's faders (monitor-strips.js) */
+.monitor{display:grid;grid-template-columns:minmax(0,1fr);gap:5px;padding:7px 10px 8px;border:2px dashed var(--ink);border-radius:12px;background:var(--desk)}
+.monitor-head b{font:700 10px var(--m);text-transform:uppercase}
+.monitor-row{display:flex;align-items:center;gap:7px;min-width:0}
+.monitor-row b{font:700 11px var(--m);text-transform:uppercase;width:38px;flex:none}
+.monitor-icon{display:grid;place-items:center;flex:none}.monitor-icon .ic{width:15px;height:15px}
+.monitor-row input[type=range]{flex:1;min-width:0;accent-color:var(--ink)}
+.rack .monitor-row .mute{flex:none;width:28px;min-width:0;margin:0;padding:2px 0}
+.monitor-row.muted>:is(.monitor-icon,b,input){opacity:.5}
+.monitor-row .mute[aria-pressed=true]{background:var(--ink);color:var(--page)}
+.monitor-file{flex:none;padding:2px 7px;border:2px solid var(--ink);border-radius:8px;background:var(--page);font:700 11px var(--m)}
+.monitor-file:disabled{opacity:.5}
+.monitor-count b{width:auto;white-space:nowrap;letter-spacing:normal}
+.monitor-count-seg{flex:1;min-width:0}
+.monitor-count-seg button{flex:1;min-width:0;padding:4px 6px;font:700 11px var(--m);letter-spacing:normal;white-space:nowrap}
+.monitor-count-seg button:disabled{opacity:.5}
 
 .rack-head{gap:8px}
 .rack-head b{margin-right:auto}
@@ -38,6 +54,10 @@
 .stem.quiet{opacity:.7}
 .rack .mute[aria-pressed="true"]{background:var(--ink);color:var(--page)}
 .rack .solo[aria-pressed="true"]{background:var(--hl)}
+.rack-column{display:flex;flex-direction:column;gap:10px;min-height:0;align-self:start;max-height:100%}
+.rack-column .rack{align-self:stretch;flex:0 1 auto}
+.rack-visual{flex:none;display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:var(--bd) solid var(--ink);border-radius:16px;background:var(--page);box-shadow:var(--sh) var(--sh) 0 var(--ink);font:700 11px var(--m);text-transform:uppercase;letter-spacing:.06em;color:var(--soft)}
+.rack-visual select{width:100%;min-width:0;height:36px;text-transform:none;letter-spacing:0}
 .rack.disabled .strips,.rack.disabled .presets,.rack.disabled .master{opacity:.5}
 .rack button:disabled,.rack input:disabled{cursor:default}
 .presets button:disabled{opacity:.6}

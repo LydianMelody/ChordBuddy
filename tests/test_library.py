@@ -36,6 +36,41 @@ def test_default_title_order_and_membership_survive_reopen(tmp_path, mp3_bytes):
         reopened.reorder_setlist(playlist['id'], [a['id'], a['id']])
 
 
+def test_a_set_list_can_be_renamed_and_deleting_it_keeps_its_songs(tmp_path, mp3_bytes):
+    library = Library(tmp_path)
+    gig = library.create_setlist('Gig')
+    other = library.create_setlist('Other')
+    song = library.import_audio('First.mp3', mp3_bytes, gig['id'])
+    library.add_to_setlist(other['id'], song['id'])
+    assert library.rename_setlist(gig['id'], 'Friday')['name'] == 'Friday'
+    with pytest.raises(ValueError):
+        library.rename_setlist(gig['id'], 'Other')
+    with pytest.raises(ValueError):
+        library.rename_setlist('default', 'Anything')
+    with pytest.raises(ValueError):
+        library.delete_setlist('default')
+    assert library.delete_setlist(gig['id']) == {'deleted': True}
+    with pytest.raises(KeyError):
+        library.setlist(gig['id'])
+    reopened = Library(tmp_path)
+    assert reopened.song(song['id'])['id'] == song['id']
+    assert reopened.setlist('default')['song_ids'] == [song['id']]
+    assert reopened.setlist(other['id'])['song_ids'] == [song['id']]
+    assert library.create_setlist('Friday')['name'] == 'Friday', 'the name is free again'
+
+
+def test_many_taught_switches_are_kept_and_other_preferences_stay_small(tmp_path):
+    library = Library(tmp_path)
+    switches = '[' + ','.join(['{"device":"Line 6 Helix","status":176,"data1":20,"command":"track-mute","params":{"tracks":["vocals","lead"]}}'] * 40) + ']'
+    assert len(switches) > 200
+    library.write_prefs({'cb-midi-mappings': switches})
+    assert Library(tmp_path).read_prefs()['cb-midi-mappings'] == switches
+    with pytest.raises(ValueError):
+        library.write_prefs({'cb-theme': 'x' * 201})
+    with pytest.raises(ValueError):
+        library.write_prefs({'cb-midi-mappings': 'x' * (64 * 1024 + 1)})
+
+
 def test_bad_audio_and_traversal_do_not_create_songs(tmp_path, mp3_bytes):
     library = Library(tmp_path)
     for name, data in [('broken.mp3', b'not audio'), ('../escape.mp3', mp3_bytes), ('C:\\escape.mp3', mp3_bytes)]:

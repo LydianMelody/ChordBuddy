@@ -37,6 +37,8 @@ from .visual_patches import VisualPatches
 from .performance_store import PerformanceStore
 import webbrowser
 from .midi_service import MidiService
+from .monitor_audio import MonitorAudio
+from .cue_tracks import CueTracks
 from . import update_check
 from .power_service import PowerService
 
@@ -51,9 +53,11 @@ class Application:
         # your own visualizations: a folder beside the app (never inside it), so an update never touches them
         self.my_visuals=Path(project_dir)/'My Visuals'
         self.user_midi=UserMidi(self.library)   # your own MIDI files, kept with each song
+        self.cue_tracks=CueTracks(self.library) # a song's cue track, if you've given it one
         self.visual_patches=VisualPatches(self.library)   # the patch bay's patches (which sounds drive which parts of a visualization)
         self.performances=PerformanceStore(self.library)   # saved arrangements of a song, and shows made of them
         self.midi=MidiService()    # live MIDI to and from a pedal or controller (opens nothing until a show or the setup asks)
+        self.monitor=MonitorAudio(project_dir)   # the click and the cue track: only you hear them, OBS doesn't (opens nothing until there's something to play)
         self.power=PowerService()  # keeps the computer awake during a show
         # visualizers in another browser (an OBS Browser Source): the player's messages, relayed; their address has a key kept with the library
         self.visual_relay=VisualRelay()
@@ -273,6 +277,7 @@ class Application:
 
     def close(self):
         self.midi.close()
+        self.monitor.close()
         self.power.close()
         self.visual_relay.close()
         with self.job_lock:
@@ -295,6 +300,10 @@ class Application:
 class Server(ThreadingHTTPServer):
     daemon_threads=True
     allow_reuse_address=os.name!='nt'   # on Windows it would let a second server share a port that is already in use
+    # Connections waiting to be taken up. Python's default is 5, and a page opens far more than that at once (about 20 stylesheets and scripts, besides
+    # requests that stay open, like MIDI input). Windows refuses one past the limit, and a refused stylesheet is never asked for again: the page came up
+    # without some of its styles, more often the more the page asked for at startup.
+    request_queue_size=128
 
     def server_close(self):
         super().server_close()
@@ -404,6 +413,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(self.app.transfer.receive(self.rfile.read,size))
             elif path=='/api/import':
                 self._json(self.app.library.import_audio(query.get('filename',[''])[0],self._read(250*1024*1024),query.get('setlist',['default'])[0]))
+            elif path=='/api/cue-track/upload':
+                self._json(self.app.cue_tracks.add(query.get('song',[''])[0],query.get('name',[''])[0],self._read(250*1024*1024)))
             elif path=='/api/user-midi/upload':
                 midi=self.app.user_midi;song=query.get('song',[''])[0];name=query.get('name',[''])[0]
                 if query.get('unique',[''])[0]=='1':name=midi.next_name(song,name or 'Custom MIDI')   # generated files never collide with or overwrite anything
@@ -443,6 +454,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({'url':f'http://127.0.0.1:{self.server.server_port}/visualizer.html?stream={key}','port':self.server.server_port})
         if path=='/api/visual-relay/player':return self._event_stream('player')
         if path=='/api/update-check':return self._json(update_check.check())
+        if path=='/api/monitor/status':return self._json(self.app.monitor.status())
+        if path.startswith('/api/cue-track/'):return self._json({'track':self.app.cue_tracks.get(path.removeprefix('/api/cue-track/'))})
         if path=='/api/midi/ports':return self._json(self.app.midi.ports())
         if path=='/api/midi/status':return self._json(self.app.midi.status())
         if path=='/api/midi/log':return self._json(list(self.app.midi.log))
@@ -650,6 +663,10 @@ class Handler(BaseHTTPRequestHandler):
             result=self.app.transfer.cancel(body['token'])
         elif path=='/api/setlist':
             result=lib.create_setlist(body['name'])
+        elif path=='/api/setlist/rename':
+            result=lib.rename_setlist(body['id'],body['name'])
+        elif path=='/api/setlist/delete':
+            result=lib.delete_setlist(body['id'])
         elif path=='/api/setlist/order':
             result=lib.reorder_setlist(body['id'],body['song_ids'])
         elif path=='/api/setlist/add':
@@ -703,6 +720,15 @@ class Handler(BaseHTTPRequestHandler):
         elif path=='/api/update-page':
             webbrowser.open(update_check.PAGE_URL)     # always this one address: nothing in the request can change where it goes
             result={'opened':True}
+        elif path=='/api/monitor/schedule':result=self.app.monitor.schedule(body['events'])
+        elif path=='/api/monitor/cancel':result=self.app.monitor.cancel(body.get('from'))
+        elif path=='/api/monitor/gains':result=self.app.monitor.set_gains(body.get('click'),body.get('cue'))
+        elif path=='/api/monitor/load':
+            track=self.app.cue_tracks.get(body['song_id'])
+            if not track:raise KeyError('This song has no cue track')
+            result={**self.app.monitor.load_track(track['version'],self.app.cue_tracks.path(body['song_id'])),'key':track['version']}
+        elif path=='/api/cue-track/remove':
+            self.app.cue_tracks.remove(body['song_id']);result={'ok':True}
         elif path=='/api/midi/connect':result=self.app.midi.connect(body['name'],output=body.get('output',True) is not False,input=body.get('input',True) is not False)
         elif path=='/api/midi/disconnect':result=self.app.midi.disconnect(body['name'])
         elif path=='/api/midi/schedule':result=self.app.midi.schedule(body['device'],body['events'],body.get('generation',0))

@@ -138,6 +138,7 @@ class MidiService:
         self.queue=[];self.sequence=0;self.outputs={};self.inputs={};self.notes={}
         self.log=deque(maxlen=MAX_LOG);self.events=deque(maxlen=MAX_EVENTS);self.event_id=0;self.missed=0;self.lateness=deque(maxlen=20000)
         self.clock_in={}                                 # device -> [pulses heard, when the last one came]: proof a device reaches this computer, with no press needed
+        self.clock_times={}                              # device -> when the last four beats' pulses came: the tempo it's really at
         self.closed=False;self.thread=None;self.autostart=autostart
 
     @property
@@ -196,8 +197,14 @@ class MidiService:
             routes=getattr(self._backend,'routes',{}) if self._backend else {}
             return {'clock':self.clock(),'outputs':sorted(self.outputs),'inputs':sorted(self.inputs),'queued':len(self.queue),'missed':self.missed,
                     'routes':{name:routes.get(name) for name in self.inputs},
-                    'clock_in':{name:{'pulses':count,'seconds_ago':self.clock()-when} for name,(count,when) in self.clock_in.items()},
+                    'clock_in':{name:{'pulses':count,'seconds_ago':self.clock()-when,'bpm':self._clock_bpm(name)} for name,(count,when) in self.clock_in.items()},
                     'late_ms':{'p50':pick(.5),'p95':pick(.95),'p99':pick(.99),'max':seen[-1] if seen else None,'count':len(seen)}}
+
+    def _clock_bpm(self,name):
+        """The tempo a device's own clock says it's at, or None until a beat's worth has come."""
+        times=list(self.clock_times.get(name,()))
+        if len(times)<25 or times[-1]<=times[0]:return None
+        return (len(times)-1)/24/(times[-1]-times[0])*60
 
     def _note(self,kind,**details):
         self.log.append({'t':self.clock(),'kind':kind,**details})
@@ -206,7 +213,8 @@ class MidiService:
         if not message:return
         if message[0]>=0xF0:                             # clock, and the like: counted, never treated as a press, and never kept in the list
             if message[0]==0xF8:
-                seen=self.clock_in.get(device,[0,0]);self.clock_in[device]=[seen[0]+1,self.clock()]
+                now=self.clock();seen=self.clock_in.get(device,[0,0]);self.clock_in[device]=[seen[0]+1,now]
+                self.clock_times.setdefault(device,deque(maxlen=97)).append(now)
             return
         with self.lock:
             self.event_id+=1

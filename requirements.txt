@@ -9,6 +9,8 @@ winrt-Windows.Devices.Enumeration==4!10.0.28000.2957
 winrt-Windows.Foundation==4!10.0.28000.2957
 winrt-Windows.Foundation.Collections==4!10.0.28000.2957
 winrt-Windows.Storage.Streams==4!10.0.28000.2957
+# sounddevice: plays the click and the cue track from Python, where OBS's capture of the music doesn't hear them (chordbuddy/monitor_audio.py)
+sounddevice==0.5.6
 pywebview==6.1
 # numpy: the app reads and checks audio with it, so it opens even if the transcription engine did not install (same version as the engine)
 numpy==1.24.3

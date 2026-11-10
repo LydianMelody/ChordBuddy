@@ -19,7 +19,7 @@ class StemProcessor extends AudioWorkletProcessor{
     this.mixer.enqueue(m);
     if(!this.ready&&(this.mixer.queuedFrames>=44100||this.mixer.end===this.mixer.total)){this.ready=true;this.port.postMessage({type:'ready',generation:m.generation,runId:m.runId});}
    }
-   if(m.type==='play')this.mixer.setPlaying(m.value);
+   if(m.type==='play'){this.holdUntil=m.value&&Number.isFinite(m.at)?m.at:0;this.mixer.setPlaying(m.value);}   // at: the frame to start on, after a count-in
    if(m.type==='mix')this.mixer.setMix(m.value);
    if(m.type==='mode')this.mixer.setMode(m.value);
    if(m.type==='rate')this.player.setRate(m.value);
@@ -28,8 +28,12 @@ class StemProcessor extends AudioWorkletProcessor{
  }
  process(inputs,outputs){
   const out=outputs[0];if(!out?.length)return true;
-  this.player.render(out[0],out[1]||out[0]);this.tick+=out[0].length;
-  if(this.tick>=2048){this.tick=0;const m={type:'position',generation:this.mixer.generation,runId:this.mixer.runId,sourceFrame:this.player.sourceFrame,played:this.mixer.played,levels:this.mixer.takeLevels(),contextFrame:currentFrame,state:this.player.state,stretcher:this.player.stretcher,queuedFrames:this.mixer.queuedFrames};this.port.postMessage(m);this.stream?.postMessage(m);}
+  // waiting out a count-in: silence until the frame it ends on, then the music from its first sample
+  const left=out[0],right=out[1]||out[0],wait=Math.max(0,Math.min(left.length,(this.holdUntil||0)-currentFrame));
+  if(wait<left.length)this.player.render(wait?left.subarray(wait):left,wait?right.subarray(wait):right);
+  if(wait){left.fill(0,0,wait);if(right!==left)right.fill(0,0,wait);}
+  this.tick+=left.length;
+  if(this.tick>=2048){this.tick=0;const m={type:'position',hold:Math.max(0,(this.holdUntil||0)-currentFrame),generation:this.mixer.generation,runId:this.mixer.runId,sourceFrame:this.player.sourceFrame,played:this.mixer.played,levels:this.mixer.takeLevels(),contextFrame:currentFrame,state:this.player.state,stretcher:this.player.stretcher,queuedFrames:this.mixer.queuedFrames};this.port.postMessage(m);this.stream?.postMessage(m);}
   return true;
  }
 }
@@ -84,6 +88,7 @@ class PathProcessor extends AudioWorkletProcessor{
     }
     case 'handoff':this.handoff={from:m.slot,to:m.to,atPlayed:m.atPlayed,gap:m.gap||0};break;
     case 'cancel-handoff':this.handoff=null;this.gap=0;break;
+    case 'lead-in':this.gap=m.frames;break;                 // the first song of a show waits this long for its count-in
     default:break;
    }
   }catch(error){mixer?.setPlaying(false);this.port.postMessage({type:'error',slot:m.slot,id:m.id,error:error.message});}

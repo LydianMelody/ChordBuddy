@@ -1,9 +1,8 @@
-// The Perform page: what a performer reads at a glance during a show. Big position in the middle, what's coming below it, the controls and clocks along the
-// sides, the set in a drawer. It only shows what the controller says and sends it requests, so a redraw can never disturb the music. Status is always
+// The show's controls: a slim strip above the chart, so the page stays the chart you know, with the mixer on the right and the set in the sidebar on the left. The strip has
+// where you are, the clocks and what's coming up, then the buttons. It only shows what the controller says and sends it requests, so a redraw can never disturb the music. Status is always
 // words and an icon, never color alone.
 import {icon} from './icons.js';
-import {STEM_ROLES} from './performance-actions.js';
-import {mountMixerDrawer} from './visual-mixer.js';
+import {tapeTint} from './library-page.js';
 import {describeAction} from './performance-actions.js';
 import {clockText,spareText} from './performance-duration.js';
 
@@ -55,72 +54,55 @@ export function upcoming(runner,limit=5,cues=[]){
   for(const [i,s] of list.entries()){
     if(s.kind==='hold'){add(null,s.seconds===null?'Waits for you':`Holds for ${s.seconds} seconds`);continue;}
     if(i>0&&s.regionId&&s.passIndex!==null)add(s.start,`Pass ${s.passIndex+1}`);
-    for(const a of from(s))if(a.frame>=(i===0?runner.source:s.start))add(a.frame,describeAction(a.action));
+    for(const a of from(s))if(!a.glide&&a.frame>=(i===0?runner.source:s.start))add(a.frame,describeAction(a.action));
     if(out.length>=limit)break;
   }
   return out;
 }
 
-export function mountPerform(root,{controller,onClose,chordAt=()=>null,catalog=()=>[],onShows=()=>{},onAgain=()=>{},fullscreen=null,openVisualizer=null,visualizerOpen=()=>false,mixer=null,audioSeconds=()=>0}){
-  const panel=el('div','pf pf-stage');panel.setAttribute('role','region');panel.setAttribute('aria-label','Perform');
+const RUNNING_NOW=['playing','paused','gap','waiting','buffering'];
+export function mountPerform(root,{controller,onClose,chordAt=()=>null,catalog=()=>[],onShows=()=>{},onAgain=()=>{},fullscreen=null,openVisualizer=null,copyObsAddress=null,visualizerOpen=()=>false,audioSeconds=()=>0,setHost=null,onReleaseSet=()=>{},onError=()=>{}}){
+  const panel=el('div','pf pf-stage');panel.setAttribute('role','region');panel.setAttribute('aria-label','Show controls');
   const head=el('header','pf-head');
   const title=el('div','pf-names'),show=el('small','pf-show'),song=el('h2','pf-song'),perf=el('small','pf-performance');title.append(show,song,perf);
   const count=el('span','pf-count'),state=el('span','pf-state');state.setAttribute('role','status');
-  const bigger=el('button','btn sq','');bigger.type='button';bigger.insertAdjacentHTML('afterbegin',icon('expand'));bigger.setAttribute('aria-label','Bigger text');bigger.title='Bigger text, for reading from further away';
-  const drawerButton=el('button','btn','The set');drawerButton.type='button';drawerButton.title='See the songs still to come, and add, remove or reorder them. The music is not affected.';drawerButton.setAttribute('aria-expanded','false');
-  const close=el('button','btn sq','');close.type='button';close.insertAdjacentHTML('afterbegin',icon('x'));close.setAttribute('aria-label','Close Perform');close.title='Back to the chart. A running show keeps playing; come back from the Perform menu.';
-  const screen=el('button','btn','Full screen');screen.type='button';screen.title='Fill the whole screen with this page. Press again to go back.';screen.onclick=()=>fullscreen?.();
-  const visual=el('button','btn','Visualizer');visual.type='button';visual.title='Open the visualizer in its own window, to put on another monitor. It follows the show.';visual.onclick=()=>openVisualizer?.();
-  const mixerButton=el('button','btn','Mixer');mixerButton.type='button';mixerButton.title='Show the faders. Anything you change stays live until you release it below.';mixerButton.setAttribute('aria-expanded','false');
-  head.append(title,count,state,el('span','vx-gap'),bigger,screen,visual,mixerButton,drawerButton,close);
-  const body=el('div','pf-body');
-  const centre=el('section','pf-centre');
-  const section=el('div','pf-section'),position=el('div','pf-position'),chords=el('div','pf-chords'),next=el('div','pf-next');
-  centre.append(section,position,chords,next);
-  const resumeRow=el('div','pf-pending'),resumeText=el('span'),resumeButton=el('button','btn hot','Start from that song');resumeButton.type='button';resumeButton.title='Start the show from where the last run stopped. Press Start instead to begin at the first song.';resumeRow.append(resumeText,resumeButton);resumeRow.hidden=true;
-  resumeButton.onclick=()=>{const point=controller.resumePoint();if(point)controller.start({entryIndex:point.index}).catch(error=>showProblem(error.message));paint();};
-  const pending=el('div','pf-pending');pending.setAttribute('role','status');const pendingText=el('span');const cancelPending=el('button','btn','Cancel');cancelPending.type='button';cancelPending.title='Take back what’s queued. The music carries on as it was going.';pending.append(pendingText,cancelPending);
-  const up=el('section','pf-upcoming');up.setAttribute('aria-label','Coming up');const upList=el('ol','pf-up-list');up.append(el('h3','vx-cap','Coming up'),upList);
-  const middle=el('div','pf-main');middle.append(centre,resumeRow,pending,up);
-  const side=el('aside','pf-side');
+  const here=el('div','pf-centre'),section=el('b','pf-section'),position=el('span','pf-position'),chords=el('b','pf-chords'),next=el('span','pf-next');here.append(section,position,chords,next);
   const clocks=el('section','pf-clocks');clocks.setAttribute('aria-label','Time');
   const clockRow=label=>{const row=el('div','pf-clock'),value=el('b');row.append(el('span','vx-cap',label),value);clocks.append(row);return {row,value};};
-  const music=clockRow('Music left'),planned=clockRow('Planned left'),slot=clockRow('Slot left'),finish=clockRow('Expected finish'),spare=el('div','pf-spare'),estimate=el('small','pf-estimate');clocks.append(spare,estimate);
-  const status=el('section','pf-status');const overrides=el('div','pf-overrides'),health=el('ul','pf-health'),systems=el('ul','pf-systems');status.append(el('h3','vx-cap','Your live changes'),overrides,el('h3','vx-cap','Status'),systems,el('h3','vx-cap','Checks'),health);
-  const mixerSlot=el('section','pf-mixer vx-mixer');mixerSlot.hidden=true;
-  side.append(clocks,mixerSlot,status);
-  let rack=null;
-  mixerButton.onclick=()=>{
-    mixerSlot.hidden=!mixerSlot.hidden;mixerButton.setAttribute('aria-expanded',String(!mixerSlot.hidden));
-    if(!mixerSlot.hidden&&!rack&&mixer){rack=mountMixerDrawer(mixerSlot,{send:mixer.send,docked:true});rack.element.classList.add('pf-rack');}
-    paint();
-  };
-  const drawer=el('aside','pf-drawer');drawer.hidden=true;drawer.setAttribute('aria-label','The set');
-  body.append(middle,side,drawer);
+  const music=clockRow('Music left'),planned=clockRow('Planned left'),slot=clockRow('Slot left'),finish=clockRow('Finish'),spare=el('div','pf-spare'),estimate=el('small','pf-estimate');clocks.append(spare,estimate);
+  const bigger=el('button','btn sq','');bigger.type='button';bigger.insertAdjacentHTML('afterbegin',icon('expand'));bigger.setAttribute('aria-label','Bigger text');bigger.title='Bigger text in this strip, for reading from further away';
+  const screen=el('button','btn','Full screen');screen.type='button';screen.title='Fill the whole screen with this page. Press again to go back.';screen.onclick=()=>fullscreen?.();
+  const visual=el('button','btn','Visualizer');visual.type='button';visual.title='Open the visualizer in its own window, to put on another monitor. It follows the show.';visual.onclick=()=>openVisualizer?.();
+  // Beside it: the visualizer's address for OBS, copied in one press. The button says Copied for a moment; if it couldn't be copied, copyObsAddress shows the address instead.
+  const obsLink=el('button','btn pf-obs-link','Copy OBS link');obsLink.type='button';obsLink.hidden=!copyObsAddress;obsLink.title='Copy the visualizer’s address, to show it on your stream: in OBS, add a Browser Source and paste this as its URL.';
+  let obsLinkTimer=0;
+  obsLink.onclick=async()=>{let copied=false;try{copied=await copyObsAddress();}catch(error){onError(error);}if(!copied)return;obsLink.textContent='Copied';clearTimeout(obsLinkTimer);obsLinkTimer=setTimeout(()=>{obsLink.textContent='Copy OBS link';},1500);};
+  const close=el('button','btn sq','');close.type='button';close.insertAdjacentHTML('afterbegin',icon('x'));close.setAttribute('aria-label','Close the show controls');close.title='Leave the show controls. A running show keeps playing; come back from the Perform tab.';
+  head.append(title,count,state,here,clocks,el('span','vx-gap'),bigger,screen,visual,obsLink,close);
+  const resumeRow=el('div','pf-pending'),resumeText=el('span'),resumeButton=el('button','btn hot','Start from that song');resumeButton.type='button';resumeButton.title='Start the show from where the last run stopped. Press Start instead to begin at the first song.';resumeRow.append(resumeText,resumeButton);resumeRow.hidden=true;
+  resumeButton.onclick=()=>{const point=controller.resumePoint();if(point)controller.start({entryIndex:point.index}).catch(error=>showProblem(error.message));paint();};
+  const pending=el('div','pf-pending');pending.setAttribute('role','status');const pendingText=el('span');const cancelPending=el('button','btn btn-cancel','Cancel');cancelPending.type='button';cancelPending.title='Take back what’s queued. The music carries on as it was going.';pending.append(pendingText,cancelPending);
+  const up=el('section','pf-upcoming');up.setAttribute('aria-label','Coming up');const upList=el('ol','pf-up-list');up.append(el('span','vx-cap','Coming up'),upList);
+  const overrides=el('div','pf-overrides');
   const controls=el('div','pf-controls');controls.setAttribute('role','toolbar');controls.setAttribute('aria-label','Show controls');
   const control=(text,iconName,keyName,tip,run,cls='')=>{const b=el('button','btn pf-control '+cls);b.type='button';if(iconName)b.insertAdjacentHTML('afterbegin',icon(iconName));b.append(el('span','',text));if(keyName)b.append(el('kbd','',keyName));b.title=tip;b.onclick=run;controls.append(b);return b;};
-  const playButton=control('Start','play','Space','Start the show, or pause and resume it. Pausing stops the music at once, and the slot clock keeps counting.',()=>act('toggle'),'hot');
-  const loopBars=control('Loop 4 bars','loop','L','Loop the four bars you’re in, from the next bar line. Press again to leave after this pass. In a section loop it switches here after the pass.',()=>act('bars'));
-  const loopSection=control('Loop section','loop','R','Loop the section you’re in. Press again to leave after this pass. In a four-bar loop it switches here after the pass.',()=>act('section'));
-  const exitLoop=control('Leave loop',null,null,'Leave whichever loop is on, after the pass you’re in.',()=>act('exit'));
-  const nextSong=control('Next song','ffwd',null,'Go to the next song at the next bar line, or start it now if the show is waiting for you.',()=>act('next'));
+  // Start, pause, loops and moving on are the player bar's buttons and the keys (Space, L, R, the arrows), as in every view; act() below is where they land
   const goOn=control('Go on',null,null,'The music is holding here. Go on from where it stopped.',()=>{controller.goOn();paint();},'hot');
-  const resumePlan=control('Back to the plan',null,null,'Let go of every live change, so the show follows the plan again.',()=>{controller.release({});paint();});
-  const stop=control('Stop',null,null,'Stop the show right away.',()=>act('stop'),'danger pf-stop');
   const again=control('Run it again','play',null,'Get the show ready to start again from the first song.',()=>onAgain(),'hot');
-  const toShows=control('Back to Shows',null,null,'Change the show: its songs, arrangements and timing.',()=>onShows());
-  panel.append(head,body,controls);root.replaceChildren(panel);
+  const toShows=control('Back to the set list',null,null,'Leave the show controls. Change the set list in the sidebar.',()=>onShows());
+  controls.append(overrides);
+  const stop=control('Stop',null,null,'Stop the show right away.',()=>act('stop'),'danger pf-stop');
+  panel.append(head,resumeRow,pending,up,controls);root.replaceChildren(panel);
 
   let large=false,disposed=false,lastSig='';
   bigger.onclick=()=>{large=!large;panel.classList.toggle('large',large);bigger.setAttribute('aria-pressed',String(large));};
-  drawerButton.onclick=()=>{drawer.hidden=!drawer.hidden;drawerButton.setAttribute('aria-expanded',String(!drawer.hidden));paint();};
   close.onclick=()=>onClose();
   cancelPending.onclick=()=>{const r=controller.runner;if(controller.pendingNext)controller.cancelNext();else if(r?.pendingNav)r.cancelNavigation();else if(r?.pendingLoop)r.undoLoopIntent();paint();};
 
   /** Keys and buttons both end up here. */
   function act(what){
     const s=controller.status;
-    if(what==='toggle'){if(s==='armed')controller.start().catch(error=>showProblem(error.message));else controller.togglePlay();}
+    if(what==='toggle'){if(s==='armed')controller.start(startFrom!==null?{entryIndex:startFrom}:undefined).catch(error=>showProblem(error.message));else if(s==='waiting')controller.nextSong();else controller.togglePlay();}
     else if(what==='bars')controller.pressLoop('bars');
     else if(what==='section')controller.pressLoop('section');
     else if(what==='exit')controller.exitLoop();
@@ -128,41 +110,40 @@ export function mountPerform(root,{controller,onClose,chordAt=()=>null,catalog=(
     else if(what==='stop')controller.stop();
     paint();
   }
-  function showProblem(message){state.textContent=message;}
+  // a problem goes where every other problem in the app goes, once each
+  const told=new Set();
+  function showProblem(message){if(!message||told.has(message))return;told.add(message);onError(new Error(message));}
+  let startFrom=null;   // before Start: the song the show starts from (clicking a song in the set chooses it)
 
-  function drawDrawer(snapshot){
-    const sig=JSON.stringify([snapshot.entries.map(e=>[e.id,e.done,e.now,e.seconds]),snapshot.removeAfter,drawer.hidden]);
-    if(sig===lastSig)return;lastSig=sig;
-    drawer.replaceChildren(el('h3','vx-cap','The set'));
-    const list=el('ol','pf-set');
+  /** The set, in the sidebar's list while the show controls are open: what's done, what's now, and what's still to come, which you can change. */
+  function drawSet(snapshot){
+    const host=setHost?.();if(!host)return;
+    const armed=controller.status==='armed',running=RUNNING_NOW.includes(snapshot.status);
+    const sig=JSON.stringify([snapshot.entries.map(e=>[e.id,e.done,e.now,e.seconds]),snapshot.removeAfter,armed,running,startFrom]);
+    if(sig===lastSig&&host.querySelector('.pf-set'))return;lastSig=sig;
+    const list=el('div','pf-set');
     const future=snapshot.entries.filter(e=>!e.done&&!e.now).map(e=>e.id);
-    snapshot.entries.forEach(e=>{
-      const row=el('li','pf-set-row'+(e.now?' now':'')+(e.done?' done':''));
-      const words=el('div','pf-set-words');words.append(el('b','',e.title),el('small','',`${e.performance} · ${clockText(e.seconds)}`));
-      row.append(el('span','pf-set-mark',e.done?'Done':e.now?'Now':''),words);
-      if(controller.status==='armed'){
-        const startHere=el('button','btn','Start here');startHere.type='button';startHere.title='Start the show from this song, for example after stopping partway through.';
-        startHere.onclick=()=>{controller.start({entryIndex:snapshot.entries.indexOf(e)}).catch(error=>showProblem(error.message));paint();};row.append(startHere);
-      }
+    snapshot.entries.forEach((e,i)=>{
+      const chosen=armed?(startFrom??0)===i:e.now;
+      const row=el('div','song-row pf-set-row'+(chosen?' selected':'')+(e.done?' done':''));row.dataset.tint=String(tapeTint(e.songId));row.dataset.status='ready';
+      row.append(el('span','song-number',e.done?'✓':String(i+1)));
+      const main=el('button','song-main');main.type='button';main.append(el('strong','',e.title),el('small','',`${e.performance} · ${clockText(e.seconds)}${e.now?' · now':''}`));
+      main.title=armed?'Start the show from this song. Press Play when you’re ready.':e.now?'Playing now.':e.done?'Play this song again next, at the next bar line. The rest of the set follows it.':'Go to this song at the next bar line. Any songs in between stay on the set, after it.';
+      main.onclick=()=>{if(armed){startFrom=i;paint();}else if(!e.now&&running)controller.goToSong(e.songId).then(paint).catch(onError);};
+      row.append(main);
       if(!e.done){
-        if(!e.now){
-          const at=future.indexOf(e.id);
-          const move=(delta,label,iconName)=>{const b=el('button','btn sq','');b.type='button';b.insertAdjacentHTML('afterbegin',icon(iconName));b.setAttribute('aria-label',`${label}: ${e.title}`);b.title=label;b.disabled=at+delta<0||at+delta>=future.length;b.onclick=()=>{const list=[...future];list.splice(at+delta,0,list.splice(at,1)[0]);controller.setQueue(list);paint();};return b;};
-          row.append(move(-1,'Earlier in the set','up'),move(1,'Later in the set','down'));
-        }
-        const out=el('button','btn',e.now?(snapshot.removeAfter===e.id?'Leaves after this song':'Remove after this song'):'Remove');out.type='button';out.disabled=snapshot.removeAfter===e.id;out.title=e.now?'This song keeps playing, and comes off the set when it ends.':'Take it off the set for tonight. The saved show isn’t changed.';
-        out.onclick=()=>{controller.removeEntry(e.id);paint();};row.append(out);
+        const out=el('button','song-remove');out.type='button';out.innerHTML=icon('x');
+        out.title=e.now?(snapshot.removeAfter===e.id?'Comes off the set when it ends':'Take it off the set when it ends. It keeps playing until then.'):'Take it off the set for tonight. The saved set list isn’t changed.';out.setAttribute('aria-label',`${out.title}: ${e.title}`);
+        out.disabled=snapshot.removeAfter===e.id;out.onclick=()=>{controller.removeEntry(e.id);paint();};row.append(out);
+      }
+      if(!e.done&&!e.now){
+        const at=future.indexOf(e.id),order=el('div','song-order');
+        for(const [symbol,delta,label] of [['▲',-1,'Earlier in the set'],['▼',1,'Later in the set']]){const b=el('button','',symbol);b.type='button';b.title=`${label}: ${e.title}`;b.setAttribute('aria-label',b.title);b.disabled=at+delta<0||at+delta>=future.length;b.onclick=()=>{const next=[...future];next.splice(at+delta,0,next.splice(at,1)[0]);controller.setQueue(next);paint();};order.append(b);}
+        row.append(order);
       }
       list.append(row);
     });
-    const add=el('div','pf-add'),pick=el('select','vx-visual');pick.setAttribute('aria-label','A song to add to the set');
-    for(const item of catalog()){const o=el('option','',item.title);o.value=item.id;pick.append(o);}
-    const addButton=el('button','btn','Add to the set');addButton.type='button';addButton.title='Add this song, with its Original arrangement, at the end of the set';
-    addButton.disabled=!pick.options.length;addButton.onclick=()=>{controller.addEntry({id:`live-${Date.now().toString(36)}`,songId:pick.value,performanceId:null});};
-    add.append(pick,addButton);
-    const copyLog=el('button','btn','Copy the run log');copyLog.type='button';copyLog.title='Copy what happened in this run, moment by moment, to paste into a message if something went wrong.';
-    copyLog.onclick=()=>navigator.clipboard?.writeText(JSON.stringify({show:controller.log,song:controller.runner?.log||[]})).catch(()=>{});
-    drawer.append(list,add,copyLog);
+    host.replaceChildren(list);
   }
 
   function paint(){
@@ -178,7 +159,7 @@ export function mountPerform(root,{controller,onClose,chordAt=()=>null,catalog=(
     resumeRow.hidden=!s.resume;
     if(s.resume)resumeText.textContent=`The last run stopped during song ${s.resume.index+1}${s.resume.title?`, ${s.resume.title}`:''}.`;
     const looped=now?.loop;
-    position.textContent=s.status==='waiting'?'Press Next song when you’re ready.':['finished','stopped'].includes(s.status)?'':now?`Bar ${now.bar??'–'}${now.occurrence?.passIndex!==null&&now.occurrence?.passIndex!==undefined?` · Pass ${now.occurrence.passIndex+1}`:''}${looped?` · Looping ${looped.label}`:''}`:'';
+    position.textContent=s.status==='waiting'?'Press Play (Space) when you’re ready.':['finished','stopped'].includes(s.status)?'':now?`Bar ${now.bar??'–'}${now.occurrence?.passIndex!==null&&now.occurrence?.passIndex!==undefined?` · Pass ${now.occurrence.passIndex+1}`:''}${looped?` · Looping ${looped.label}`:''}`:'';
     const chord=now?chordAt(entry?.songId,now.source):null;
     chords.textContent=chord?.now||'';next.textContent=chord?.next?`Next: ${chord.next}`:'';
     const words=pendingWords(s,r?.measures||[]);pending.hidden=!words;if(words){pendingText.textContent=words.text;cancelPending.hidden=!words.cancel;}
@@ -199,29 +180,15 @@ export function mountPerform(root,{controller,onClose,chordAt=()=>null,catalog=(
     estimate.textContent=c?.unknown?'Finish unknown: waiting for you.':c?.estimated?'Estimated · live loop or wait.':'';
     overrides.replaceChildren();
     if(now?.overrides.length){
-      for(const o of now.overrides){const b=el('button','btn pf-live');b.type='button';b.append(el('span','pf-live-tag','LIVE'),el('span','',liveWords(o)));b.title=`${POLICY_WORDS[o.policy]||o.policy}. Click to go back to the plan for this.`;b.onclick=()=>{controller.release({property:o.property});paint();};overrides.append(b);}
-    }else overrides.append(el('p','pf-none','None. Everything is following the plan.'));
-    health.replaceChildren(...(s.check?.notes||[]).map(n=>el('li','',n)),...(s.missingDevices||[]).map(n=>el('li','pf-lost',s.stoppingAt?`${n} was disconnected. The show stops at the next bar.`:`${n} was disconnected. The show plays on without it.`)),...(s.check?.blocking||[]).map(n=>el('li','pf-lost',n)));
-    if(!health.children.length)health.append(el('li','pf-none','All good.'));
+      for(const o of now.overrides){const b=el('button','btn pf-live');b.type='button';b.append(el('span','pf-live-tag','LIVE'),el('span','',liveWords(o)));b.title=`${POLICY_WORDS[o.policy]||o.policy}. Click to go back to the song’s default for this.`;b.onclick=()=>{controller.release({property:o.property});paint();};overrides.append(b);}
+    }
+    for(const n of [...(s.check?.blocking||[]),...(s.missingDevices||[]).map(n=>s.stoppingAt?`${n} was disconnected. The show stops at the next bar.`:`${n} was disconnected. The show plays on without it.`)])showProblem(n);
     const running=['playing','paused','gap','waiting','buffering'].includes(s.status);
     const over=['finished','stopped','error'].includes(s.status);
-    goOn.hidden=!now?.holding;again.hidden=!over;toShows.hidden=running;stop.hidden=!running;
-    for(const b of [loopBars,loopSection,exitLoop,nextSong,resumePlan,playButton])b.hidden=over;
-    const sys=[];
-    if(running){const seconds=audioSeconds();sys.push(seconds<1&&s.status==='playing'?`Audio: only ${seconds.toFixed(1)} seconds ready`:`Audio: ${Math.round(seconds)} seconds ready`);}
-    sys.push(s.check?.keepAwake===false?'Keep awake: not available':running?'Keep awake: on':'Keep awake: comes on at Start');
-    sys.push(visualizerOpen()?'Visualizer: connected':'Visualizer: none open');
-    for(const c of controller.connections||[])sys.push(`${c.name}: ${(s.missingDevices||[]).includes(c.name)||!c.connected?'not connected':'connected'}`);
-    if(now&&now.rate!==100)sys.push(`Speed: ${now.rate}%`);
-    systems.replaceChildren(...sys.map(t=>el('li','',t)));
-    if(rack&&!mixerSlot.hidden&&mixer){rack.setMix(mixer.current());const levels=mixer.levels();if(levels)rack.setLevels({tracks:Object.fromEntries(STEM_ROLES.map((role,i)=>[role,{level:levels[i]||0}]))});}
-    playButton.querySelector('span').textContent=s.status==='armed'?'Start':s.status==='paused'?'Resume':'Pause';
-    playButton.disabled=!(s.status==='armed'||running);
-    for(const b of [loopBars,loopSection,stop])b.disabled=!running;
-    exitLoop.disabled=!running||!r?.activeLoop();nextSong.disabled=!running||!controller.next;resumePlan.disabled=!now?.overrides.length;
-    if(!drawer.hidden)drawDrawer(s);
+    goOn.hidden=!now?.holding;again.hidden=!over;toShows.hidden=running;stop.hidden=!running;close.hidden=running;
+    drawSet(s);
   }
   const off=controller.subscribe?.(paint);
   const timer=setInterval(paint,250);paint();
-  return {paint,act,dispose(){disposed=true;clearInterval(timer);off?.();root.replaceChildren();},get drawerOpen(){return !drawer.hidden;}};
+  return {paint,act,dispose(){disposed=true;clearInterval(timer);off?.();root.replaceChildren();onReleaseSet();}};
 }

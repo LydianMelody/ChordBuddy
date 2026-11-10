@@ -31,7 +31,7 @@ from .filenames import safe_stem
 from .path_policy import new_id, validate_paths, validate_song
 from .separation_audio import index_wav
 from .separation_contract import file_hash
-from .song_extras import MIDI_INDEX, SongExtras, midi_items_from
+from .song_extras import MIDI_INDEX, SongExtras, cue_item_from, midi_items_from
 
 FORMAT = 'chordbuddy-song'
 VERSION = 3   # 3: adds your MIDI files and `extras`; 2: chordbuddy-song.json lists every file (FLAC audio, files stored once); older zips still import
@@ -76,7 +76,7 @@ def _stems_of(job):
 def _song_files(folder, stems_id):
     """(name inside song/, path) for the recording, transcriptions, analysis and, with stems_id, those stems."""
     files = [('source.mp3', folder / 'source.mp3')]
-    roots = [folder / 'runs', folder / 'analysis', folder / 'my-midi'] + ([folder / 'separation' / stems_id] if stems_id else [])
+    roots = [folder / 'runs', folder / 'analysis', folder / 'my-midi', folder / 'my-cues'] + ([folder / 'separation' / stems_id] if stems_id else [])
     for root in roots:
         if not root.is_dir() or root.is_symlink():
             continue
@@ -450,8 +450,9 @@ class SongTransfer:
             try:
                 with zipfile.ZipFile(path) as archive:
                     items = midi_items_from(archive, manifest)
+                    cue = cue_item_from(archive, manifest)
                 extras = _swap(manifest.get('extras') or {}, plan['mapping'])
-                result['extras'] = SongExtras(app).restore(song_id, extras, items)
+                result['extras'] = SongExtras(app).restore(song_id, extras, items, cue=cue)
             except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile) as exc:
                 result['extras'] = {'midi': 0, 'patches': 0, 'prefs': 0, 'arrangements': 0, 'skipped': 0}
                 result['warning'] = result['warning'] or f'The song came in, but its MIDI files, visuals or arrangements could not be added: {exc}'

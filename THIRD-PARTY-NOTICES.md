@@ -20,6 +20,7 @@ Chord Buddy's own code is MIT licensed (see `LICENSE`). It uses the following. *
 | httpx2, httpcore2, h11, anyio, typer, click, rich, pygments, markdown-it-py, mdurl, shellingham, truststore, annotated-doc | used by huggingface-hub and transformers (downloads, command line) | BSD-3-Clause (httpx2, httpcore2, click); BSD-2-Clause (pygments); ISC (shellingham); MIT (the rest) |
 | pywebview (and pythonnet) | the app window | BSD-3-Clause (pywebview), MIT (pythonnet) |
 | mido | MIDI files | MIT |
+| sounddevice (with PortAudio) | plays the click and the cue track | MIT (sounddevice); MIT-style PortAudio license |
 | python-rtmidi (with RtMidi) | live MIDI to and from a pedal or controller in a performance | MIT (python-rtmidi); MIT-style RtMidi license |
 | winrt (PyWinRT): runtime and Windows.Devices.Midi, Devices.Enumeration, Foundation, Foundation.Collections, Storage.Streams | hearing a pedal or controller through Windows' WinRT MIDI | MIT |
 | **mutagen** | reads MP3 tags | **GPL-2.0-or-later.** Chord Buddy imports it at run time and does not include it. Combining with MIT code is allowed, but consider this when choosing how to distribute a bundled build. *(check)* |

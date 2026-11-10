@@ -57,7 +57,7 @@
 .mi-parts{flex:0 1 auto;max-height:34vh;overflow:auto;padding:8px 18px 12px}
 .mi-part{display:grid;grid-template-columns:44px minmax(160px,1.2fr) minmax(160px,2fr) minmax(190px,auto);align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)}
 .mi-part-head{font:800 10px var(--g);letter-spacing:.12em;text-transform:uppercase;color:var(--soft);padding-top:2px}
-.mi-part input[type=checkbox]{width:18px;height:18px;accent-color:var(--ink);justify-self:center}
+.mi-part input[type=checkbox]{justify-self:center}
 .mi-part-name{display:grid;grid-template-columns:14px 1fr;column-gap:8px;align-items:center;min-width:0}
 .mi-part-name b{font:800 14px var(--g);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mi-part-name small{grid-column:2;font:700 10px var(--m);color:var(--soft)}

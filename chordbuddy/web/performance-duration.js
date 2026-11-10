@@ -36,6 +36,27 @@ export function pathSeconds(segments,{index=0,frame=null,rate=100,holdLeft=null,
   }
   return {music,holds,planned:music+holds,unknown,estimated,endRate:now};
 }
+/** A count-in into `from` (song seconds), the place the music starts. Before bar 1 it counts into bar 1, and anything before bar 1 (a pickup) plays under the end
+ *  of the count; from anywhere else it counts into `from` itself. Either way the clicks are whole bars on the beat grid of the bar it counts into, so the
+ *  first click of every bar is accented and says where the downbeat lands, even when `from` is partway through a bar. A pickup bar's own beats set none of
+ *  it, since they can be any length (Call Me's are 1.6x too fast); the tempo is a whole bar's length over its beats, since single detected beats wobble.
+ *  count: a number of bars, or a set list entry's transition ({countBars}, or {countBeats} from before count-ins were in bars, rounded up to whole bars).
+ *  Returns the clicks as song times (they can be before 0, before there is any audio), and lead: the silence the music needs before it starts so the whole
+ *  count fits, which is how a count-in can start before the recording does. */
+export function countInOf(measures,count,ratePercent=100,from=0){
+  const list=measures||[],bar1=list.find(m=>m.number>=1)??list[0],want=typeof count==='number'?{countBars:count}:(count||{});
+  const none=meter=>({beat:0,beats:0,meter,bars:0,clicks:[],target:from,firstBar:0,seconds:0,lead:0});
+  if(!bar1)return none(4);
+  const before=from<bar1.start-1e-6,here=before?bar1:(list.find(m=>m.number>=1&&m.start<=from+1e-6&&from<m.end-1e-6)??list.at(-1));
+  const meter=Math.max(1,(here.beats||[]).length);
+  const bars=want.countBars>0?Math.round(want.countBars):want.countBeats>0?Math.ceil(want.countBeats/Math.max(1,(bar1.beats||[]).length)):0;
+  if(!bars)return none(meter);
+  const speed=(ratePercent||100)/100,step=(here.end-here.start)/meter,target=before?bar1.start:from,earliest=target-bars*meter*step;
+  const clicks=[];
+  for(let i=Math.ceil((earliest-here.start)/step-1e-6);here.start+i*step<target-1e-6;i++)clicks.push({at:here.start+i*step,accent:((i%meter)+meter)%meter===0});
+  const first=clicks[0]?.at??target;
+  return {beat:step/speed,beats:clicks.length,meter,bars,clicks,target,firstBar:target/speed,seconds:(target-first)/speed,lead:Math.max(0,(from-first)/speed)};
+}
 /** What a show still has to play. entries: [{segments, position?, transition:{seconds, countIn}}], first one the current song; the gap before an
  *  entry is counted once, on that entry. position on the first entry: as in pathSeconds. gapLeft: what remains of a gap already running. */
 export function showSeconds(entries,{gapLeft=null}={}){
@@ -44,6 +65,7 @@ export function showSeconds(entries,{gapLeft=null}={}){
     const r=pathSeconds(entry.segments,i===0?(entry.position||{}):{});
     music+=r.music;holds+=r.holds;unknown=unknown||r.unknown;estimated=estimated||r.estimated;
     const t=entry.transition||{};
+    if(Number.isFinite(entry.lead))gaps+=entry.lead;
     if(i===0)gaps+=gapLeft??0;
     else{
       gaps+=(Number.isFinite(t.seconds)?t.seconds:0)+(Number.isFinite(t.countIn)?t.countIn:0);

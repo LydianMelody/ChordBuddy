@@ -114,7 +114,7 @@ function loopEvents(previous,frame){
 }
 
 // options: {open (the bridge channel; the BroadcastChannel by default), stream (an OBS Browser Source: no controls at all, nothing saved here,
-// and it follows the main window's look rather than choosing one), editor (the Advanced Visuals Editor, visual-patchbay.js: {root, onPopOut,
+// and it follows the main window's look rather than choosing one), editor (the Advanced Visuals Editor, visual-patchbay.js: {root, defaultVisualMenu, onPopOut,
 // onClose}; the editor fills root and this visualizer draws in its preview corner, with no controls of its own)}
 export function mountVisualizer(container,{open,stream=false,editor=null}={}){
   let bay=null;
@@ -125,7 +125,7 @@ export function mountVisualizer(container,{open,stream=false,editor=null}={}){
       const place=song?patches.song:patches.usual,next={...place};if(value)next[visual]=value;else delete next[visual];
       patches=song?{...patches,song:next}:{...patches,usual:next};bayShown=null;receiver.patch(song,visual,value);},
       stored:(song,visual)=>(song?patches.song:patches.usual)?.[visual]??null,
-      onChoose:id=>choose(id),onPopOut:editor.onPopOut,onClose:editor.onClose});
+      onChoose:id=>choose(id),defaultVisualMenu:editor.defaultVisualMenu,onPopOut:editor.onPopOut,onClose:editor.onClose});
     container=bay.preview;container.classList.add('visualizer-stage','in-editor');
   }
   const canvas=document.createElement('canvas');canvas.className='visualizer-canvas';container.append(canvas);
