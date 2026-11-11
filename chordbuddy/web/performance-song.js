@@ -2,7 +2,7 @@
 // api(path, body?) is the app's own API call. Reads only.
 import {buildChartModel} from './chart-model.js';
 import {detectFadeIn,detectFadeOut} from './fade-out.js';
-import {sectionLoopRange} from './loop-range.js';
+import {sectionLoopRange,barOneStart} from './loop-range.js';
 import {defaultMix} from './pcm-mixer-core.js';
 import {compilePerformance} from './performance-compiler.js';
 import {newPerformance} from './performance-model.js';
@@ -22,19 +22,23 @@ export async function loadSongGrid(api,songId){
   const sections=model.sections.map(s=>({id:s.id,name:s.name,start:s.start,end:s.end}));
   const playback=await api('/api/playback/'+encodeURIComponent(songId));
   const manifest=playback.ready?playback.active:null;
-  let trim=null;
+  // R leaves out the lead-in before bar 1 whatever else is known, so this is the trim even when no waveform can be read (a fade is left in then)
+  let trim=sectionTrim(measures,{});
   try{
     const wave=manifest?await api('/api/waveform/'+encodeURIComponent(manifest.run_id)):null;
     if(wave?.peaks){
       const beats=measures.flatMap(m=>m.beats||[]);
       const fades={fadeIn:detectFadeIn(wave.peaks,wave.duration,beats),fadeOut:detectFadeOut(wave.peaks,wave.duration,beats)};
-      trim=section=>sectionLoopRange(section,measures,{...fades,musicStart:measures[0].start});
+      trim=sectionTrim(measures,fades);
     }
-  }catch{/* no waveform: R simply loops the whole section */}
+  }catch{/* no waveform: R still skips the lead-in before bar 1, and keeps any fade */}
   // the song's own tempo, for a tempo flag: what the chart shows (its timing), and whether it's set as one steady tempo
   const tempo={bpm:doc.music?.timing?.bpm??null,constant:!!detail.metadata?.timing?.constant_tempo};
   return {song:detail.song,measures,sections,manifest,tempo,frames:manifest?.frames??Math.round(measures.at(-1).end*RATE),trim,cues:doc.content?.cues||[],chords:doc.content?.chords||[]};
 }
+
+/** What R loops for a section: its bars from bar 1 on (never the lead-in before it), and no fade. fades: {fadeIn,fadeOut} from fade-out.js, or none. */
+export const sectionTrim=(measures,fades={})=>section=>sectionLoopRange(section,measures,{...fades,musicStart:barOneStart(measures)});
 
 /** One show entry, ready for the controller. An entry with no performance plays the Original arrangement. */
 export async function loadEntry(api,entry){

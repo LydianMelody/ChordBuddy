@@ -81,6 +81,12 @@ export const stepSpeed=(percent,direction)=>Math.max(SPEED_MIN,Math.min(SPEED_MA
 // fades out loops only its first four bars at full volume. fades: {fadeIn:{end}, fadeOut:{start}} as found by fade-out.js; musicStart:
 // where bar 1 begins. Any other section, or one with no whole bars left, loops whole.
 const INTRO=/\bintro\b/i,OUTRO=/\boutro\b/i,SLACK=.05;
+/** Where bar 1 begins: the bar numbered 1, not the first bar drawn (a song can start with lead-in bars numbered -2, -1, 0). The first bar if none
+ *  is numbered 1; null for no bars. */
+export function barOneStart(measures){
+  const one=(measures||[]).find(m=>m.number===1);
+  return one?one.start:(measures||[])[0]?.start??null;
+}
 export function sectionLoopRange(section,measures,{fadeIn=null,fadeOut=null,musicStart=null}={},bars=4){
   const whole={start:section.start,end:section.end};
   const inside=(measures||[]).filter(m=>m.start>=section.start-SLACK&&m.end<=section.end+SLACK);

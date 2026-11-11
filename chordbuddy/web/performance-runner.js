@@ -703,6 +703,9 @@ export class PerformanceRunner{
     else this.path=this.path.filter(p=>!(p.kind==='more'&&p.regionId===active.regionId)&&!(p.regionId===active.regionId&&p.visit===active.visit));
     this.pendingLoop={type:'exit',kind,pressed:kind,before,loopBefore,settlesAt:this.current?this.current.startPlayed+(this.current.end-this.current.start):undefined};
     this.noteIntent();
+    // Paused, nothing moves, so the end of this pass never arrives and the loop would stay on the page (its band, its count) until a click somewhere
+    // else. Like a jump while paused, it happens now: the loop is off, and the music carries on past its end when it plays again.
+    if(this.status==='paused'){this.loop=null;this.pendingLoop=null;this.note('loop-settled',{intent:'exit',kind});}
     return {type:'exit',kind,boundary:this.current?.end};
   }
   queueSwitch(kind,active){

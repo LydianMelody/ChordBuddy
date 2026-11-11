@@ -81,13 +81,13 @@ const isLoopFlag=a=>a?.type==='command'&&(a.command==='loop-bars'||a.command==='
 /** Loop flags from before planned loops: each becomes a loop over the same bars, playing the same number of times (none: until you
  *  leave it), so it plays as it did. One that would overlap a loop already there stays a flag (it still works); a second flag for the
  *  same bars, which only cancelled the first, goes. Only Every play's flags: a pass's own loop flag stays as it is. */
-export function loopFlagsToLoops(performance,measures,sections,position){
+export function loopFlagsToLoops(performance,measures,sections,position,trim=null){
   const SR=44100,next=structuredClone(performance);let made=0,kept=0;
   const spans=()=>next.regions.map(r=>[position(r.start),position(r.end)]);
   for(const cue of performance.cues){
     const a=cue.action;if(a?.type!=='command'||(a.command!=='loop-bars'&&a.command!=='loop-section'))continue;
     const at=position(cue.at);if(!Number.isFinite(at))continue;
-    const range=a.command==='loop-bars'?fourBarRange(measures,sections,Math.round(at*SR),a.params?.bars??4):sectionRange(measures,sections,Math.round(at*SR));
+    const range=a.command==='loop-bars'?fourBarRange(measures,sections,Math.round(at*SR),a.params?.bars??4):sectionRange(measures,sections,Math.round(at*SR),{trim});
     if(!range){kept++;continue;}
     const start=range.start/SR,end=range.end/SR,same=spans().some(([x,y])=>Math.abs(x-start)<.002&&Math.abs(y-end)<.002);
     if(!same&&spans().some(([x,y])=>x<end-.002&&y>start+.002)){kept++;continue;}
@@ -218,7 +218,7 @@ export function mountPrepare(root,deps){
     record=full;history=new History(full.draft||full.body);selection={kind:'none'};scope={kind:'shared'};regionId=null;status=full.draft?'Draft kept. Shows play it as it is now. Save to keep a version you can go back to.':'Saved';
     const fixed=rehomeStrayCues(history.value,position);
     if(fixed.moved){change(fixed.performance);status=moveWords(fixed.moved);movedNote={id,status};}
-    const loops=loopFlagsToLoops(history.value,measures,grid.sections,position);
+    const loops=loopFlagsToLoops(history.value,measures,grid.sections,position,grid.trim);
     if(loops.made||loops.performance.cues.length!==history.value.cues.length){change(loops.performance);status=`${loops.made===1?'A loop flag is':`${loops.made} loop flags are`} now ${loops.made===1?'a loop':'loops'} (the purple bands), playing the same bars the same number of times. Undo puts ${loops.made===1?'it':'them'} back.`;movedNote={id,status};}
     else if(movedNote?.id===id){status=movedNote.status;movedNote=null;}   // opened again straight after: still say what moved
     paint();deps.onPlanChange?.();
@@ -279,7 +279,7 @@ export function mountPrepare(root,deps){
     const p=action.params||{},i=measures.indexOf(measure);
     let first=i,last=Math.min(measures.length-1,i+Math.max(1,p.bars??4)-1);
     if(action.command==='loop-section'){
-      const range=sectionRange(measures,grid.sections,Math.round(measure.start*SR));
+      const range=sectionRange(measures,grid.sections,Math.round(measure.start*SR),{trim:grid.trim});
       if(range){first=measures.findIndex(m=>Math.round(m.start*SR)===range.start);last=measures.findIndex(m=>Math.round(m.end*SR)===range.end);}
       if(first<0||last<0){first=i;last=i;}
     }
@@ -443,7 +443,7 @@ export function mountPrepare(root,deps){
     for(const x of shown){
       const a=x.cue.action;if(a?.type!=='command'||(a.command!=='loop-bars'&&a.command!=='loop-section'))continue;
       const at=position(x.cue.at);if(!Number.isFinite(at))continue;
-      const range=a.command==='loop-bars'?fourBarRange(measures,grid.sections,Math.round(at*SR),a.params?.bars??4):sectionRange(measures,grid.sections,Math.round(at*SR));
+      const range=a.command==='loop-bars'?fourBarRange(measures,grid.sections,Math.round(at*SR),a.params?.bars??4):sectionRange(measures,grid.sections,Math.round(at*SR),{trim:grid.trim});
       if(!range||out.some(l=>near(l.start,range.start/SR)&&near(l.end,range.end/SR)))continue;
       const plays=Number.isInteger(a.params?.plays)&&a.params.plays>=2?a.params.plays:null;
       out.push({start:range.start/SR,end:range.end/SR,plays,label:range.label,cueId:x.cue.id});
@@ -514,7 +514,7 @@ export function mountPrepare(root,deps){
       editorOpen?.close();regionId=null;scope={kind:'shared'};change(next);openCue(cue);return;
     }
     let lastI=Math.min(measures.length-1,firstI+Math.max(1,action.params?.bars??4)-1);
-    if(action.command==='loop-section'){const range=sectionRange(measures,grid.sections,Math.round(measures[firstI].start*SR));const e=range&&measures.findIndex(m=>Math.round(m.end*SR)===range.end);if(e>=firstI)lastI=e;}
+    if(action.command==='loop-section'){const range=sectionRange(measures,grid.sections,Math.round(measures[firstI].start*SR),{trim:grid.trim});const e=range&&measures.findIndex(m=>Math.round(m.end*SR)===range.end);if(e>=firstI)lastI=e;}
     const start=measures[firstI].start,end=measures[lastI].end;
     if(perf().regions.some(x=>x.id!==id&&position(x.start)<end-.002&&position(x.end)>start+.002)){status='That would overlap another loop. Make this one shorter, or remove the other first.';paint();return;}
     const next=structuredClone(perf()),region=next.regions.find(x=>x.id===id),to=measures[lastI];
