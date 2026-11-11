@@ -291,6 +291,11 @@ export function mountPrepare(root,deps){
     change(addRepeat(perf(),{start:address(measures[first].id),end:endAt,plays:Number.isInteger(p.plays)&&p.plays>=2?p.plays:'live',family:loopFamily(last-first+1),id},uid));
     scope={kind:'shared'};selection={kind:'none'};paint();
   }
+  /** A click on a flag only selects it, so you can copy it, click a bar somewhere else and paste without a window in the way. The Edit button opens it. */
+  function selectCue(id){
+    if(!find(id))return;
+    editorOpen?.close();selection={kind:'cue',id};paint();
+  }
   /** The action screen, for one already on the song. */
   function openCue(id){
     const item=find(id);if(!item)return;
@@ -421,15 +426,15 @@ export function mountPrepare(root,deps){
     for(const x of shown){
       if(x.cue.at.measure!==m.id)continue;
       const kind=laneOf(x.cue.action),kindName=LANES.find(([k])=>k===kind)[1],words=`${kindName}: ${describeAction(x.cue.action)}`,spot=beatValue(x.cue.at);
-      const flag=el('button',`pf-flag kind-${kind}`+(selection.kind==='cue'&&selection.id===x.cue.id?' on':'')+(x.scope.kind==='shared'&&scope.kind==='pass'?' shared':'')+(x.cue.when?.first?' first':''));flag.type='button';flag.title=`${words}. ${playWords(x.cue,x.scope,perf().regions.find(r=>r.id===x.scope.regionId))}. Click to change it, or drag it to another place.`;flag.setAttribute('aria-label',words);flag.insertAdjacentHTML('afterbegin',icon('flag'));
+      const flag=el('button',`pf-flag kind-${kind}`+(selection.kind==='cue'&&selection.id===x.cue.id?' on':'')+(x.scope.kind==='shared'&&scope.kind==='pass'?' shared':'')+(x.cue.when?.first?' first':''));flag.type='button';flag.title=`${words}. ${playWords(x.cue,x.scope,perf().regions.find(r=>r.id===x.scope.regionId))}. Click to select it (then Copy, or Edit to change it), or drag it to another place.`;flag.setAttribute('aria-label',words);flag.insertAdjacentHTML('afterbegin',icon('flag'));
       const before=taken.get(spot)||0;taken.set(spot,before+1);
       flag.style.left=`calc(${spot/m.beats.length*100}% + ${before*16}px)`;
-      flag.onclick=()=>openCue(x.cue.id);
+      flag.onclick=()=>selectCue(x.cue.id);
       flag.draggable=true;flag.ondragstart=event=>{dragging=x.cue.id;event.dataTransfer?.setData('text/plain',x.cue.id);if(event.dataTransfer)event.dataTransfer.effectAllowed='move';};flag.ondragend=()=>{dragging=null;};
       flags.append(flag);
       if(x.cue.action?.type==='marker.text'){   // a note reads like a chart cue: its words beside its flag, lit while its bar plays
-        const note=el('button','pf-note'+(x.cue.enabled===false?' off':''),x.cue.action.text||'');note.type='button';note.title=`A note in this arrangement. During a show it shows on the chart here, and in Coming up before it. Click to change it.`;
-        note.style.left=`calc(${spot/m.beats.length*100}% + ${before*16+14}px)`;note.onclick=()=>openCue(x.cue.id);flags.append(note);
+        const note=el('button','pf-note'+(x.cue.enabled===false?' off':''),x.cue.action.text||'');note.type='button';note.title=`A note in this arrangement. During a show it shows on the chart here, and in Coming up before it. Click to select it, then Edit to change it.`;
+        note.style.left=`calc(${spot/m.beats.length*100}% + ${before*16+14}px)`;note.onclick=()=>selectCue(x.cue.id);flags.append(note);
       }
     }
     bar.append(number,flags,chords);
@@ -561,8 +566,9 @@ export function mountPrepare(root,deps){
     listB.setAttribute('aria-pressed',String(showList));if(!perf())listB.hidden=true;
     // Copy and Paste, as the same two pictures every program uses; they do what Ctrl+C and Ctrl+V do.
     const copyB=btn('sq','','Copy the selected action or actions (Ctrl+C). Then select a bar and press Paste.',()=>copySelected(),'copy');copyB.setAttribute('aria-label','Copy the selected actions');copyB.disabled=!selectedIds().length;
+    const editB=btn('sq','','Change the selected action: when it happens, what it does. (Click a flag to select it first.)',()=>{if(selection.kind==='cue')openCue(selection.id);},'pencil');editB.setAttribute('aria-label','Edit the selected action');editB.disabled=selection.kind!=='cue'||!find(selection.id);
     const target=pasteTarget(),pasteB=btn('sq','',clipboard?.length?(target?`Paste ${clipboard.length===1?'the copied action':`the ${clipboard.length} copied actions`} at bar ${target.number} (Ctrl+V)`:'Select a bar first, then paste the copied actions there (Ctrl+V)'):'Nothing copied yet. Select an action and press Copy first.',()=>{const at=pasteTarget();if(at)pasteAt(at);},'paste');pasteB.setAttribute('aria-label','Paste the copied actions');pasteB.disabled=!clipboard?.length||!target;
-    const zooms=el('span','pf-zoom');zooms.append(copyB,pasteB,listB,magnet,zoomButton(-1,'Zoom out, to see more of the song','minus'),zoomButton(1,'Zoom in, to place actions more finely','plus'));
+    const zooms=el('span','pf-zoom');zooms.append(copyB,pasteB,editB,listB,magnet,zoomButton(-1,'Zoom out, to see more of the song','minus'),zoomButton(1,'Zoom in, to place actions more finely','plus'));
     const p=perf();if(!p){passBar.append(zooms);return;}
     queueMicrotask(()=>{passBar.querySelector('.pf-zoom')?.remove();passBar.append(zooms);});
     const region=p.regions.find(r=>r.id===regionId);
