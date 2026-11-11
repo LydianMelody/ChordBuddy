@@ -1120,7 +1120,8 @@ transport.countIn=seconds=>{
   if(!bars||!grid)return null;
   const speed=(transport.getSnapshot().rate??100)/100,count=countInOf(grid.measures,bars,speed*100,seconds);
   if(!count.clicks.length)return null;
-  const startAt=performance.now()/1000+.35+count.lead;   // a moment ahead, so the first click is sent in time
+  // a moment ahead, so the first click is sent in time; longer when the click's sound output may have closed from lack of use and has to open first
+  const startAt=performance.now()/1000+.35+count.lead+monitorOut.coldLead();
   monitorOut.countIn({song,until:Math.round(count.target*44100),clicks:count.clicks.map((c,i)=>({k:`p${Date.now()}:${i}`,at:startAt+(c.at-seconds)/speed,accent:c.accent}))});
   return {startAt};
 };

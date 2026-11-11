@@ -225,3 +225,36 @@ test('a cue track the app has dropped is asked for again when its song comes bac
  r.out.trackFor('c');await settle();r.out.trackFor('b');r.out.trackFor('a');await settle();
  assert.deepEqual(loads(),['a','b','c','a'],'the third pushed the first out, so the first is asked for again; the second was still held');
 });
+
+// The count-in that goes missing. The click's sound output is closed after two minutes of no use (so a headset can sleep), and opening it again
+// takes a moment (longer if a headset has to wake). The count-in's first clicks were due before it was open and were thrown away as late, so a
+// count-in after a quiet spell, or the first one after starting the app, came back short or silent.
+function clocked(){
+ let t=100;const calls=[];
+ const api=async(path,body)=>{calls.push([path,body]);if(path==='/api/monitor/status')return {clock:1000};if(path==='/api/monitor/load')return {key:'v1'};return {};};
+ const snapshot={songId:'s',playIntent:true,playing:true,rate:100,duration:100,loop:{enabled:false},seeks:0};
+ const transport={subscribe(){return ()=>{};},getSnapshot:()=>snapshot,getDiagnostics:()=>({state:'playing',sourceFrame:0,heardAt:t})};
+ const out=createMonitorOut({api,transport,practice:()=>({song:'s',measures:bars(4)}),now:()=>t});
+ const plan=()=>({song:'s',until:44100*2,clicks:[{k:'a',at:t+1.5,accent:true},{k:'b',at:t+2,accent:false}]});
+ return {out,calls,plan,advance:s=>{t+=s;},schedules:()=>calls.filter(c=>c[0]==='/api/monitor/schedule')};
+}
+
+test('before anything has been played the output counts as cold, and a count-in warms it at once', async () => {
+ const r=clocked();
+ assert.ok(r.out.coldLead()>=.9,'it asks for extra time before the music');
+ r.out.countIn(r.plan());await settle();await settle();
+ assert.ok(r.schedules().some(c=>c[1].events.length===0),'an empty message opens the output now');
+});
+
+test('once warm there is no extra wait, and the wait comes back after the output has had time to close', async () => {
+ const r=clocked();
+ r.out.countIn(r.plan());await settle();await settle();await settle();
+ assert.equal(r.out.coldLead(),0,'just warmed');
+ r.advance(60);assert.equal(r.out.coldLead(),0,'a minute later it is still open');
+ r.advance(60);assert.ok(r.out.coldLead()>0,'two minutes of nothing: the app has closed it');
+ const before=r.schedules().length;
+ r.out.countIn(r.plan());await settle();await settle();
+ assert.ok(r.schedules().length>before,'asked to open again before the clicks are due');
+ assert.equal(r.out.coldLead(),0);
+});
+
