@@ -296,7 +296,7 @@ def describe(response,body,full,clean):
         elif isinstance(value,list):out.append(['list',len(value)])
         else:out.append(['value',value])
     elif full:out.append(body.decode('latin-1'))
-    else:out.append(['bytes',None if kind=='application/zip' else len(body)])        # a zip carries the time it was made
+    else:out.append(['bytes',None if kind in ('application/zip','text/html') else len(body)])        # a zip carries the time it was made; the page grows whenever the app's page is edited
     headers={name:response.getheader(name) for name in KEPT_HEADERS if response.getheader(name) is not None}
     if response.getheader('ETag') is not None:headers['ETag']=response.getheader('ETag') if full else 'yes'
     out.append(headers)
@@ -491,8 +491,8 @@ EXPECTED_REAL=[
     ['GET /api/state/more', 404, 'application/json; charset=utf-8', 'no-store', 'close', ['error', 'Unknown action'], {}],
     ['GET /api/shows/', 404, 'application/json; charset=utf-8', 'no-store', 'close', ['error', 'Unknown action'], {}],
     ['GET /api/prefs?x=1', 200, 'application/json; charset=utf-8', 'no-store', 'close', ['keys', []], {}],
-    ['GET /', 200, 'text/html', 'no-cache', None, ['bytes', 19451], {'ETag': 'yes'}],
-    ['GET /index.html', 200, 'text/html', 'no-cache', None, ['bytes', 19451], {'ETag': 'yes'}],
+    ['GET /', 200, 'text/html', 'no-cache', None, ['bytes', None], {'ETag': 'yes'}],
+    ['GET /index.html', 200, 'text/html', 'no-cache', None, ['bytes', None], {'ETag': 'yes'}],
     ['GET /nope.html', 404, 'application/json; charset=utf-8', 'no-store', 'close', ['error', 'Page not found'], {}],
     ['GET /visualizations/index.json', 200, 'application/json; charset=utf-8', 'no-store', 'close', ['keys', ['files', 'mine', 'mine_versions', 'versions']], {}],
     ['GET /my-visuals/nope.js', 404, 'application/json; charset=utf-8', 'no-store', 'close', ['error', 'Page not found'], {}],
@@ -509,7 +509,7 @@ EXPECTED_REAL=[
     ['token in the address of an export', 404, 'application/json; charset=utf-8', 'no-store', 'close', ['error', 'Document not found'], {}],
     ['foreign origin', 403, 'application/json; charset=utf-8', 'no-store', 'close', ['error', 'This request is not authorized'], {}],
     ['wrong host', 403, 'application/json; charset=utf-8', 'no-store', 'close', ['error', 'This request is not authorized'], {}],
-    ['static without a token', 200, 'text/html', 'no-cache', None, ['bytes', 19451], {'ETag': 'yes'}],
+    ['static without a token', 200, 'text/html', 'no-cache', None, ['bytes', None], {'ETag': 'yes'}],
     ['post without a token', 403, 'application/json; charset=utf-8', 'no-store', 'close', ['error', 'This request is not authorized'], {}],
     ['model import, empty', 400, 'application/json; charset=utf-8', 'no-store', 'close', ['error', 'Expected a model file'], {}],
     ['model import, size not a number', 400, 'application/json; charset=utf-8', 'no-store', 'close', ['error', "invalid literal for int() with base 10: 'x'"], {}],
