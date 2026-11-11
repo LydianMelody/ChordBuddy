@@ -191,7 +191,7 @@ export function mountPrepare(root,deps){
     const typing=/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName);
     if((event.ctrlKey||event.metaKey)&&String(event.key).toLowerCase()==='z'){if(!typing){event.preventDefault();event.stopPropagation();event.shiftKey?redo():undo();}return;}
     if((event.ctrlKey||event.metaKey)&&String(event.key).toLowerCase()==='c'&&!typing&&selectedIds().length){event.preventDefault();event.stopPropagation();copySelected();return;}
-    if((event.ctrlKey||event.metaKey)&&String(event.key).toLowerCase()==='v'&&!typing&&clipboard&&selection.kind==='bars'){event.preventDefault();event.stopPropagation();pasteAt(selection.from);return;}
+    if((event.ctrlKey||event.metaKey)&&String(event.key).toLowerCase()==='v'&&!typing&&clipboard&&pasteTarget()){event.preventDefault();event.stopPropagation();pasteAt(pasteTarget());return;}
     if(typing||event.ctrlKey||event.altKey||event.metaKey)return;
     const k=String(event.key).toLowerCase();
     if(k==='v'){setTool('select');event.stopPropagation();}else if(k==='a'){setTool('action');event.stopPropagation();}
@@ -336,6 +336,12 @@ export function mountPrepare(root,deps){
     const items=selectedIds().map(find).filter(Boolean);if(!items.length)return false;
     clipboard=items.map(x=>structuredClone(x.cue));status=`${items.length===1?'One action':`${items.length} actions`} copied. Select a bar, then Paste.`;saved.textContent=status;paint();
     return true;
+  }
+  // Where Paste puts the copies: the bar you selected, or the bar of the action you have selected (so copy, click another flag, paste works too).
+  function pasteTarget(){
+    if(selection.kind==='bars')return selection.from;
+    if(selection.kind==='cue'){const item=find(selection.id);return item?measures.find(m=>m.id===item.cue.at.measure)||null:null;}
+    return null;
   }
   function pasteAt(measure){
     if(!clipboard?.length)return;
@@ -553,7 +559,10 @@ export function mountPrepare(root,deps){
     const count=perf()?allActions(perf(),position).length+perf().regions.length:0;
     const listB=btn('pf-list-toggle'+(showList?' on':''),`Actions${count?` (${count})`:''}`,showList?'Hide the list of every action and loop. The flags on the bars still show them all.':'Show every action and loop in a list, in song order, to find one, or tick several to copy or delete them together',()=>{showList=rememberedList=!showList;paint();},'list');
     listB.setAttribute('aria-pressed',String(showList));if(!perf())listB.hidden=true;
-    const zooms=el('span','pf-zoom');zooms.append(listB,magnet,zoomButton(-1,'Zoom out, to see more of the song','minus'),zoomButton(1,'Zoom in, to place actions more finely','plus'));
+    // Copy and Paste, as the same two pictures every program uses; they do what Ctrl+C and Ctrl+V do.
+    const copyB=btn('sq','','Copy the selected action or actions (Ctrl+C). Then select a bar and press Paste.',()=>copySelected(),'copy');copyB.setAttribute('aria-label','Copy the selected actions');copyB.disabled=!selectedIds().length;
+    const target=pasteTarget(),pasteB=btn('sq','',clipboard?.length?(target?`Paste ${clipboard.length===1?'the copied action':`the ${clipboard.length} copied actions`} at bar ${target.number} (Ctrl+V)`:'Select a bar first, then paste the copied actions there (Ctrl+V)'):'Nothing copied yet. Select an action and press Copy first.',()=>{const at=pasteTarget();if(at)pasteAt(at);},'paste');pasteB.setAttribute('aria-label','Paste the copied actions');pasteB.disabled=!clipboard?.length||!target;
+    const zooms=el('span','pf-zoom');zooms.append(copyB,pasteB,listB,magnet,zoomButton(-1,'Zoom out, to see more of the song','minus'),zoomButton(1,'Zoom in, to place actions more finely','plus'));
     const p=perf();if(!p){passBar.append(zooms);return;}
     queueMicrotask(()=>{passBar.querySelector('.pf-zoom')?.remove();passBar.append(zooms);});
     const region=p.regions.find(r=>r.id===regionId);
@@ -713,7 +722,9 @@ export function mountPrepare(root,deps){
     // select opens over their right edge, so selecting a bar never moves the bars under your pointer.
     listHead.hidden=list.hidden=!showList;
     const floating=editing&&!showList;
-    stage.classList.toggle('no-list',floating);side.hidden=floating&&(selection.kind==='none'||(selection.kind==='bars'&&!clipboard?.length));
+    // The pop-up over the top right corner is only for what has settings of its own (a loop). A selected action or bar needs none: the flag opens its
+    // details when clicked, Copy and Paste are in the toolbar, and Delete is the Delete key (and a button in the details), so it no longer covers the toolbar.
+    stage.classList.toggle('no-list',floating);side.hidden=floating&&['none','bars','cue','cues'].includes(selection.kind);
     drawRail();drawPasses();drawTimeline();drawInspector();drawList();
     deps.onHistory?.();
   }
