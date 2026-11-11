@@ -1,7 +1,14 @@
 // What every scene shares, drawn on top of it: the chord (top) and the lyrics (bottom). Each has its own band of the screen, so a scene
 // can never cover them and they never cover each other; a soft shade behind each keeps them readable over anything.
 // A visualization that draws its own words instead (hud:false) uses the same helpers: layoutLyricLine, joinSyllables, halo, FONTS.
+// A visualization can choose the font these are drawn in with `overlay` (visual-fonts.js): a style {family, weight, step}. step is the size
+// a bitmap (pixel) font was drawn at: sizes then snap to whole multiples of it, and positions to whole pixels, with a hard outline.
 import {chordHsl} from './visual-color.js';
+
+const PLAIN={family:'system-ui,sans-serif',weight:null,step:0};
+const snapTo=(style,px)=>style.step?Math.max(style.step,Math.round(px/style.step)*style.step):px;
+const fontAt=(style,weight,px)=>`${style.weight??weight} ${px}px ${style.family}`;
+const whole=(style,v)=>style.step?Math.round(v):v;
 
 // Fonts a visualization can rely on, offline, in the browser and the desktop app. The three named ones are bundled with Chord Buddy
 // (web/fonts, loaded by the visualizer before drawing); nothing can be loaded from the internet (the app's security policy blocks it).
@@ -22,47 +29,59 @@ export function hudZones(w,h,lyrics){
 
 function shaded(g,draw){g.save();g.lineJoin='round';draw();g.restore();}
 // Text with a soft dark halo, so it reads over anything (a stroke, not a blurred shadow: blur is very slow to draw).
-export function halo(g,text,x,y){
+// pixel: the size of one pixel of a bitmap font, in screen pixels (0: the usual soft halo); the outline is then one hard font pixel wide.
+export function halo(g,text,x,y,pixel=0){
   const size=parseFloat(/(\d+(?:\.\d+)?)px/.exec(g.font)?.[1]||16),fill=g.fillStyle;
+  if(pixel>0){
+    g.save();g.lineJoin='miter';g.miterLimit=2;g.strokeStyle='rgba(5,6,10,.92)';g.lineWidth=pixel*2;g.strokeText(text,Math.round(x),Math.round(y));g.restore();
+    g.fillStyle=fill;g.fillText(text,Math.round(x),Math.round(y));return;
+  }
   g.strokeStyle='rgba(5,6,10,.28)';g.lineWidth=size*0.28;g.strokeText(text,x,y);
   g.strokeStyle='rgba(5,6,10,.5)';g.lineWidth=size*0.12;g.strokeText(text,x,y);
   g.fillStyle=fill;g.fillText(text,x,y);
 }
 
 // Fit a run of words into `max` pixels by shrinking the font, never below `min` px.
-function fitFont(g,text,size,max,min,weight){
-  let s=size;g.font=`${weight} ${s}px system-ui,sans-serif`;
-  while(s>min&&g.measureText(text).width>max){s=Math.max(min,s*0.92);g.font=`${weight} ${s}px system-ui,sans-serif`;}
+function fitFont(g,text,size,max,min,weight,style=PLAIN){
+  let s=snapTo(style,size);g.font=fontAt(style,weight,s);
+  while(s>min&&g.measureText(text).width>max){
+    const next=style.step?s-style.step:Math.max(min,s*0.92);
+    if(style.step&&next<style.step)break;                  // a bitmap font has no smaller size than its own
+    s=next;g.font=fontAt(style,weight,s);
+  }
   return s;
 }
+const pixelOf=(style,size)=>style.step?size/style.step:0;
 
-export function drawChordHud(g,frame,w,h,{calm=false}={}){
-  const {chord}=frame,u=Math.min(w,h),cx=w/2,y=h*0.13;
+export function drawChordHud(g,frame,w,h,{calm=false,style=PLAIN}={}){
+  style=style||PLAIN;
+  const {chord}=frame,u=Math.min(w,h),cx=w/2,y=whole(style,h*0.13);
   const grad=g.createLinearGradient(0,0,0,h*0.27);grad.addColorStop(0,'rgba(5,6,10,.45)');grad.addColorStop(1,'rgba(5,6,10,0)');
   g.fillStyle=grad;g.fillRect(0,0,w,h*0.27);
   g.textAlign='center';g.textBaseline='middle';
-  const label=chord.label??'',size=u*0.13;
+  const label=chord.label??'',size=snapTo(style,u*0.13),px=pixelOf(style,size);
   if(label){
-    // a quick swell as each chord begins (not in calm mode)
-    const fresh=calm?0:Math.max(0,1-(frame.time-(chord.start??-9))/0.25);
-    shaded(g,()=>{g.font=`800 ${size*(1+0.06*fresh)}px system-ui,sans-serif`;g.fillStyle='#fff';halo(g,label,cx,y);});
-    g.fillStyle=chordHsl(label,62,0.9);g.fillRect(cx-u*0.06,y+size*0.58,u*0.12,Math.max(3,u*0.006));
+    // a quick swell as each chord begins (not in calm mode; a bitmap font keeps to its whole sizes)
+    const fresh=calm||style.step?0:Math.max(0,1-(frame.time-(chord.start??-9))/0.25);
+    shaded(g,()=>{g.font=fontAt(style,800,size*(1+0.06*fresh));g.fillStyle='#fff';halo(g,label,cx,y,px);});
+    g.fillStyle=chordHsl(label,62,0.9);g.fillRect(whole(style,cx-u*0.06),whole(style,y+size*0.58),whole(style,u*0.12),whole(style,Math.max(3,u*0.006)));
   }
   // a cue from the chart ("pick scratch") sits over the chord in plain words, in no chord's colour
-  if(frame.cue)shaded(g,()=>{fitFont(g,frame.cue.text,size*0.3,w*0.6,size*0.18,600);g.fillStyle='rgba(235,232,222,.85)';halo(g,frame.cue.text,cx,y-size*0.78);});
+  if(frame.cue)shaded(g,()=>{const s=fitFont(g,frame.cue.text,size*0.3,w*0.6,size*0.18,600,style);g.fillStyle='rgba(235,232,222,.85)';halo(g,frame.cue.text,cx,y-size*0.78,pixelOf(style,s));});
   if(chord.next){
-    g.font=`800 ${size}px system-ui,sans-serif`;
-    const right=cx+Math.max(g.measureText(label||'—').width/2,u*0.08)+u*0.09,r=u*0.042;
+    g.font=fontAt(style,800,size);
+    const right=whole(style,cx+Math.max(g.measureText(label||'—').width/2,u*0.08)+u*0.09),r=u*0.042;
     const span=chord.start!==null?chord.next.start-chord.start:4,left=Math.max(0,Math.min(1,chord.timeToNext/Math.max(span,1e-3)));
     g.lineWidth=Math.max(3,u*0.006);g.strokeStyle='rgba(255,255,255,.18)';g.beginPath();g.arc(right,y,r,0,Math.PI*2);g.stroke();
     g.strokeStyle=chordHsl(chord.next.label,66,1);g.beginPath();g.arc(right,y,r,-Math.PI/2,-Math.PI/2+Math.PI*2*left);g.stroke();
-    shaded(g,()=>{fitFont(g,chord.next.label,r*0.82,r*1.7,r*0.4,700);g.fillStyle=chordHsl(chord.next.label,78,1);halo(g,chord.next.label,right,y);});
+    shaded(g,()=>{const s=fitFont(g,chord.next.label,r*0.82,r*1.7,r*0.4,700,style);g.fillStyle=chordHsl(chord.next.label,78,1);halo(g,chord.next.label,right,y,pixelOf(style,s));});
     const rest=chord.upcoming.slice(1).map(c=>c.label).join('   ');
-    if(rest)shaded(g,()=>{g.font=`600 ${u*0.024}px system-ui,sans-serif`;g.fillStyle='rgba(235,232,222,.7)';halo(g,rest,cx,y+size*0.95);});
+    if(rest)shaded(g,()=>{const s=snapTo(style,u*0.024);g.font=fontAt(style,600,s);g.fillStyle='rgba(235,232,222,.7)';halo(g,rest,cx,y+size*0.95,pixelOf(style,s));});
   }
 }
 
-export function drawLyricHud(g,frame,w,h){
+export function drawLyricHud(g,frame,w,h,{style=PLAIN}={}){
+  style=style||PLAIN;
   const {lyric}=frame,u=Math.min(w,h),soon=lyric.next&&lyric.next.in<3;
   if(!lyric.line&&!soon)return;
   const grad=g.createLinearGradient(0,h*0.74,0,h);grad.addColorStop(0,'rgba(5,6,10,0)');grad.addColorStop(0.35,'rgba(5,6,10,.5)');grad.addColorStop(1,'rgba(5,6,10,.7)');
@@ -71,21 +90,31 @@ export function drawLyricHud(g,frame,w,h){
   const lineY=h*0.85,max=w*0.9;
   let nextY=h*0.93;
   if(lyric.line){
-    const layout=layoutLyricLine(g,lyric.words,{maxWidth:max,size:u*0.05,minSize:u*0.02});
+    const layout=style.step?stepLayout(g,lyric.words,max,u*0.05,style):layoutLyricLine(g,lyric.words,{maxWidth:max,size:u*0.05,minSize:u*0.02,family:style.family,weight:style.weight??700});
     g.textAlign='left';
     layout.rows.forEach((row,r)=>{
-      const y=lineY+(r-(layout.rows.length-1)/2)*layout.lineHeight,left=w/2-row.width/2;
-      for(const part of row.parts)shaded(g,()=>{g.font=layout.font;g.fillStyle=part.state==='now'?'#ffe27a':part.state==='sung'?'#f4f1e8':'rgba(244,241,232,.42)';halo(g,part.text,left+part.x,y);});
+      const y=whole(style,lineY+(r-(layout.rows.length-1)/2)*layout.lineHeight),left=whole(style,w/2-row.width/2);
+      for(const part of row.parts)shaded(g,()=>{g.font=layout.font;g.fillStyle=part.state==='now'?'#ffe27a':part.state==='sung'?'#f4f1e8':'rgba(244,241,232,.42)';halo(g,part.text,left+part.x,y,pixelOf(style,layout.size));});
     });
     if(layout.rows.length>1)nextY=lineY+layout.lineHeight+u*0.035;
   }
   if(lyric.next&&(!lyric.line||lyric.line.end-frame.time<4)){
     g.textAlign='center';
     const next=joinSyllables(lyric.next.text);
-    const size=fitFont(g,next,u*0.03,max,u*0.018,600);
-    shaded(g,()=>{g.font=`600 ${size}px system-ui,sans-serif`;g.fillStyle='rgba(244,241,232,.5)';halo(g,next,w/2,lyric.line?Math.min(h-size*0.7,nextY):lineY);});
+    const size=fitFont(g,next,u*0.03,max,u*0.018,600,style);
+    shaded(g,()=>{g.font=fontAt(style,600,size);g.fillStyle='rgba(244,241,232,.5)';halo(g,next,w/2,lyric.line?Math.min(h-size*0.7,nextY):lineY,pixelOf(style,size));});
   }
   g.textAlign='center';
+}
+
+// A line in a bitmap font: the largest whole multiple of its size (at most `size`) at which the words fit in one row or two.
+function stepLayout(g,words,maxWidth,size,style){
+  let s=snapTo(style,size),layout;
+  for(;;){
+    layout=layoutLyricLine(g,words,{maxWidth,size:s,minSize:s,readable:s,weight:style.weight??700,family:style.family});
+    if(s<=style.step||Math.max(0,...layout.rows.map(r=>r.width))<=maxWidth)return layout;
+    s-=style.step;
+  }
 }
 
 /**

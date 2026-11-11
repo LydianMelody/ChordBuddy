@@ -7,12 +7,13 @@
   --gutter:clamp(8px,1.5vw,26px);     /* the main column's side margins */
   --gap:clamp(8px,1vw,18px);          /* between the page and the mixer, and between panels */
   --side-w:clamp(210px,16vw,268px);   /* the sidebar */
+  --side-pad:clamp(8px,1vw,14px);     /* the sidebar's side padding; the rule between its two panes reaches across it */
   --rack-w:clamp(300px,22vw,372px);   /* the mixer: below 300 its seven strips get too narrow to read or press */
 }
 
 /* ---- the frame ---- */
 .app{grid-template-columns:var(--side-w) minmax(0,1fr)}
-.side{padding:clamp(10px,1.6vh,18px) clamp(8px,1vw,14px) clamp(8px,1.2vh,14px)}
+.side{padding:clamp(10px,1.6vh,18px) var(--side-pad) clamp(8px,1.2vh,14px)}
 .brand{margin-bottom:clamp(4px,1vh,14px)}
 .main{padding:0 var(--gutter)}
 .top{padding:clamp(6px,1.2vh,14px) 0 clamp(4px,.8vh,10px)}

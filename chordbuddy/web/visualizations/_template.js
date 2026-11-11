@@ -8,6 +8,8 @@
 // connect any sound or signal to it instead, including their own MIDI. Read them as env.inputs.key; see visual-patch.js for the sources.
 // In a show, your `inputs` can also be set or fired by the arrangement. When a live loop repeats, env.events.replay is set: to repeat the same way each
 // pass, start over then, and use env.random() in place of Math.random().
+// `fonts` (optional) names font files that the person puts in My Visuals\fonts: fonts:{pixel:{file:'Name.ttf', optional:true}}, used in draw() as
+// env.fonts.pixel (env.fontsLoaded.pixel says whether it really loaded; say in your header which files you expect); `overlay` (optional) sets the font of the shared chord and lyrics: overlay:{font:'pixel', step:16} (visual-fonts.js).
 // The full guide (the data in `frame` and `env`, how to make it feel musical, sync and performance rules) is the chordbuddy-visuals skill.
 import {chordColor} from '../visual-color.js';
 

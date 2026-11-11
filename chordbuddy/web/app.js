@@ -558,7 +558,7 @@ function currentContent(){const record=currentRecord();return record?.draft || r
 function currentChords(){const record=currentRecord();if(record?.doc.kind==='abc'&&leadView?.chords)return leadView.chords();return ['abc','chart'].includes(record?.doc.kind) ? currentContent()?.chords || [] : model.detail?.chords || [];}
 // Everything the sidebar and its status line show. The timer that checks on the app every few seconds draws again only when this has changed:
 // rebuilding every song row on each tick wasted work, and restarted the spinning reel of a song being analyzed each time.
-let drawnLibrary='';
+let drawnLibrary='',pickerShows=null;
 const librarySignature=state=>JSON.stringify([state.songs,state.setlists,state.trash,state.engine.ready,state.engine.message,isJobActive(state.job)?state.job.song_id:null,
   model.setlist,model.song,model.view,model.libraryQuery,model.libraryKey,(()=>{try{return performanceApp.holdsList();}catch{return null;}})()]);   // (the show panel is built after this file starts)
 function renderLibrary({force=false,poll=false}={}) {
@@ -572,24 +572,29 @@ function renderLibrary({force=false,poll=false}={}) {
   // "All songs" is the library itself (the set list every import joins); the set lists below it are the ones you make, and a song
   // dragged onto one of them (from All songs or from the list in the sidebar) is added to it.
   const library=state.setlists.find(list=>list.id==='default');
-  $('all-songs').classList.toggle('selected',model.setlist==='default');$('all-count').textContent=library?.song_ids.length??state.songs.length;
-  const nav=$('setlists');nav.replaceChildren();
+  $('all-songs').classList.toggle('selected',model.setlist==='default');$('all-songs').setAttribute('aria-current',String(model.setlist==='default'));$('all-count').textContent=library?.song_ids.length??state.songs.length;
+  const nav=$('setlists'),navScroll=nav.scrollTop,navFocus=[...nav.children].indexOf(document.activeElement);nav.replaceChildren();   // the picker scrolls on its own when there are many set lists: drawing it again must not jump it back to the top
   for(const list of state.setlists.filter(item=>item.id!=='default')){
-    const button=element('button',`setlist-item${list.id===model.setlist?' selected':''}`);const listIcon=element('span','setlist-icon');listIcon.innerHTML=icon('list');
+    const button=element('button',`setlist-item${list.id===model.setlist?' selected':''}`);button.setAttribute('aria-current',String(list.id===model.setlist));const listIcon=element('span','setlist-icon');listIcon.innerHTML=icon('list');
     button.append(listIcon,element('span','',list.name),element('span','setlist-count',list.song_ids.length));
     button.onclick=()=>{model.setlist=list.id;if(model.song)model.view='song';renderLibrary();renderView();};
     button.ondragover=event=>{if(!model.dragSong)return;event.preventDefault();event.dataTransfer.dropEffect='copy';button.classList.add('drop-target');};
     button.ondragleave=()=>button.classList.remove('drop-target');
     button.ondrop=event=>{if(!model.dragSong)return;event.preventDefault();button.classList.remove('drop-target');const id=model.dragSong;model.dragSong=null;addToSetlist(list,id,button);};
     nav.append(button);
-    if(list.id===model.setlist&&!performanceApp.holdsList())nav.append(performanceApp.setlist.head());
   }
+  if(navFocus>=0)nav.children[navFocus]?.focus({preventScroll:true});   // drawn again under the keyboard: the set list you were on keeps the focus
+  nav.scrollTop=navScroll;
+  if(model.setlist!==pickerShows){pickerShows=model.setlist;const chosen=nav.querySelector('.selected');if(chosen){const row=chosen.getBoundingClientRect(),box=nav.getBoundingClientRect();if(row.top<box.top)nav.scrollTop-=box.top-row.top;else if(row.bottom>box.bottom)nav.scrollTop+=row.bottom-box.bottom;}}   // a newly chosen set list is never left scrolled out of sight
   const list=state.setlists.find(item=>item.id===model.setlist);
   performanceApp.setlist.sync(model.setlist);
-  $('library-heading').textContent=list?.id==='default'?'ALL SONGS':`${list?.name || 'SONGS'}`.toUpperCase();
+  // The songs pane, under the picker. The chosen list is named once, by its dark row in the picker (with its song count), so this pane has no
+  // heading of its own: it starts with what belongs to that list alone (a set list's settings, then its total time), and is named for screen readers.
+  $('list-songs').setAttribute('aria-label',!list||list.id==='default'?'All songs':`Songs in the set list ${list.name}`);
+  $('list-tools').replaceChildren(...(list&&list.id!=='default'&&!performanceApp.holdsList()?[performanceApp.setlist.head()]:[]));
   const query=$('song-search').value.trim().toLowerCase();
   const songs=(list?.song_ids || []).map(id=>state.songs.find(song=>song.id===id)).filter(Boolean);
-  $('song-count').textContent=songs.length;$('list-total').textContent=songs.length?(performanceApp.setlist.totalLine()??totalLabel(listLength(songs))+' total'):'';songFacts.want(state.songs);
+  $('list-total').textContent=songs.length?(performanceApp.setlist.totalLine()??totalLabel(listLength(songs))+' total'):'';songFacts.want(state.songs);
   const container=$('songs');
   if(performanceApp.holdsList()){renderView();return;}   // the show controls draw the running set here
   container.replaceChildren();

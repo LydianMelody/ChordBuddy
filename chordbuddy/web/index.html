@@ -36,14 +36,18 @@
         <button id="side-toggle" class="fold" title="Hide the library" aria-label="Hide the library" aria-expanded="true"><span data-icon="chevronLeft"></span></button>
       </div>
       <div class="side-body">
+        <section class="side-pane list-picker" aria-label="Choose All songs or a set list">
         <button id="all-songs" class="setlist-item all-songs" type="button" title="Every song in your library"><span data-icon="note"></span><span>All songs</span><span class="setlist-count" id="all-count">0</span></button>
         <div class="label">Set lists <button id="new-setlist" title="Create set list" aria-label="Create set list"><span data-icon="plus"></span></button></div>
         <form id="setlist-form" class="hidden inline-form"><input id="setlist-name" aria-label="Set list name" placeholder="Set list name" maxlength="100" required><button class="small-button">Add</button></form>
         <nav id="setlists" aria-label="Set lists"></nav>
-        <div class="label"><span id="library-heading">Songs</span> <span id="song-count" class="count">0</span></div>
+        </section>
+        <section class="side-pane list-songs" id="list-songs" aria-label="Songs">
+        <div id="list-tools" class="list-tools"></div>
         <div id="list-total" class="list-total"></div>
         <label class="search"><span data-icon="search"></span><input type="search" id="song-search" placeholder="Find a song…" aria-label="Find a song"></label>
         <div id="songs" class="songs song-list"></div>
+        </section>
         <button id="trash-open" class="text-button trash-open hidden" type="button">Trash (0)</button>
         <div class="engine sidebar-footer"><i class="status-dot" id="engine-dot"></i><span id="engine-status">Connecting…</span></div>
       </div>

@@ -24,7 +24,31 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 .count{font:700 10.5px var(--m);border:2px solid var(--ink);border-radius:999px;padding:0 7px;background:var(--page);letter-spacing:0;color:var(--ink)}
 .inline-form{display:flex;gap:5px;margin:0 2px 4px}
 .inline-form input{flex:1;min-width:0;padding:6px 8px;font-size:13px}
-#setlists{display:flex;flex-direction:column;gap:2px}
+/* The sidebar's two panes. The picker, a framed box, holds All songs and every set list; under it, past an ink rule that runs the full
+   width of the sidebar, are the songs of the chosen one. The chosen list is named once (its dark row in the picker, with its song count), so
+   the songs pane has no heading: it opens with what belongs to that list alone (a set list's settings, its total time), then the search and
+   the songs. Both panes live in .side-body, so hiding the library hides them, and the rule, as one. */
+.side-pane{display:flex;flex-direction:column;min-width:0}
+.list-picker{flex:none;gap:2px;padding:4px;border:2px solid var(--ink);border-radius:12px;background:var(--page)}
+.list-picker .label{margin:6px 4px 2px 7px}
+.list-picker .setlist-item{padding:7px 7px}   /* the frame takes a little width; the rows give it back, so a name wraps no sooner than before */
+/* many set lists scroll inside the picker (All songs and the + stay put), so they never push the songs off the screen; the height ends
+   mid-row, which shows there is more below */
+#setlists{display:flex;flex-direction:column;gap:2px;flex:none;max-height:clamp(60px,24vh,218px);overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain}
+#setlists .setlist-item{flex:none}
+.list-songs{flex:1;min-height:0;gap:6px;margin:8px calc(-1 * var(--side-pad,14px)) 0;padding:10px var(--side-pad,14px) 0;border-top:var(--bd) solid var(--ink)}
+/* on a short window the picker gives up height first (down to one set list row, still scrolling), so the songs pane always keeps room
+   for its search and a row or two of songs */
+.list-songs{min-height:176px}
+.list-picker{flex:0 1 auto;min-height:0}
+#setlists{flex:0 1 auto;min-height:36px}
+@media (max-height:600px){
+  #setlists{max-height:clamp(40px,14vh,84px)}
+  .list-songs{margin-top:5px;padding-top:7px;gap:4px}
+}
+.list-tools:empty{display:none}
+.list-tools .set-head{margin:0}
+.list-songs .list-total{margin:0 6px}
 .setlist-item{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border-radius:10px;font-weight:700;border:2px solid transparent;text-align:left}
 .setlist-item .ic{width:15px}
 .setlist-item .setlist-count{margin-left:auto;font:700 11px var(--m);opacity:.6}
@@ -69,7 +93,6 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 .song-row:hover .song-order,.song-row:focus-within .song-order{opacity:1}
 .song-order button{font-size:9px;padding:1px 3px;background:none;color:var(--ink)}
 /* All songs and the set lists as drop targets: a dragged song lands on a set list; a quick flash says it went in (or was there already) */
-.setlist-item.all-songs{margin-top:6px}
 .setlist-item.drop-target{border-color:var(--a1);border-style:dashed;background:color-mix(in srgb,var(--a1) 12%,transparent)}
 .setlist-item.took{animation:list-took .9s ease}
 .setlist-item.already{animation:list-already .5s ease}

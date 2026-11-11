@@ -1,5 +1,5 @@
 // What a set list needs for the stage, built onto the set list in the sidebar: under each song, its arrangement and how it starts; above the songs, the
-// set list's settings. Perform itself is on the Perform tab. The sidebar stays the one list of songs: order and membership change there, and this follows. These details live in a record tied to the list (`list-<id>`).
+// set list's settings (in the songs pane, never among the set list names). Perform itself is on the Perform tab. The sidebar stays the one list of songs: order and membership change there, and this follows. These details live in a record tied to the list (`list-<id>`).
 import {askChoice} from './dialogs.js';
 import {icon} from './icons.js';
 import {clockText,countInOf,showSeconds,spareText} from './performance-duration.js';
@@ -79,10 +79,10 @@ export function createSetlistPanel(deps){
     try{const r=await api('/api/show/save',{body:show,base:record.head});record={...record,...r};deps.onPerform(r.body);}catch(error){deps.showError(error);}
   }
 
-  /** The settings, under the list's name in the sidebar. */
+  /** The settings button, at the top of the sidebar's songs pane: the picker above it keeps the set list names together. */
   function head(){
     const row=el('div','set-head');
-    const gear=btn('set-settings','Set list settings','This set list’s time slot, what happens when you change something by hand, its name and more',()=>openSettings(),'gear');gear.disabled=!show;
+    const gear=btn('set-settings','Set list settings',`Settings for the set list “${currentList()?.name??''}”: its time slot, what happens when you change something by hand, its name and more`,()=>openSettings(),'gear');gear.disabled=!show;
     row.append(gear);
     return row;
   }

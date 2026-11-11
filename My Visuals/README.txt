@@ -11,6 +11,11 @@ How it works
 - To change one of the built-in looks, copy it here from chordbuddy\web\visualizations and edit the copy.
   Keep its id: your copy then replaces the built-in one, and deleting your copy brings the original back.
 - Pictures or fonts a visualization uses can sit here too, in subfolders if you like.
+- A visualization can use font files for its own drawing and for the chord and lyrics. Put them in the "fonts" folder in here (a .woff2,
+  .woff, .ttf or .otf, up to 8 MB each). A visualization names a font by file name only, never a folder or a web address; Chord Buddy
+  looks in that one folder, checks the file is really a font and keeps it private to that visualization. A visualization says in its first
+  lines which font files it expects (Rose Window can use DotGothic16-Regular.ttf, but works without it). Free fonts under the SIL Open
+  Font License are a good choice. See the README in the fonts folder.
 - If a visualization has a mistake, only that one stops (with the error shown); the others keep working.
 
 Starting a new one

@@ -8,7 +8,10 @@
 // A visualization module's default export: {id, name, order (toolbar position, default 100), hud (default true),
 //   skin (optional: restyles the picker and the mixer to match; visual-skin.js), create() -> {draw(g, frame, env), resize?(w, h), dispose?()}}.
 //   inputs (optional, see visual-patch.js): {key:{label, type, default, help}}, the things the patch bay can wire sounds and signals to.
+//   fonts (optional): font files from the visualization's own folder, and overlay (optional): the font the chord and lyrics are drawn in
+//   (visual-fonts.js says how, and why a file there cannot reach anything else).
 // env: {w, h, dt (wall seconds since the last frame), wall (wall seconds), calm, lyrics, zones (hudZones), song (the built scene),
+//       fonts (the names it declared -> CSS font-family values, with a fallback), fontsReady (every declared font has loaded or failed), fontsLoaded ({name:true} for the ones that loaded),
 //       inputs (each declared input's value this frame, from the patch in use; {} for a visualization without inputs),
 //       events: {hits: {role: [strength…]} (new drum and instrument hits this frame), beat (a new beat: {bar, beat, downbeat}) or null,
 //       chordChanged, sectionChanged, loop: {started, ended, wrapped} (the loop was turned on or changed, turned off, or went back to
@@ -27,6 +30,7 @@ import {pickScene,panelPlace,ID_TEXT} from './visual-setup.js';
 import {VisualCues} from './performance-visuals.js';
 import {placePanel,draggable} from './visual-layout.js';
 import {readSkin,applySkin,browserCheck,skinStylesheet,loadSkinSheet} from './visual-skin.js';
+import {createFontLoader} from './visual-fonts.js';
 import {Patcher,readInputs,choosePatch,sourceCatalog,catalogMap,sourceValue,sourceRange} from './visual-patch.js';
 import {mountPatchBay} from './visual-patchbay.js';
 
@@ -136,6 +140,7 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
   // the bundled fonts (FONTS in visual-hud.js): a canvas only uses a web font once it is loaded, so load them up front
   for(const face of ['400 16px "Bricolage Grotesque"','800 16px "Bricolage Grotesque"','400 16px "Space Mono"','700 16px "Space Mono"','400 16px "Courier Prime"','700 16px "Courier Prime"'])
     document.fonts?.load?.(face).catch(()=>{});
+  const fontLoader=createFontLoader();           // the fonts visualizations bring (visual-fonts.js), loaded once per copy of each
   let mixer=null,song=null,songKey=null,mix=null,status='Waiting for Chord Buddy… start playback in the main window.',raf=0,disposed=false;
   let frames=0,fpsAt=performance.now(),fps=0,lastWall=null,previous=null,active=null,activeId=null,activeDefinition=null,size=[0,0];
   let scenes=[],failed=[];const broken=new Map();   // visualizations, the files that failed to load, and ones that threw (id -> message)
@@ -357,8 +362,9 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
     if(!definition){g.fillStyle='#0d0e14';g.fillRect(0,0,w,h);g.textAlign='center';g.textBaseline='middle';g.fillStyle='#e9e6dc';g.font='500 18px system-ui';
       g.fillText(scenes.length||!failed.length?'Loading the visualizations…':'No visualization could be loaded.',w/2,h/2);return;}
     const shownLyrics=cues.state.lyrics??settings.lyrics;
+    const typeface=fontLoader.use(definition);
     const env={w,h,dt,wall:now/1000,calm:cues.state.calm??settings.calm,lyrics:shownLyrics,zones:hudZones(w,h,shownLyrics),song,
-      events:frameEvents(previous,frame,song),status,fps,inputs:{},random:cues.random};
+      events:frameEvents(previous,frame,song),status,fps,inputs:{},random:cues.random,fonts:typeface.families,fontsReady:typeface.ready,fontsLoaded:typeface.loaded};
     const replay=cues.takeReplay();if(replay)env.events.replay=replay;
     const inputs=inputsFor(definition);
     if(inputs.length){
@@ -383,9 +389,9 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
     }
     g.restore();
     if(broken.has(definition.id)){g.save();drawBroken(definition,w,h);g.restore();}
-    if(definition.hud!==false){
-      g.save();drawChordHud(g,frame,w,h,{calm:settings.calm});g.restore();
-      if(settings.lyrics){g.save();drawLyricHud(g,frame,w,h);g.restore();}
+    if(definition.hud!==false&&!typeface.waiting){        // held back while its own font loads, so it never flashes in the wrong face
+      g.save();drawChordHud(g,frame,w,h,{calm:settings.calm,style:typeface.style});g.restore();
+      if(settings.lyrics){g.save();drawLyricHud(g,frame,w,h,{style:typeface.style});g.restore();}
     }
     if(settings.fps){g.font='600 12px ui-monospace,monospace';g.textAlign='right';g.textBaseline='bottom';g.fillStyle='rgba(255,255,255,.7)';
       g.fillText(`${Math.round(fps)} fps · ${canvas.width}×${canvas.height}`,w-10,h-8);}
