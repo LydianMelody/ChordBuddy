@@ -1,5 +1,6 @@
 """Replace a Stem (stem_tool): lining up, level safety, and that Chord Buddy itself accepts the result. All audio here is made up."""
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -280,3 +281,102 @@ def test_a_real_file_is_decoded_to_the_songs_format(tmp_path, ffmpeg_exe):
     (tmp_path / 'notes.txt').write_text('not audio')
     with pytest.raises(StemError):
         engine.decode(ffmpeg_exe, tmp_path / 'notes.txt')
+
+
+# ---------------------------------------------------------------- the window's buttons, pressed as a person would
+class FakeSpeakers:
+    def __init__(self):
+        self.played = []
+        self.stops = 0
+
+    def play(self, audio, rate):
+        self.played.append((np.array(audio), rate))
+
+    def stop(self):
+        self.stops += 1
+
+
+@pytest.fixture
+def desk(song):
+    from stem_tool.controller import Controller
+    space, old_run, stems = song
+    speakers = FakeSpeakers()
+    return Controller(space, player=speakers), speakers, space, old_run, stems
+
+
+def test_the_window_walks_from_a_file_to_a_replaced_stem_and_back(desk):
+    c, speakers, space, old_run, stems = desk
+    state = c.state()
+    assert [s['title'] for s in state['songs']] == ['Test Song'] and not state['can_replace'] and not state['can_restore']
+    state = c.select(SONG, 'vocals')
+    assert state['song'] == SONG and state['role_name'] == 'Vocals' and state['can_play'] and not state['can_replace']
+    env = phrases()
+    late = int(.5 * RATE)
+    take = voice(np.roll(env, late), 520, .1)                 # his take: half a second of lead-in, quieter than the song's vocal
+    take[:late] = 0
+    state = c.use_audio(take, 'his-take.wav')                 # (as if chosen in the file dialog and read)
+    assert abs(state['offset_ms'] + 500) <= 3 and state['suggested_ms'] == state['offset_ms'], 'the start it suggests'
+    assert state['confidence'] >= .6 and 'earlier' in state['match'] and state['can_replace']
+    assert abs(c.plan['gain_db'] - 8.0) < 1.0 and '+8' in state['level'][:6] or '+7' in state['level'][:6], 'turned up to sit where the old vocal did'
+
+    c.play('new', 3, 25)
+    audio, rate = speakers.played[-1]
+    assert rate == RATE and len(audio) == 20 * RATE
+    assert float(np.abs(audio).max()) <= .26, 'a preview at a quarter volume is quiet'
+    c.play('now', 3, 25)
+    assert not np.allclose(speakers.played[-1][0], audio), 'the song as it is now sounds different'
+    c.play('solo', 3, 100)
+    assert float(np.abs(speakers.played[-1][0]).max()) <= 1.0
+
+    state = c.adjust(trim_db=-3)
+    assert abs(c.plan['gain_db'] - 5.0) < 1.0 and '-3.0 by hand' in state['level']
+    state = c.adjust(offset_ms=-480)
+    assert state['offset_ms'] == -480
+    state = c.use_suggested()
+    assert abs(state['offset_ms'] + 500) <= 3
+
+    state = c.replace()
+    assert 'now plays with the new vocals' in state['messages'][-1]
+    root, manifest = space.active(SONG)
+    assert manifest['run_id'] != old_run and manifest['replaced']['vocals']['file'] == 'his-take.wav'
+    assert abs(manifest['replaced']['vocals']['offset_frames'] + late) <= RATE * .003
+    assert playable(space)['active']['run_id'] == manifest['run_id']
+    assert state['songs'][0]['replaced'] == ['Vocals'] and state['can_restore']
+
+    state = c.restore()
+    assert 'has its own vocals again' in state['messages'][-1] and not state['can_restore']
+    assert np.array_equal(space.stem(SONG, 'vocals'), stems['vocals'])
+    json.dumps(state)                                          # everything the page is sent can be sent
+
+
+def test_the_window_says_what_went_wrong_in_plain_words(desk):
+    c, speakers, space, old_run, _ = desk
+    assert 'Choose a song first' in c.load('C:/nowhere/take.wav')['messages'][-1]
+    assert 'Choose a song first' in c.play('now')['messages'][-1]
+    assert 'no split stems' in c.select('nosuchsong00')['messages'][-1]
+    c.select(SONG)
+    assert 'not there any more' in c.load(str(space.library.root / 'missing.wav'))['messages'][-1] or 'decoder' in c.state()['messages'][-1]
+    assert 'Choose a file first' in c.play('new')['messages'][-1]
+    c.use_audio(voice(phrases(), 520, .2), 'take.wav')
+    state = c.adjust(offset_ms=900000)                         # fifteen minutes late: nothing of it is inside the song
+    assert 'none of the new audio falls inside the song' in state['messages'][-1] and not state['can_replace']
+    assert space.active(SONG)[1]['run_id'] == old_run, 'nothing was written'
+    assert 'nothing to put back' in c.restore()['messages'][-1]
+
+
+def test_the_page_only_reaches_the_buttons(desk):
+    from stem_tool.window import Bridge
+    c, *_ = desk
+    bridge = Bridge(c)
+    public = sorted(n for n in dir(bridge) if not n.startswith('_'))
+    assert public == ['adjust', 'choose', 'play', 'replace', 'restore', 'select', 'state', 'stop', 'use_suggested']
+    assert bridge.select(SONG, 'vocals')['song'] == SONG and bridge.stop() is None
+
+
+def test_it_will_not_open_while_the_app_is_running(monkeypatch):
+    answer = lambda text: (lambda *a, **k: type('R', (), {'stdout': text})())
+    monkeypatch.setattr(engine.os, 'name', 'nt')
+    monkeypatch.setattr(engine.subprocess, 'run', answer('C:/cb/runtime/pythonw.exe portable_start.py' + chr(10) + 'C:/x/python.exe other.py' + chr(10)))
+    assert engine.app_running()
+    monkeypatch.setattr(engine.subprocess, 'run', answer('C:/cb/runtime/pythonw.exe stem_tool_start.py' + chr(10)))
+    assert not engine.app_running(), 'the tool itself does not count'

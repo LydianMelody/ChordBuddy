@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Replace a Stem</title>
+<style>
+  /* The same look as Chord Buddy's pages (ink borders, hard shadows, warm paper), drawn here by itself: this page loads nothing from the app. */
+  :root{--ink:#1d1a26;--page:#fffaf2;--desk:#efe9f0;--soft:#6b6478;--hot:#e8446a;--tint:#d9cdee;--ok:#2f9e79;--bd:2.5px;--sh:4px}
+  @media (prefers-color-scheme:dark){:root{--ink:#f2ecf7;--page:#26222f;--desk:#17141d;--soft:#a79fb5;--tint:#4a3f63}}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--desk);color:var(--ink);font:500 14px/1.45 "Segoe UI",system-ui,sans-serif}
+  main{max-width:760px;margin:0 auto;padding:18px 16px 28px;display:flex;flex-direction:column;gap:14px}
+  h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.01em}
+  .lead{margin:2px 0 0;color:var(--soft)}
+  section{background:var(--page);border:var(--bd) solid var(--ink);border-radius:14px;box-shadow:var(--sh) var(--sh) 0 var(--ink);padding:12px 14px}
+  section>h2{margin:0 0 8px;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--soft)}
+  .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px}
+  .row+.row{margin-top:8px}
+  label{font-weight:600}
+  select,input[type=number]{font:inherit;color:inherit;background:var(--page);border:2px solid var(--ink);border-radius:9px;padding:6px 8px}
+  select{min-width:0;flex:1 1 260px}
+  #role{flex:0 0 150px}
+  input[type=number]{width:104px}
+  input[type=range]{flex:1 1 220px;accent-color:var(--hot)}
+  button{font:inherit;font-weight:800;color:var(--ink);background:var(--page);border:var(--bd) solid var(--ink);border-radius:11px;padding:7px 13px;box-shadow:3px 3px 0 var(--ink);cursor:pointer}
+  button:active:not(:disabled){transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
+  button:disabled{opacity:.45;cursor:default}
+  button.hot{background:var(--hot);color:#fff}
+  .note{margin:8px 0 0;color:var(--soft)}
+  .note b{color:var(--ink)}
+  .warn{margin:6px 0 0;padding:6px 10px;border:2px dashed var(--ink);border-radius:9px;font-weight:600}
+  .tag{display:inline-block;padding:1px 8px;border:2px solid var(--ink);border-radius:999px;font-size:12px;font-weight:800;background:var(--tint)}
+  .tag.good{background:var(--ok);color:#fff}
+  .small{font-size:12px;color:var(--soft)}
+  #file{font-weight:700}
+  #log{margin:0;max-height:150px;overflow:auto;white-space:pre-wrap;font:500 12.5px/1.5 "Segoe UI",system-ui,sans-serif;color:var(--soft)}
+  #log p{margin:0 0 6px}
+  #log p:last-child{color:var(--ink);font-weight:600}
+  body.busy{cursor:progress}
+  body.busy main{opacity:.72}
+  #busy{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);padding:6px 16px;border:var(--bd) solid var(--ink);border-radius:999px;background:var(--tint);font-weight:800;box-shadow:3px 3px 0 var(--ink)}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Replace a stem</h1>
+    <p class="lead">Swap one stem of a song for your own audio. The song’s chart, flags and other stems stay exactly as they are, and the stem you replace is kept so you can put it back. Nothing changes until you press Replace.</p>
+  </header>
+
+  <section>
+    <h2>1 · Which song, and which stem</h2>
+    <div class="row">
+      <select id="song" aria-label="Song"></select>
+      <select id="role" aria-label="Stem to replace"></select>
+    </div>
+    <p class="note" id="song-note"></p>
+  </section>
+
+  <section>
+    <h2>2 · The new audio</h2>
+    <div class="row">
+      <button id="choose" type="button" title="Pick the audio file to use for this stem: WAV, FLAC, MP3 or M4A">Choose a file…</button>
+      <span id="file">No file chosen</span>
+    </div>
+    <p class="note" id="match"></p>
+    <div class="row">
+      <label for="offset">Start, in milliseconds</label>
+      <input id="offset" type="number" step="5" title="Where the file belongs in the song. A bigger number moves it later; a smaller one, earlier.">
+      <button id="suggested" type="button" title="Go back to the start that was found by listening">Use the suggested start</button>
+      <span class="small">bigger is later</span>
+    </div>
+    <div class="row">
+      <label for="trim">Level, in dB from the matched level</label>
+      <input id="trim" type="number" step="0.5" title="0 keeps the new stem as loud as the one it replaces. Plus is louder, minus is quieter.">
+      <span class="small" id="trim-range"></span>
+    </div>
+    <p class="note" id="level"></p>
+    <div id="notes"></div>
+  </section>
+
+  <section>
+    <h2>3 · Listen first</h2>
+    <div class="row">
+      <label for="position">From</label>
+      <input id="position" type="range" min="0" max="1" step="1" value="0">
+      <b id="position-words">0:00</b>
+    </div>
+    <div class="row">
+      <label for="volume">Volume</label>
+      <input id="volume" type="range" min="0" max="100" step="1">
+      <span class="small">starts quiet</span>
+    </div>
+    <div class="row">
+      <button id="play-new" type="button" class="hot" title="Hear the song with the new stem in place of the old one">Play with the new stem</button>
+      <button id="play-now" type="button" title="Hear the song as it is in your library right now">Play as it is now</button>
+      <button id="play-solo" type="button" title="Hear only the new stem, at the level it will have">New stem alone</button>
+      <button id="stop" type="button">Stop</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>4 · Replace</h2>
+    <div class="row">
+      <button id="replace" type="button" class="hot">Replace the stem</button>
+      <button id="restore" type="button" title="Put the song’s own stem back, exactly as it was">Put the original back</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>What happened</h2>
+    <div id="log" role="log" aria-live="polite"></div>
+  </section>
+</main>
+<div id="busy" role="status" hidden>Working…</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let api=null,state=null,busy=false;
+const clock=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+
+function draw(next){
+  if(!next)return;
+  state=next;
+  const songBox=$('song'),was=songBox.value;
+  songBox.replaceChildren(new Option(state.songs.length?'Choose a song…':'No song has split stems yet',''),
+    ...state.songs.map(s=>new Option(`${s.title}${s.artist?' · '+s.artist:''}   ${s.length}${s.replaced.length?'   (replaced: '+s.replaced.join(', ').toLowerCase()+')':''}`,s.id)));
+  songBox.value=state.song||'';
+  void was;
+  const roleBox=$('role');
+  if(!roleBox.options.length)roleBox.replaceChildren(...state.stems.map(s=>new Option(s.name,s.id)));
+  roleBox.value=state.role;
+  $('song-note').textContent=state.songs.length?'':'Split a song’s stems in Chord Buddy first, then come back here.';
+  $('file').textContent=state.file?`${state.file} · ${state.file_length}`:'No file chosen';
+  const match=$('match');match.replaceChildren();
+  if(state.match){
+    const tag=document.createElement('span'),c=state.confidence;
+    tag.className='tag'+(c>=.6?' good':'');tag.textContent=c>=.6?'Clear match':c>=.35?'Likely match':'A guess';
+    match.append(tag,' ',state.match);
+  }
+  if(document.activeElement!==$('offset'))$('offset').value=state.file?state.offset_ms:'';
+  if(document.activeElement!==$('trim'))$('trim').value=state.file?state.trim_db:'';
+  $('trim').min=state.trim_range[0];$('trim').max=state.trim_range[1];
+  $('trim-range').textContent=`from ${state.trim_range[0]} to +${state.trim_range[1]}`;
+  $('level').replaceChildren();
+  if(state.level){const b=document.createElement('b');b.textContent='Level: ';$('level').append(b,state.level);}
+  $('notes').replaceChildren(...state.notes.map(n=>{const p=document.createElement('p');p.className='warn';p.textContent=n;return p;}));
+  $('position').max=Math.max(1,Math.floor(state.seconds)-1);
+  $('position-words').textContent=clock(+$('position').value);
+  if(!$('volume').dataset.set){$('volume').value=state.start_volume;$('volume').dataset.set='1';}
+  $('play-new').textContent=`Play ${state.preview_seconds} s with the new stem`;
+  $('replace').textContent=state.song?`Replace the ${state.role_name.toLowerCase()} of “${state.title}”`:'Replace the stem';
+  const log=$('log');log.replaceChildren(...state.messages.map(m=>{const p=document.createElement('p');p.textContent=m;return p;}));log.scrollTop=log.scrollHeight;
+  enable();
+}
+function enable(){
+  const s=state||{};
+  $('song').disabled=$('role').disabled=busy;
+  $('choose').disabled=busy||!s.song;
+  $('offset').disabled=$('trim').disabled=$('suggested').disabled=busy||!s.file;
+  $('play-new').disabled=$('play-solo').disabled=$('replace').disabled=busy||!s.can_replace;
+  $('play-now').disabled=busy||!s.can_play;
+  $('restore').disabled=busy||!s.can_restore;
+  document.body.classList.toggle('busy',busy);$('busy').hidden=!busy;
+}
+// One request at a time: the buttons are off while Python works, and what comes back is drawn.
+async function ask(name,...args){
+  if(busy||!api)return;
+  busy=true;enable();
+  try{draw(await api[name](...args));}
+  catch(error){const p=document.createElement('p');p.textContent='That did not work: '+(error?.message||error);$('log').append(p);}
+  finally{busy=false;enable();}
+}
+$('song').onchange=()=>{if($('song').value)ask('select',$('song').value,$('role').value);};
+$('role').onchange=()=>{if(state?.song)ask('select',state.song,$('role').value);else state.role=$('role').value;};
+$('choose').onclick=()=>ask('choose');
+$('offset').onchange=()=>{if($('offset').value!=='')ask('adjust',+$('offset').value,null);};
+$('trim').onchange=()=>{if($('trim').value!=='')ask('adjust',null,+$('trim').value);};
+$('suggested').onclick=()=>ask('use_suggested');
+$('position').oninput=()=>{$('position-words').textContent=clock(+$('position').value);};
+const play=what=>ask('play',what,+$('position').value,+$('volume').value);
+$('play-new').onclick=()=>play('new');$('play-now').onclick=()=>play('now');$('play-solo').onclick=()=>play('solo');
+$('stop').onclick=()=>{api?.stop();};
+$('replace').onclick=()=>{
+  if(confirm(`Replace the ${state.role_name.toLowerCase()} of “${state.title}” with ${state.file}?\n\nThe stem being replaced is kept, and “Put the original back” restores it exactly.`))ask('replace');
+};
+$('restore').onclick=()=>{if(confirm(`Put the song’s own ${state.role_name.toLowerCase()} back on “${state.title}”?`))ask('restore');};
+function start(){api=window.pywebview.api;ask('state');}
+if(window.pywebview?.api)start();else window.addEventListener('pywebviewready',start);
+</script>
+</body>
+</html>
