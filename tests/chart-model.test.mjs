@@ -122,6 +122,19 @@ test('silence before the song starts is not counted as a bar', () => {
   assert.equal(buildChartModel(JSON.parse(readFileSync(new URL('./fixtures/compact-chart.json',import.meta.url))).content,f.music).barOffset,0);
 });
 
+test('a first bar the model gave a chord, over silence in the recording, is not counted as a bar either', () => {
+  // Wonderland: the model's opening C#m lies over the 0.33 s of silence before the music, a one-beat bar before bar 1
+  const f=JSON.parse(readFileSync(new URL('./fixtures/compact-chart.json',import.meta.url)));
+  const before=JSON.stringify(f.content);
+  const model=buildChartModel(f.content,{...f.music,sound_start:1.95});
+  assert.equal(model.barOffset,1);
+  const first=model.sections[0].groups.flatMap(g=>g.bars)[0];
+  assert.equal(first.number,1);assert.equal(first.measure.number,2);
+  assert.equal(JSON.stringify(f.content),before,'the chord itself is kept');
+  // sound well inside the first bar, at the start, or unknown: the first bar is music
+  for(const sound_start of [1.5,0,null,undefined])assert.equal(buildChartModel(f.content,{...f.music,sound_start}).barOffset,0,String(sound_start));
+});
+
 test('phrases of four are counted from the first bar with music, so an intro of four bars stays one row', () => {
   const f=fixture();
   f.content.chords[0].label='N';                                   // a silent first bar

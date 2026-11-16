@@ -63,7 +63,7 @@ export const SHORTCUTS=[
   {title:'Prepare',rows:[
     [['V'],'Select tool: click bars and actions to work on them'],
     [['A'],'Action tool: click a place in a bar, then choose what should happen there, a loop too'],
-    [['Delete'],'Remove the selected action, or all the ticked ones'],
+    [['Delete'],'Remove the selected action or loop, or all the ticked actions'],
     [['Ctrl','C'],'Copy the selected action, or all the ticked ones'],
     [['Ctrl','V'],'Paste them at the selected bar, keeping their spacing'],
     [['Ctrl','Z','/','Ctrl','Shift','Z'],'Undo or redo your last change to this arrangement, as the Undo and Redo buttons at the top do. The History button, the clock by them, lists the changes by name to go back several at once.'],

@@ -9,7 +9,49 @@ def finite_time(value):
     return type(value) in (int,float) and math.isfinite(value)
 
 
-def seed_sections(run_dir,duration):
+def beat_length(run_dir):
+    """The usual time between beats in this run's beat.lab (the median), or 50 ms when there is none to read (so only
+    a few milliseconds left between sections are taken for slivers, never a short section of a song whose beats are not known)."""
+    path=Path(run_dir)/'beat.lab';times=[]
+    if path.is_file() and not path.is_symlink():
+        try:
+            for line in path.read_text(encoding='utf-8').splitlines():
+                fields=line.split()
+                try:
+                    value=float(fields[0]) if fields else None
+                except ValueError:
+                    continue
+                if finite_time(value):times.append(value)
+        except (OSError,UnicodeError):
+            times=[]
+    steps=sorted(b-a for a,b in zip(times,times[1:]) if b>a)
+    return steps[len(steps)//2] if steps else .05
+
+
+def fold_slivers(sections,beat):
+    """A section shorter than one beat is not a section: it joins its neighbor, which takes its time (the first one joins the section after
+    it, so that one starts where it started; any other joins the section before it). Gaps with no beats at the start and end of a song that
+    are a beat or longer (a fade in or out) stay sections of their own."""
+    sections=[dict(s) for s in sections]
+    index=0
+    while len(sections)>1 and index<len(sections):
+        section=sections[index]
+        if section['end']-section['start']>=beat:
+            index+=1;continue
+        if index==0:
+            sections[1]['start']=section['start']
+        else:
+            sections[index-1]['end']=section['end']
+        del sections[index]
+        index=max(0,index-1)
+    for number,section in enumerate(sections):
+        section['id']=f's{number}'
+    return sections
+
+
+def seed_sections(run_dir,duration,fold=True):
+    """The song's sections from the run's structure.lab, covering the whole recording. fold=False keeps sections shorter than a beat (as
+    charts made before that rule had them), for proving where an older chart's sections came from."""
     path=Path(run_dir)/'structure.lab'
     intervals=[]
     if path.is_file() and not path.is_symlink():
@@ -43,7 +85,7 @@ def seed_sections(run_dir,duration):
         cursor=max(cursor,end)
     if cursor<duration:
         append(cursor,duration,'Instrumental' if intervals else 'Song')
-    return sections
+    return fold_slivers(sections,beat_length(run_dir)) if fold else sections
 
 
 def seed_chart(run_dir,duration,chords):

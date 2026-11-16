@@ -138,6 +138,22 @@ export function mergeChartSection(content,id,music) {
   next.sections.splice(index+1,1);return reassignChartChords(next);
 }
 
+/** Join a section that is too short to be one (a sliver: section-slivers.js) to its neighbor, which keeps its own name and takes the
+ *  sliver's time: the first section joins the one after it, any other the one before it. Chords and words move with it; nothing is lost. */
+export function absorbChartSection(content,id){
+  const index=content.sections.findIndex(section=>section.id===id);
+  if(index<0)throw new Error('Section not found.');
+  if(content.sections.length<2)throw new Error('The only section has nothing to join.');
+  if(index>0)return mergeChartSection(content,content.sections[index-1].id);
+  const sliver=content.sections[0],home=content.sections[1];
+  const next=mergeChartSection(content,sliver.id);
+  next.sections[0]={...home,start:sliver.start,end:home.end,lyrics:next.sections[0].lyrics};
+  for(const chord of next.chords)if(chord.section_id===sliver.id)chord.section_id=home.id;
+  for(const placement of next.layout?.lines||[])if(placement.section_id===sliver.id)placement.section_id=home.id;
+  for(const group of next.layout?.compact?.groups||[])if(group.section_id===sliver.id)group.section_id=home.id;
+  return reassignChartChords(next);
+}
+
 export function renameChartSection(content,id,name){
   if(typeof name!=='string'||!name.trim()||name.trim().length>200||/[\x00\r\n]/.test(name))throw new Error('Choose a section name from 1 to 200 characters.');
   const next=structuredClone(content),section=next.sections.find(s=>s.id===id);

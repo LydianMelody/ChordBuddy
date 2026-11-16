@@ -1,0 +1,493 @@
+<title>Press Room Tune-Up</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Space+Mono:wght@400;700&display=swap">
+<style>
+/* Prototype only: nothing in the app loads this file and nothing here changes how anything works.
+   Each pick swaps one family of values across a mock of the app's everyday controls. "Today" in any group puts back the app's
+   current hand-typed values for that group, copied from press-room.base.css, shell.css, style.css, nav-bar.css and dark.css.
+   The chord chart, the cassettes and the scrubber are deliberately left out.
+   Layout: wide screens get the picks column beside the mock. Phones get a sticky picker on top (one group at a time) so the mock
+   and a 2x close-up stay in view while choosing. */
+
+@font-face{font-family:"CB Bricolage";src:url("../chordbuddy/web/fonts/BricolageGrotesque.woff2") format("woff2");font-weight:200 800;font-stretch:75% 100%}
+@font-face{font-family:"CB Space Mono";src:url("../chordbuddy/web/fonts/SpaceMono-Regular.woff2") format("woff2");font-weight:400}
+@font-face{font-family:"CB Space Mono";src:url("../chordbuddy/web/fonts/SpaceMono-Bold.woff2") format("woff2");font-weight:700}
+:root{--ground:#ECE5EA;--ground-ink:#231A2C;--g:"Bricolage Grotesque","CB Bricolage",system-ui,sans-serif;--m:"Space Mono","CB Space Mono",ui-monospace,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ground:#16121A;--ground-ink:#F3ECF0;color-scheme:dark}}
+:root[data-theme="dark"]{--ground:#16121A;--ground-ink:#F3ECF0;color-scheme:dark}
+html,body{background:var(--ground);color:var(--ground-ink)}
+body{margin:0}
+*{box-sizing:border-box}
+
+/* ---------- Light palettes (press-room.base.css) ---------- */
+.cb[data-palette="tomato"]{--desk:#ECE6D8;--page:#FBF7EE;--ink:#1A1C24;--soft:#5E5F66;--a1:#EE5530;--a2:#2D4FD8;--a3:#39B98C;--hl:#FFD84A;--tint:#E3DCCB;--onA1:#1A1C24;--onA2:#fff;--onA3:#1A1C24}
+.cb[data-palette="forest"]{--desk:#E9E5D5;--page:#FCF8EC;--ink:#14261E;--soft:#4E5D55;--a1:#E8743B;--a2:#1F5C46;--a3:#93C08A;--hl:#F6C744;--tint:#DCDCC6;--onA1:#14261E;--onA2:#fff;--onA3:#14261E}
+.cb[data-palette="plum"]{--desk:#ECE5EA;--page:#FCF8F4;--ink:#231A2C;--soft:#625869;--a1:#EB496F;--a2:#4A2F86;--a3:#22A598;--hl:#FFCF5C;--tint:#E2D8E0;--onA1:#231A2C;--onA2:#fff;--onA3:#231A2C}
+/* Writing, outlines and shadows are separate roles, so a dark look can treat them differently. In light they are all the ink. */
+.cb{--text:var(--ink);--edge:var(--ink);--shade:var(--ink);--shade2:var(--a1);--onHl:#1A1C24}
+
+/* ---------- Dark looks ---------- */
+/* Today: dark.css. Paper and ink swap places; outlines and shadows turn light; accents barely change. */
+.cb.dark[data-dark="today"][data-palette="tomato"]{--desk:#16171C;--page:#21232A;--ink:#F3EEE1;--soft:#BDB8AC;--tint:#2F323B;--a1:#FF6A45;--a2:#5E80FA;--a3:#3FCB9B;--hl:#FFD84A;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A}
+.cb.dark[data-dark="today"][data-palette="forest"]{--desk:#131915;--page:#1D2621;--ink:#EEEADB;--soft:#AFB8AE;--tint:#29352F;--a1:#F28A4E;--a2:#3D9170;--a3:#9DCC93;--hl:#F6C744;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A}
+.cb.dark[data-dark="today"][data-palette="plum"]{--desk:#16121A;--page:#221C28;--ink:#F3ECF0;--soft:#BCB0C0;--tint:#32293A;--a1:#F05A7E;--a2:#8D68E2;--a3:#33C4B3;--hl:#FFCF5C;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A}
+
+/* Midnight print: night-colored paper that is lighter than the desk, so panels still sit on top of it. Outlines and shadows stay
+   near-black, like ink on dark card stock, so a shadow reads as depth instead of a glow. Accents are lifted and softened to
+   glow without buzzing. */
+.cb.dark[data-dark="midnight"]{--edge:#07060A;--shade:#07060A;--shade2:#07060A}
+.cb.dark[data-dark="midnight"][data-palette="tomato"]{--desk:#1C1B21;--page:#302E37;--tint:#3D3B45;--ink:#F5EFE2;--soft:#C7C1B4;--a1:#FF7A59;--a2:#869EFF;--a3:#55D6A7;--hl:#FFDA61;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A}
+.cb.dark[data-dark="midnight"][data-palette="forest"]{--desk:#161E1A;--page:#27352E;--tint:#33433A;--ink:#F0ECDD;--soft:#B9C3B7;--a1:#F89A64;--a2:#68C29C;--a3:#ADDBA2;--hl:#F9D25E;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A}
+.cb.dark[data-dark="midnight"][data-palette="plum"]{--desk:#1C1521;--page:#31273A;--tint:#3F3349;--ink:#F7EEF3;--soft:#CBBDCE;--a1:#FF7B9C;--a2:#AE93F4;--a3:#4AD6C4;--hl:#FFD678;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A}
+
+/* Colored shadows: deep, slightly tinted paper with soft light outlines. Every hard shadow takes the palette's second color and
+   pop-ups take the first, so the dark look is colorful on purpose instead of an inverted print. */
+.cb.dark[data-dark="colored"]{--edge:color-mix(in srgb,var(--ink) 82%,var(--page));--shade:var(--a2);--shade2:var(--a1)}
+.cb.dark[data-dark="colored"][data-palette="tomato"]{--desk:#17161D;--page:#232129;--tint:#302D38;--ink:#F5EFE2;--soft:#C2BCB0;--a1:#FF7A59;--a2:#6F8BFF;--a3:#55D6A7;--hl:#FFDA61;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A}
+.cb.dark[data-dark="colored"][data-palette="forest"]{--desk:#121916;--page:#1D2722;--tint:#29352F;--ink:#F0ECDD;--soft:#B5BFB3;--a1:#F89A64;--a2:#4FAE86;--a3:#ADDBA2;--hl:#F9D25E;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A}
+.cb.dark[data-dark="colored"][data-palette="plum"]{--desk:#17111C;--page:#231B2A;--tint:#322839;--ink:#F7EEF3;--soft:#C6B8C9;--a1:#FF7B9C;--a2:#9C7CF0;--a3:#4AD6C4;--hl:#FFD678;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A}
+
+/* Dusk paper: not really dark. The same light design with the paper dimmed, like the lights turned down, for evenings.
+   Accents are deepened a step so they keep their weight on the dimmer paper. */
+.cb.dark[data-dark="dusk"][data-palette="tomato"]{--desk:#C9C2B3;--page:#DCD5C6;--tint:#BFB7A6;--ink:#1A1C24;--soft:#45464D;--a1:#D9492A;--a2:#2944BC;--a3:#2E9C76;--hl:#EBC23C;--onA1:#1A1C24;--onA2:#fff;--onA3:#1A1C24}
+.cb.dark[data-dark="dusk"][data-palette="forest"]{--desk:#C6C2B0;--page:#DAD6C4;--tint:#BBBAA4;--ink:#14261E;--soft:#3B4841;--a1:#CF6430;--a2:#1F5C46;--a3:#7AA872;--hl:#E0B23A;--onA1:#14261E;--onA2:#fff;--onA3:#14261E}
+.cb.dark[data-dark="dusk"][data-palette="plum"]{--desk:#CAC0C7;--page:#DDD4D9;--tint:#C0B5BD;--ink:#231A2C;--soft:#4A4151;--a1:#D23E62;--a2:#4A2F86;--a3:#1C8F84;--hl:#EDBB4A;--onA1:#231A2C;--onA2:#fff;--onA3:#231A2C}
+.cb.dark:not([data-dark="dusk"]){color-scheme:dark}
+
+.cb{--spring:linear(0,.35 9%,.8 18%,1.06 28%,1.12 34%,1.08 42%,.99 55%,.98 64%,1 80%,1);--ease:cubic-bezier(.2,.8,.2,1)}
+@supports not (transition-timing-function:linear(0,1)){.cb{--spring:cubic-bezier(.34,1.56,.64,1)}}
+.cb{min-height:100%;background:var(--desk);color:var(--text);font:15px/1.4 var(--g);-webkit-font-smoothing:antialiased}
+:where(.cb) :where(button,input,select){font:inherit;color:inherit}
+.cb :focus-visible{outline:3px solid var(--a2);outline-offset:2px}
+.wrap{display:grid;grid-template-columns:310px minmax(0,1fr);gap:22px;align-items:start;max-width:1340px;margin:0 auto;
+  padding-block:18px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.lbl{font:700 10.5px var(--m);letter-spacing:.12em;text-transform:uppercase;color:var(--soft)}
+.stage{display:flex;flex-direction:column;gap:18px;min-width:0}
+
+/* ---------- Picker (its own fixed styling: it is the tool, not the thing being judged) ---------- */
+.picks{position:sticky;top:max(12px,env(safe-area-inset-top,0px));z-index:5;display:flex;flex-direction:column;gap:14px;padding:16px;border:2.5px solid var(--edge);border-radius:16px;background:var(--page);box-shadow:4px 4px 0 var(--shade);max-height:calc(100vh - 24px);overflow:auto}
+.picks h1{margin:0;font:800 22px/1 var(--g);font-stretch:80%;text-transform:uppercase}
+.intro{margin:0;font-size:13px;color:var(--soft)}
+.tabs{display:none}
+.grp{display:flex;flex-direction:column;gap:6px;border:0;margin:0;padding:0;min-width:0}
+.grp legend{padding:0;margin-bottom:6px;font:800 14px var(--g)}
+.why{font-size:12px;color:var(--soft);margin-top:-2px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips label{cursor:pointer;position:relative}
+.chips input{position:absolute;opacity:0;width:1px;height:1px}
+.chips span{display:inline-block;padding:5px 11px;border:2px solid var(--edge);border-radius:999px;font-size:13px;font-weight:700;background:var(--page)}
+.chips input:checked+span{background:var(--text);color:var(--page)}
+.chips input:focus-visible+span{outline:3px solid var(--a2);outline-offset:2px}
+.chips .today span{border-style:dashed}
+.chips .today input:checked+span{border-style:solid}
+.compare{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border:2px solid var(--edge);border-radius:12px;background:var(--hl);color:#1A1C24;cursor:pointer}
+.compare b{font-size:14px}
+.compare small{display:block;font-size:12px;opacity:.8}
+.tgl{-webkit-appearance:none;appearance:none;flex:none;margin:0;width:46px;height:26px;border:2.5px solid #1A1C24;border-radius:999px;background:#fff;position:relative;cursor:pointer}
+.tgl::after{content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#1A1C24;transition:left .25s var(--spring)}
+.tgl:checked{background:#1A1C24}.tgl:checked::after{left:22px;background:#fff}
+
+/* phones and narrow windows: picker sticks to the top, one group at a time, chosen from a row of tabs */
+@media (max-width:960px){
+  .wrap{grid-template-columns:minmax(0,1fr);gap:14px}
+  .picks{top:0;margin-inline:calc(-1 * max(16px,env(safe-area-inset-left,0px)));border-width:0 0 2.5px;border-radius:0;box-shadow:0 3px 0 var(--shade);
+    padding:max(10px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 12px max(16px,env(safe-area-inset-left,0px));gap:10px;max-height:none;overflow:visible}
+  .picks h1,.intro{display:none}
+  .compare{padding:6px 10px}.compare small{display:none}
+  .tabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin-inline:-4px;padding:2px 4px 4px}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs button{flex:none;padding:5px 10px;border:2px solid var(--edge);border-radius:10px;background:var(--page);font-weight:800;font-size:12.5px;cursor:pointer}
+  .tabs button[aria-selected="true"]{background:var(--hl);color:#1A1C24}
+  .grp:not(.on){display:none}
+  .grp legend{display:none}
+}
+
+/* ---------- Mock app: every value below comes from variables the picks set ---------- */
+.app{display:grid;grid-template-columns:230px minmax(0,1fr);border:2.5px solid var(--edge);border-radius:16px;overflow:hidden;background:var(--desk);min-width:0}
+@media (max-width:640px){.app{grid-template-columns:minmax(0,1fr)}.side{border-right:0!important;border-bottom:var(--bd) solid var(--edge)}}
+.side{display:flex;flex-direction:column;gap:var(--gap);padding:var(--card-p);border-right:var(--bd) solid var(--edge);min-width:0}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.mark{width:38px;height:38px;border:var(--bd) solid var(--edge);border-radius:var(--r-m);background:var(--a1);color:var(--onA1);display:grid;place-items:center;font:800 22px/1 var(--g);box-shadow:var(--s-rest) var(--s-rest) 0 var(--shade);transform:rotate(-4deg)}
+.brand b{font:800 19px/.9 var(--g);font-stretch:78%;text-transform:uppercase}
+.sidehead{display:flex;align-items:center;justify-content:space-between}
+.main{display:flex;flex-direction:column;gap:var(--gap);padding:var(--card-p);min-width:0}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;cursor:pointer;font-weight:750;font-size:13px;line-height:1.1;
+  background:var(--page);color:var(--text);transition:transform .28s var(--spring),box-shadow .28s var(--spring)}
+.btn svg{width:16px;height:16px;flex:none}
+.pri{background:var(--a1);color:var(--onA1);font-weight:800}
+.btn{border:var(--b) solid var(--edge);border-radius:var(--r);padding:var(--py) var(--px);min-height:var(--h,0);box-shadow:var(--s) var(--s) 0 var(--shade)}
+.pri{--b:var(--pri-b);--r:var(--pri-r);--s:var(--pri-s);--py:var(--pri-py);--px:var(--pri-px);--h:var(--pri-h)}
+.sec{--b:var(--sec-b);--r:var(--sec-r);--s:var(--sec-s);--py:var(--sec-py);--px:var(--sec-px);--h:var(--sec-h)}
+.dsec{--b:var(--dsec-b);--r:var(--dsec-r);--s:var(--dsec-s);--py:var(--dsec-py);--px:var(--dsec-px);--h:var(--dsec-h)}
+.ico{--b:var(--ico-b);--r:var(--ico-r);--s:var(--ico-s);--py:0px;--px:0px;width:var(--ico-w);height:var(--ico-w);min-height:0}
+.ico.small{width:var(--ico2-w);height:var(--ico2-w);--r:var(--ico2-r)}
+/* .hov and .prs show the mouse-over and pressed looks without a mouse (for the close-up and for phones) */
+.btn:is(:active,.prs){transform:translate(2px,2px);box-shadow:max(0px,calc(var(--s) - 2px)) max(0px,calc(var(--s) - 2px)) 0 var(--shade);transition-duration:.08s}
+.cb[data-hover="lift"] .btn:is(:hover,.hov):not(:active,.prs){transform:translate(-1px,-1px);box-shadow:calc(var(--s) + 1px) calc(var(--s) + 1px) 0 var(--shade)}
+.cb[data-hover="tilt"] .btn:is(:hover,.hov):not(:active,.prs){transform:translate(-2px,-2px) rotate(-1.5deg);box-shadow:calc(var(--s) + 2px) calc(var(--s) + 2px) 0 var(--shade)}
+.cb[data-hover="fill"] .btn:is(:hover,.hov):not(:active,.prs){background:var(--hl);color:var(--onHl)}
+kbd{font:700 10px/1 var(--m);padding:2px 5px;border:var(--kbd-b) solid currentColor;border-radius:var(--kbd-r);opacity:.85}
+
+.cb{--sel-bg:var(--hl);--sel-fg:var(--onHl)}
+.cb[data-sel="ink"]{--sel-bg:var(--text);--sel-fg:var(--page)}
+.cb[data-sel="accent"]{--sel-bg:var(--a2);--sel-fg:var(--onA2)}
+.cb[data-sel="today"] .setlist{--sel-bg:var(--text);--sel-fg:var(--page)}
+.cb[data-sel="today"] .seg.view{--sel-bg:var(--a1);--sel-fg:var(--onA1)}
+
+.seg{display:inline-flex;border:var(--seg-b) solid var(--edge);border-radius:var(--seg-r);background:var(--page);box-shadow:var(--seg-s) var(--seg-s) 0 var(--shade);overflow:hidden;min-height:var(--seg-h,0);flex:none}
+.seg button{border:0;background:none;cursor:pointer;padding:var(--segb-py) var(--segb-px);font-weight:700;font-size:12.5px;border-right:var(--seg-div) solid var(--edge);transition:background-color .2s}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--sel-bg);color:var(--sel-fg)}
+
+.field{display:flex;align-items:center;gap:8px;border:var(--fld-b) solid var(--edge);border-radius:var(--fld-r);background:var(--page);padding:var(--fld-py) var(--fld-px);min-height:var(--fld-h,0);min-width:0}
+.field input{flex:1;min-width:0;border:0;background:transparent;padding:0;outline:none;font-size:13px;line-height:1.2}
+.field input::placeholder{color:var(--soft)}
+.field svg{width:15px;height:15px;flex:none}
+.search{border-width:var(--srch-b);border-radius:var(--srch-r);padding:var(--srch-py) var(--srch-px)}
+
+.setlist,.song{display:flex;align-items:center;gap:8px;width:100%;text-align:left;cursor:pointer;background:none;border:var(--row-b) solid transparent;font-weight:700}
+.setlist{border-radius:var(--setl-r);padding:var(--setl-py) var(--setl-px)}
+.setlist em{margin-left:auto;font:700 11px var(--m);font-style:normal;opacity:.65}
+.song{border-radius:var(--song-r);padding:var(--song-py) var(--song-px) var(--song-py) var(--song-pl)}
+.song .n{font:700 10px var(--m);color:var(--soft);width:16px;text-align:center}
+.song span{display:flex;flex-direction:column;min-width:0}
+.song small{font:700 10.5px var(--m);color:var(--soft)}
+.setlist[aria-current="true"],.song[aria-current="true"]{background:var(--sel-bg);color:var(--sel-fg);border-color:var(--edge);box-shadow:var(--row-s) var(--row-s) 0 var(--shade)}
+.cb[data-sel="today"] .setlist[aria-current="true"]{border-color:transparent;box-shadow:none}
+.cb[data-sel="today"] .song[aria-current="true"]{box-shadow:var(--song-s) var(--song-s) 0 var(--shade)}
+.song[aria-current="true"] small,.song[aria-current="true"] .n{color:inherit;opacity:.75}
+.setlist:not([aria-current]):hover,.song:not([aria-current]):hover{border-color:var(--edge)}
+.list{display:flex;flex-direction:column;gap:var(--row-gap)}
+
+.card{border:var(--card-b) solid var(--edge);border-radius:var(--card-r);background:var(--page);box-shadow:var(--card-s) var(--card-s) 0 var(--shade);padding:var(--card-p);display:flex;flex-direction:column;gap:var(--gap);min-width:0}
+.card h3{margin:0;font:800 16px/1.1 var(--g)}
+.topbar{display:flex;flex-wrap:wrap;align-items:center;gap:var(--gap)}
+.topbar h2{margin:0 auto 0 0;font:800 24px/1 var(--g);font-stretch:82%}
+.alert{display:flex;align-items:center;gap:10px;border:var(--al-b) solid var(--edge);border-radius:var(--al-r);background:var(--hl);color:var(--onHl);padding:var(--al-py) var(--al-px);box-shadow:var(--al-s) var(--al-s) 0 var(--shade);font-size:13px;font-weight:600}
+.alert p{margin:0;flex:1}
+.alert .btn{--edge:#1A1C24}
+.body{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,260px);gap:var(--gap);align-items:start}
+@media (max-width:1150px){.body{grid-template-columns:auto minmax(0,1fr)}.body .settings{grid-column:1/-1}}
+.tray{display:flex;flex-direction:column;gap:3px;width:62px;padding:var(--tray-p);border:var(--tray-b) solid var(--edge);border-radius:var(--tray-r);background:var(--page);box-shadow:var(--tray-s) var(--tray-s) 0 var(--shade)}
+.tool{position:relative;display:grid;justify-items:center;gap:2px;padding:6px 2px 5px;border:0;border-radius:var(--tool-r);background:none;cursor:pointer}
+.tool svg{width:20px;height:20px}
+.tool small{font:800 9px/1 var(--g);letter-spacing:.06em;text-transform:uppercase}
+.tool kbd{position:absolute;top:3px;right:3px;border:0;padding:0;font-size:8.5px;opacity:.7}
+.tool[aria-pressed="true"]{background:var(--sel-bg);color:var(--sel-fg)}
+.tool:not([aria-pressed="true"]):hover{background:var(--tint)}
+.chart-ph{min-height:200px;display:grid;place-items:center;text-align:center;padding:16px;border:2px dashed var(--soft);border-radius:var(--card-r);color:var(--soft);font-size:13px;
+  background:repeating-linear-gradient(-45deg,transparent 0 10px,color-mix(in srgb,var(--text) 5%,transparent) 10px 20px)}
+.chart-ph b{display:block;font-size:15px;color:var(--text)}
+.opt{display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:650;cursor:pointer}
+.sw{-webkit-appearance:none;appearance:none;flex:none;margin:0;width:42px;height:24px;border:var(--b-ctl) solid var(--edge);border-radius:999px;background:var(--tint);position:relative;cursor:pointer;transition:background-color .2s}
+.sw::after{content:"";position:absolute;top:50%;left:2px;width:16px;height:16px;translate:0 -50%;border:2px solid var(--edge);border-radius:50%;background:var(--page);transition:left .35s var(--spring)}
+.sw:checked{background:var(--a3)}.sw:checked::after{left:calc(100% - 18px)}
+.ck{-webkit-appearance:none;appearance:none;flex:none;margin:0;width:22px;height:22px;border:var(--b-ctl) solid var(--edge);border-radius:var(--ck-r);background:var(--page);display:grid;place-items:center;cursor:pointer;transition:background-color .15s}
+.ck::after{content:"";width:10px;height:6px;border:solid var(--onA2);border-width:0 0 2.5px 2.5px;transform:rotate(-45deg) scale(0);margin-top:-3px;transition:transform .3s var(--spring)}
+.ck:checked{background:var(--a2)}.ck:checked::after{transform:rotate(-45deg) scale(1)}
+.rng{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:650}
+.rng input{flex:1;min-width:0;accent-color:var(--a2)}
+.rng output{font:700 12px var(--m);min-width:4ch;text-align:right}
+.player{display:flex;flex-wrap:wrap;align-items:center;gap:var(--gap);padding-top:var(--gap);border-top:var(--bd) solid var(--edge)}
+.scrub{flex:1;min-width:140px;height:34px;border:2px dashed var(--soft);border-radius:8px;display:grid;place-items:center;font-size:11px;color:var(--soft)}
+.clock{font:700 14px var(--m);font-variant-numeric:tabular-nums}
+.pops{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:calc(var(--gap) * 2);align-items:start}
+.dlg{border:var(--dlg-b) solid var(--edge);border-radius:var(--dlg-r);background:var(--page);box-shadow:var(--dlg-s) var(--dlg-s) 0 var(--shade);padding:var(--dlg-py) var(--dlg-px);display:flex;flex-direction:column;gap:10px}
+.dlg h4{margin:0;font:800 18px var(--g)}
+.dlg p{margin:0;font-size:13px}
+.acts{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.tip{align-self:start;max-width:268px;border:var(--tip-b) solid var(--edge);border-radius:var(--tip-r);background:var(--text);color:var(--page);padding:var(--tip-py) var(--tip-px);box-shadow:var(--tip-s) var(--tip-s) 0 var(--shade2);font-size:13px}
+.tip b{display:flex;justify-content:space-between;gap:8px;margin-bottom:3px}
+.tip kbd{border-color:var(--page)}
+.foot{font-size:12px;color:var(--soft);margin:0}
+
+/* ---------- Close-up: the same pieces at twice the size, with the mouse-over and pressed looks shown side by side ---------- */
+.zoom-card{padding:14px}
+.zoom-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.zoom-head h3{margin:0;font:800 16px var(--g)}
+.zoom-box{overflow:hidden;border-radius:10px;background:var(--desk);padding:6px}
+.zoom{zoom:1.7;display:flex;flex-wrap:wrap;gap:12px 14px;align-items:flex-end;padding:4px 6px 8px}
+@media (max-width:520px){.zoom{zoom:1.35}}
+.zcell{display:flex;flex-direction:column;align-items:flex-start;gap:5px}
+.zcell>i{font:700 7px var(--m);letter-spacing:.08em;text-transform:uppercase;color:var(--soft);font-style:normal}
+.mini-panel{width:74px;height:34px;border:var(--card-b) solid var(--edge);border-radius:var(--card-r);background:var(--page);box-shadow:var(--card-s) var(--card-s) 0 var(--shade)}
+.ztoast{display:inline-flex;align-items:center;padding:5px 9px;border:var(--al-b) solid var(--edge);border-radius:var(--al-r);background:var(--a3);color:var(--onA3);font-size:11px;font-weight:800;box-shadow:var(--s-rest) var(--s-rest) 0 var(--shade)}
+.ztoast.pop{animation:pop .45s var(--spring)}
+@keyframes pop{from{transform:translateY(10px) scale(.7) rotate(4deg);opacity:0}}
+.song.zsong{width:auto}
+
+/* ---------- Your picks ---------- */
+.summary{font:12px/1.5 var(--m);white-space:pre-wrap;margin:0;padding:10px;border:2px dashed var(--edge);border-radius:10px;background:var(--desk);user-select:all}
+.copy{align-self:flex-start;padding:8px 16px;border:2.5px solid var(--edge);border-radius:10px;background:var(--a1);color:var(--onA1);font-weight:800;box-shadow:3px 3px 0 var(--shade);cursor:pointer}
+.copy:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--shade)}
+
+/* motion levels */
+.cb[data-motion="calm"] *{transition-timing-function:var(--ease)!important;animation-timing-function:var(--ease)!important}
+.cb[data-motion="still"] *,.cb[data-motion="still"] *::after{transition:none!important;animation:none!important}
+@media (prefers-reduced-motion:reduce){.cb:not([data-motion="lively"]) *{transition-duration:.01ms!important}}
+</style>
+
+<div class="cb" id="cb" data-palette="plum" data-dark="midnight">
+<div class="wrap">
+
+<aside class="picks" aria-label="Your picks">
+  <h1>Press Room Tune-Up</h1>
+  <p class="intro">Pick a look for each family of details. The mock app changes as you pick, and the close-up shows the same pieces at twice the size. "Today" puts back what the app does now. Nothing here changes how anything works.</p>
+  <label class="compare" for="cmp"><span><b>Show today</b><small>Flip to compare your picks with the app as it is</small></span><input class="tgl" type="checkbox" id="cmp"></label>
+  <div class="tabs" role="tablist" aria-label="Pick a group" id="tabs"></div>
+  <form id="form" style="display:flex;flex-direction:column;gap:14px"></form>
+</aside>
+
+<div class="stage">
+  <section class="card zoom-card" aria-labelledby="zh">
+    <div class="zoom-head"><h3 id="zh">Close-up</h3><button type="button" class="btn sec" id="playmo" title="Plays the switch, checkbox, choice and message animations once, so you can judge the Motion pick">Play the motion</button></div>
+    <div class="zoom-box"><div class="zoom" id="zoom">
+      <div class="zcell"><i>Resting</i><button type="button" class="btn pri" tabindex="-1">Save</button></div>
+      <div class="zcell"><i>Mouse over</i><button type="button" class="btn pri hov" tabindex="-1">Save</button></div>
+      <div class="zcell"><i>Pressed</i><button type="button" class="btn pri prs" tabindex="-1" id="zpress">Save</button></div>
+      <div class="zcell"><i>Choice</i><div class="seg" id="zseg"><button type="button" tabindex="-1" aria-pressed="true">Wood</button><button type="button" tabindex="-1" aria-pressed="false">Beep</button></div></div>
+      <div class="zcell"><i>Selected song</i><button type="button" class="song zsong" tabindex="-1" aria-current="true"><span><b>Harbor Lights</b><small>G · 96 BPM</small></span></button></div>
+      <div class="zcell"><i>Panel</i><div class="mini-panel"></div></div>
+      <div class="zcell"><i>Switches</i><span style="display:flex;gap:8px;align-items:center"><input type="checkbox" class="sw" id="zsw" tabindex="-1" aria-label="Sample switch" checked><input type="checkbox" class="ck" id="zck" tabindex="-1" aria-label="Sample checkbox" checked></span></div>
+      <div class="zcell"><i>Message</i><span class="ztoast" id="ztoast">Saved</span></div>
+    </div></div>
+  </section>
+
+  <div class="app" aria-label="Mock of the app">
+    <nav class="side" aria-label="Library">
+      <div class="brand"><div class="mark" aria-hidden="true">C</div><b>Chord<br>Buddy</b></div>
+      <div class="sidehead"><span class="lbl">Set lists</span><button type="button" class="btn ico small" aria-label="New set list" title="Make a new set list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+      <div class="list">
+        <button type="button" class="setlist" data-grp="setl">All songs <em>24</em></button>
+        <button type="button" class="setlist" data-grp="setl" aria-current="true">Friday show <em>9</em></button>
+        <button type="button" class="setlist" data-grp="setl">Practice <em>5</em></button>
+      </div>
+      <label class="field search" for="q"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input id="q" placeholder="Find a song"></label>
+      <span class="lbl">Songs</span>
+      <div class="list">
+        <button type="button" class="song" data-grp="song" aria-current="true"><span class="n">1</span><span><b>Harbor Lights</b><small>G · 96 BPM</small></span></button>
+        <button type="button" class="song" data-grp="song"><span class="n">2</span><span><b>Paper Moon Waltz</b><small>D · 3/4</small></span></button>
+        <button type="button" class="song" data-grp="song"><span class="n">3</span><span><b>Static on the Line</b><small>Em · 128 BPM</small></span></button>
+      </div>
+    </nav>
+
+    <div class="main">
+      <div class="topbar">
+        <button type="button" class="btn ico" aria-label="Hide the song list" title="Hide the song list to give the chart more room"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <h2>Harbor Lights</h2>
+        <div class="seg view" role="group" aria-label="View">
+          <button type="button" aria-pressed="true" title="Chords and sections over time">Chart</button>
+          <button type="button" aria-pressed="false" title="Melody, chords and lyrics as sheet music">Lead sheet</button>
+          <button type="button" aria-pressed="false" title="Notes on a piano roll">MIDI</button>
+        </div>
+        <button type="button" class="btn sec" title="Take back your last change (Ctrl+Z)">Undo</button>
+        <button type="button" class="btn sec" title="Save the chart as a PDF or text file">Export</button>
+        <button type="button" class="btn pri" title="Keep your changes to this song">Save</button>
+      </div>
+      <div class="alert" role="status"><p>Chords found. Check the flagged spots before you play it live.</p><button type="button" class="btn ico small" aria-label="Close this message"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+
+      <div class="body">
+        <div class="tray" role="toolbar" aria-label="Chart tools" aria-orientation="vertical">
+          <button type="button" class="tool" aria-pressed="true" title="Select: pick chords to copy, paste or loop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M5 3l14 8-6 2-3 6z"/></svg><small>Select</small><kbd>V</kbd></button>
+          <button type="button" class="tool" aria-pressed="false" title="Edit: click a chord and type a new one"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M4 20l1-5L16 4l4 4L9 19z"/></svg><small>Edit</small><kbd>E</kbd></button>
+          <button type="button" class="tool" aria-pressed="false" title="Timing: drag a chord's edge to move where it starts"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg><small>Timing</small><kbd>T</kbd></button>
+          <button type="button" class="tool" aria-pressed="false" title="Cue: add a note like 'Drums stop' on its own lane"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M5 21V4h12l-3 4 3 4H5"/></svg><small>Cue</small><kbd>Q</kbd></button>
+          <button type="button" class="tool" aria-pressed="false" title="Lyrics: type the words under the chords"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 6h16M4 12h11M4 18h14"/></svg><small>Lyrics</small><kbd>W</kbd></button>
+        </div>
+        <div class="chart-ph"><div><b>The chord chart stays as it is</b>Not part of this tune-up.</div></div>
+        <section class="card settings" aria-label="Practice settings">
+          <h3>Practice</h3>
+          <label class="opt" for="o1"><input class="sw" type="checkbox" id="o1" checked>Count in before playing</label>
+          <label class="opt" for="o2"><input class="ck" type="checkbox" id="o2" checked>Show lyrics under the chords</label>
+          <label class="rng" for="spd">Speed <input type="range" id="spd" min="50" max="100" step="5" value="85"><output for="spd" id="spdo">85%</output></label>
+          <div class="seg opts" role="group" aria-label="Click sound">
+            <button type="button" aria-pressed="true" title="A wooden block click">Wood</button>
+            <button type="button" aria-pressed="false" title="A soft electronic beep">Beep</button>
+            <button type="button" aria-pressed="false" title="No click">Off</button>
+          </div>
+        </section>
+      </div>
+
+      <div class="player">
+        <button type="button" class="btn ico" aria-label="Back to the start" title="Go back to the start of the song"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+        <button type="button" class="btn ico pri" aria-label="Play" title="Play or pause (Space)"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg></button>
+        <button type="button" class="btn sec" title="Repeat the part you picked (L)">Loop <kbd>L</kbd></button>
+        <div class="scrub">Scrubber stays as it is</div>
+        <span class="clock">1:24 / 3:42</span>
+      </div>
+
+      <div class="pops">
+        <div class="dlg" role="group" aria-label="Sample question box">
+          <h4>Delete “Paper Moon Waltz”?</h4>
+          <p>It goes to the Trash. You can bring it back from there until you empty the Trash.</p>
+          <div class="acts"><button type="button" class="btn dsec">Keep it</button><button type="button" class="btn pri">Move to Trash</button></div>
+        </div>
+        <div class="tip" role="note"><b>Loop <kbd>L</kbd></b>Plays the part you picked over and over, so you can practice it until it sticks.</div>
+      </div>
+      <p class="foot">Pop-ups are shown in place so you can see them next to everything else. "Today" values are copied from the app's stylesheets, not from a screenshot, so small details may differ from the real app.</p>
+    </div>
+  </div>
+
+  <section class="card" aria-labelledby="yp" style="--card-p:16px">
+    <h3 id="yp">Your picks</h3>
+    <pre class="summary" id="summary"></pre>
+    <button type="button" class="copy" id="copy">Copy my picks</button>
+    <p class="foot" id="copied" aria-live="polite"></p>
+  </section>
+</div>
+</div>
+</div>
+
+<script>
+(()=>{
+const cb=document.getElementById('cb'),root=document.documentElement;
+
+/* ---- the choices ---- */
+const GROUPS=[
+ {key:'outline',tab:'Outline',name:'Outline thickness',why:'Today mixes 1, 1.5, 2, 2.5 and 3 px. Many screens round 2.5 down to 2, so these are whole pixels.',opts:[
+   ['today','Today'],['2','Fine 2px'],['3','Bold 3px'],['4','Chunky 4px']],def:'3'},
+ {key:'shadow',tab:'Shadow',name:'Hard shadow',why:'Today uses 8 sizes from 1 to 12 px. Proposed: 3 depths (pressed, resting, lifted).',opts:[
+   ['today','Today'],['small','Small 1·2·4'],['medium','Medium 2·4·6'],['big','Big 3·5·8']],def:'medium'},
+ {key:'corners',tab:'Corners',name:'Corners',why:'Today uses 10+ sizes. Proposed: 3 (small parts, controls, panels).',opts:[
+   ['today','Today'],['crisp','Crisp 4·6·10'],['soft','Soft 6·10·14'],['round','Round 8·14·20']],def:'soft'},
+ {key:'space',tab:'Spacing',name:'Spacing',why:'Today has 163 different paddings and controls from 26 to 36 px tall. Proposed: one height for every control.',opts:[
+   ['today','Today'],['compact','Compact 28'],['snug','Snug 32'],['roomy','Roomy 38']],def:'snug'},
+ {key:'sel',tab:'Selected',name:'Selected things',why:'Today the open song is yellow, the set list is ink, and the view switch is pink or yellow.',opts:[
+   ['today','Today'],['yellow','Yellow sticker'],['ink','Ink fill'],['accent','Accent color']],def:'yellow'},
+ {key:'hover',tab:'Mouse over',name:'When the mouse is over a button',why:'See it in the close-up ("Mouse over"). Pressing always pushes a button into its shadow.',opts:[
+   ['none','Stays put (today)'],['lift','Lifts a little'],['tilt','Lifts and tilts'],['fill','Turns yellow']],def:'lift'},
+ {key:'motion',tab:'Motion',name:'Motion',why:'Tap "Play the motion" in the close-up. Calm drops the bounce. Still turns animation off.',opts:[
+   ['lively','Lively'],['calm','Calm'],['still','Still']],def:'lively'},
+ {key:'dark',tab:'Dark look',name:'Dark look',why:'Picking one switches the preview to dark so you can see it.',opts:[
+   ['today','Today (inverted)'],['midnight','Midnight print'],['colored','Colored shadows'],['dusk','Dusk paper']],def:'midnight',
+   notes:{today:'Paper and ink swap places. Outlines and shadows turn light and the colors stay as they are.',
+          midnight:'Night-colored paper with near-black outlines and shadows, like ink on dark card stock. Shadows read as depth, not a glow. Colors lifted to suit the dark.',
+          colored:'Deep paper with soft light outlines. Every shadow takes the palette\'s second color, so it is colorful on purpose.',
+          dusk:'Not really dark. The same light design with the lights turned down, for evenings.'}},
+ {key:'palette',tab:'Colors',name:'Colors',why:'Only for looking around. Not a pick.',opts:[['tomato','Tomato'],['forest','Forest'],['plum','Plum']],def:'plum',view:true},
+ {key:'scheme',tab:'Light/dark',name:'Light or dark',why:'Only for looking around. Not a pick. Auto follows your device.',opts:[['auto','Auto'],['light','Light'],['dark','Dark']],def:'auto',view:true},
+];
+const picks={};GROUPS.forEach(g=>picks[g.key]=g.def);
+const form=document.getElementById('form'),tabs=document.getElementById('tabs');
+GROUPS.forEach((g,i)=>{
+  const fs=document.createElement('fieldset');fs.className='grp'+(i===0?' on':'');fs.id='g-'+g.key;fs.setAttribute('role','tabpanel');
+  fs.innerHTML='<legend>'+g.name+'</legend><div class="why">'+g.why+'</div><div class="chips"></div>'+(g.notes?'<div class="why note" id="note-'+g.key+'"></div>':'');
+  const chips=fs.querySelector('.chips');
+  g.opts.forEach(([v,label])=>{
+    const l=document.createElement('label');if(v==='today'||v==='none')l.className='today';
+    const id='p-'+g.key+'-'+v;l.htmlFor=id;
+    l.innerHTML='<input type="radio" name="'+g.key+'" id="'+id+'" value="'+v+'"'+(v===g.def?' checked':'')+'><span>'+label+'</span>';
+    chips.append(l);
+  });
+  form.append(fs);
+  const t=document.createElement('button');t.type='button';t.role='tab';t.textContent=g.tab;t.setAttribute('aria-selected',String(i===0));t.setAttribute('aria-controls',fs.id);
+  t.addEventListener('click',()=>{
+    tabs.querySelectorAll('button').forEach(x=>x.setAttribute('aria-selected',String(x===t)));
+    form.querySelectorAll('.grp').forEach(x=>x.classList.toggle('on',x===fs));
+    if(g.key==='dark'&&!cb.classList.contains('dark')){picks.scheme='dark';document.getElementById('p-scheme-dark').checked=true;render();}
+  });
+  tabs.append(t);
+});
+form.addEventListener('change',e=>{
+  picks[e.target.name]=e.target.value;
+  if(e.target.name==='dark'&&!cb.classList.contains('dark')){picks.scheme='dark';document.getElementById('p-scheme-dark').checked=true;}
+  render();
+});
+document.getElementById('cmp').addEventListener('change',render);
+
+/* ---- what the app does today (copied from its stylesheets) ---- */
+const T={
+  bd:2.5,
+  pri:{b:2.5,r:10,s:3,py:9,px:16,h:0}, sec:{b:2,r:10,s:0,py:6,px:12,h:0}, dsec:{b:2.5,r:12,s:3,py:9,px:14,h:36},
+  ico:{b:2,r:9,s:0,w:30}, ico2:{r:8,w:26}, seg:{b:2,r:10,s:0,div:2}, segb:{py:5,px:10},
+  fld:{b:1,r:7,py:10,px:12}, srch:{b:2,r:10,py:8,px:10},
+  setl:{r:10,py:8,px:10}, song:{r:12,py:9,px:10,pl:4,s:3}, row:{b:2,s:3,gap:6},
+  tray:{b:2.5,r:18,s:3,p:6}, tool:{r:12}, card:{b:2.5,r:14,s:4,p:18}, al:{b:2.5,r:12,s:3,py:10,px:14},
+  dlg:{b:2.5,r:16,s:4,py:22,px:24}, tip:{b:2.5,r:16,s:4,py:10,px:13}, kbd:{b:1.5,r:6}, ck:{r:7}, ctl:2, gap:10
+};
+const SHADOW={small:[1,2,4],medium:[2,4,6],big:[3,5,8]};
+const CORNER={crisp:[4,6,10],soft:[6,10,14],round:[8,14,20]};
+const SPACE={compact:{h:28,px:10,py:5,rpy:5,rpx:8,p:12,gap:6},snug:{h:32,px:12,py:6,rpy:7,rpx:10,p:16,gap:8},roomy:{h:38,px:16,py:8,rpy:10,rpx:12,p:20,gap:12}};
+
+function vals(){
+  const today=document.getElementById('cmp').checked;
+  const p=today?{...picks,outline:'today',shadow:'today',corners:'today',space:'today',sel:'today',hover:'none',dark:'today'}:picks;
+  const v={},set=(k,x)=>v[k]=x,pick=(t,u)=>u==null?t:u;
+  const B=p.outline==='today'?null:+p.outline,S=SHADOW[p.shadow],R=CORNER[p.corners],P=SPACE[p.space];
+  for(const c of ['pri','sec','dsec','ico','seg','srch','tray','card','al','dlg','tip'])set(c+'-b',pick(T[c].b,B));
+  set('fld-b',pick(T.fld.b,B));set('row-b',pick(T.row.b,B));set('kbd-b',B?Math.max(1.5,B-1.5):T.kbd.b);set('seg-div',pick(T.seg.div,B));
+  set('bd',pick(T.bd,B));set('b-ctl',pick(T.ctl,B));
+  // shadows: buttons, choice groups and panels rest; selected rows pressed; pop-ups lifted; text boxes none
+  const rest=S?S[1]:null,press=S?S[0]:null,lift=S?S[2]:null;
+  for(const c of ['pri','sec','dsec','ico','seg','tray','card','al'])set(c+'-s',pick(T[c].s,rest));
+  set('row-s',pick(T.row.s,press));set('song-s',T.song.s);
+  for(const c of ['dlg','tip'])set(c+'-s',pick(T[c].s,lift));
+  set('s-rest',pick(3,rest));
+  // corners: small parts, controls, panels
+  const rs=R?R[0]:null,rm=R?R[1]:null,rl=R?R[2]:null;
+  for(const c of ['pri','sec','dsec','ico','seg','fld','srch','setl','song'])set(c+'-r',pick(T[c].r,rm));
+  set('ico2-r',pick(T.ico2.r,rm));set('tool-r',pick(T.tool.r,rs));set('kbd-r',pick(T.kbd.r,rs?Math.max(3,rs-2):null));set('ck-r',pick(T.ck.r,rs));
+  for(const c of ['tray','card','al','dlg','tip'])set(c+'-r',pick(T[c].r,rl));
+  set('r-m',pick(12,rm));
+  // spacing: every control the same height
+  if(P){
+    for(const c of ['pri','sec','dsec'])set(c+'-py',P.py),set(c+'-px',P.px),set(c+'-h',P.h);
+    set('ico-w',P.h);set('ico2-w',P.h-6);set('seg-h',P.h);set('segb-py',Math.max(2,P.py-2));set('segb-px',P.px-2);
+    set('fld-py',P.py);set('fld-px',P.px);set('fld-h',P.h);set('srch-py',P.py);set('srch-px',P.px);
+    set('setl-py',P.rpy);set('setl-px',P.rpx);set('song-py',P.rpy);set('song-px',P.rpx);set('song-pl',P.rpx-4);set('row-gap',Math.max(2,P.gap-4));
+    set('tray-p',Math.max(4,P.gap-2));set('card-p',P.p);set('al-py',P.py+2);set('al-px',P.px);set('dlg-py',P.p+4);set('dlg-px',P.p+4);
+    set('tip-py',P.py+3);set('tip-px',P.px);set('gap',P.gap);
+  }else{
+    for(const c of ['pri','sec','dsec'])set(c+'-py',T[c].py),set(c+'-px',T[c].px),set(c+'-h',T[c].h);
+    set('ico-w',T.ico.w);set('ico2-w',T.ico2.w);set('seg-h',0);set('segb-py',T.segb.py);set('segb-px',T.segb.px);
+    set('fld-py',T.fld.py);set('fld-px',T.fld.px);set('fld-h',0);set('srch-py',T.srch.py);set('srch-px',T.srch.px);
+    set('setl-py',T.setl.py);set('setl-px',T.setl.px);set('song-py',T.song.py);set('song-px',T.song.px);set('song-pl',T.song.pl);set('row-gap',T.row.gap);
+    set('tray-p',T.tray.p);set('card-p',T.card.p);set('al-py',T.al.py);set('al-px',T.al.px);set('dlg-py',T.dlg.py);set('dlg-px',T.dlg.px);
+    set('tip-py',T.tip.py);set('tip-px',T.tip.px);set('gap',T.gap);
+  }
+  return {v,p};
+}
+const mq=matchMedia('(prefers-color-scheme: dark)');
+function render(){
+  const {v,p}=vals();
+  for(const [k,x] of Object.entries(v))cb.style.setProperty('--'+k,typeof x==='number'?x+'px':x);
+  cb.dataset.sel=p.sel;cb.dataset.hover=p.hover;cb.dataset.motion=p.motion;cb.dataset.dark=p.dark;cb.dataset.palette=p.palette;
+  let d=p.scheme==='dark';if(p.scheme==='auto'){const t=root.getAttribute('data-theme');d=t==='dark'||(t!=='light'&&mq.matches);}
+  cb.classList.toggle('dark',d);
+  const g=GROUPS.find(x=>x.key==='dark');document.getElementById('note-dark').textContent=g.notes[picks.dark];
+  const name=(k,val)=>GROUPS.find(x=>x.key===k).opts.find(o=>o[0]===val)[1];
+  document.getElementById('summary').textContent=GROUPS.filter(x=>!x.view).map(x=>x.name+': '+name(x.key,picks[x.key])).join('\n');
+}
+mq.addEventListener('change',render);new MutationObserver(render).observe(root,{attributes:true,attributeFilter:['data-theme']});
+
+/* ---- the mock's own clicks, so selected states can be tried ---- */
+document.querySelectorAll('[data-grp]').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('[data-grp="'+b.dataset.grp+'"]').forEach(x=>x.removeAttribute('aria-current'));b.setAttribute('aria-current','true');}));
+document.querySelectorAll('.app .seg,.tray').forEach(g=>g.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  g.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));}));
+const spd=document.getElementById('spd');spd.addEventListener('input',()=>document.getElementById('spdo').value=spd.value+'%');
+
+/* ---- motion demo ---- */
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+document.getElementById('playmo').addEventListener('click',async()=>{
+  const sw=document.getElementById('zsw'),ck=document.getElementById('zck'),seg=[...document.querySelectorAll('#zseg button')],t=document.getElementById('ztoast'),pr=document.getElementById('zpress');
+  pr.classList.remove('prs');await wait(250);pr.classList.add('prs');
+  sw.checked=!sw.checked;await wait(350);ck.checked=!ck.checked;await wait(350);
+  const on=seg.findIndex(b=>b.getAttribute('aria-pressed')==='true');seg.forEach((b,i)=>b.setAttribute('aria-pressed',String(i!==on)));
+  await wait(300);t.classList.remove('pop');void t.offsetWidth;t.classList.add('pop');
+  await wait(700);sw.checked=true;ck.checked=true;
+});
+
+/* ---- copy ---- */
+document.getElementById('copy').addEventListener('click',async()=>{
+  const txt=document.getElementById('summary').textContent,out=document.getElementById('copied');
+  try{await navigator.clipboard.writeText(txt);out.textContent='Copied. Paste it into the chat.';}
+  catch{const r=document.createRange();r.selectNodeContents(document.getElementById('summary'));const s=getSelection();s.removeAllRanges();s.addRange(r);out.textContent='Selected. Copy it, then paste it into the chat.';}
+});
+
+render();
+})();
+</script>

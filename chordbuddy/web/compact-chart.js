@@ -1,6 +1,7 @@
 /* Pure projection: canonical recording events are never compressed or retimed. */
 import {chartPresentation} from './chart-presentation.js';
 import {effectiveMeasures} from './chart-layout.js';
+import {isSliver,sliverHome} from './section-slivers.js';
 const same=(a,b)=>typeof a===typeof b&&(typeof a==='number'?Math.abs(a-b)<=32*Number.EPSILON*Math.max(1,Math.abs(a),Math.abs(b)):Array.isArray(a)?Array.isArray(b)&&a.length===b.length&&a.every((v,i)=>same(v,b[i])):a===b);
 const kind=label=>['N','?','UNKNOWN',''].includes(String(label??'').trim().toUpperCase())?'unknown':/^(N\.?C\.?|NO CHORD|REST)$/i.test(label)?'no-chord':'chord';
 // A bar whose beats were re-gridded (a corrected timing, a split or moved barline) has no stored quarter-note positions. Where its beats are
@@ -87,7 +88,7 @@ export function buildCompactChart(content,music){
  const view={sections:[],groups:[],occurrences:[],warnings,mappingKey:JSON.stringify([content,music?.measures])};
  const breaks=new Set(content.layout?.breaks||[]);
  // Silence before the song starts is not a bar: phrases of four are counted from the first bar with music in it.
- const musicStart=chartPresentation(content,measures).start;
+ const musicStart=chartPresentation(content,measures,music?.sound_start).start;
  for(const section of content.sections){
   let bars=measures.filter(m=>m.start<section.end&&m.end>section.start).map(m=>fragment(content,section,m));
   // Include regions outside the grid; do not silently drop their chord events.
@@ -148,6 +149,17 @@ export function buildCompactChart(content,music){
   for(const o of mapped){add(o.start);cursor=Math.max(cursor,o.end);}add(c.end);
  }
  view.groups.sort((a,b)=>a.start-b.start);view.occurrences.sort((a,b)=>a.start-b.start);for(const s of view.sections)s.groups.sort((a,b)=>a.start-b.start);
+ // A section shorter than one beat is shown as part of its neighbor (section-slivers.js): the chart, the player bar and the timeline then
+ // never name a section you cannot see. Shown only: the chart keeps it until you join it (the Chart page offers that). One with words of
+ // its own is left as it is, for you to join by hand.
+ for(let i=0;i<view.sections.length&&view.sections.length>1;){
+  const s=view.sections[i];
+  if(!isSliver(s,measures)||String(s.lyrics??'').trim()){i++;continue;}
+  const home=sliverHome(view.sections,i);
+  home.start=Math.min(home.start,s.start);home.end=Math.max(home.end,s.end);
+  home.groups.push(...s.groups);home.groups.sort((a,b)=>a.start-b.start);(home.absorbed??=[]).push(s.id);
+  view.sections.splice(i,1);if(i>0)i--;
+ }
  return view;
 }
 export function locateCompactPlayback(view,seconds){if(!Number.isFinite(seconds))return null;const o=view.occurrences.find(o=>seconds>=o.start&&seconds<o.end);if(!o)return null;const g=view.groups.find(g=>g.id===o.groupId);return {sectionId:o.sectionId,groupId:o.groupId,slotId:o.kind==='unknown'?null:o.slotId,occurrenceId:o.kind==='unknown'?null:o.id,passNumber:o.passNumber,passCount:g.passes.length};}

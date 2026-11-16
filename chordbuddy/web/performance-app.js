@@ -158,6 +158,19 @@ export function createPerformanceApp(deps){
   }
   const isRunning=()=>!!controller&&(RUNNING.includes(controller.status)||controller.status==='armed');
 
+  /** Get the show ready to start again from the first song ("Run it again"). */
+  async function runAgain(){
+    const body=controller.show;release();
+    try{await armShow(body);openPerform();}catch(error){showError(error);}
+  }
+  // While the show controls are open on a show that has stopped or finished, the player's Play button and Space do what "Run it again" does.
+  // The show lets go of the player when it ends, which used to leave Play playing the plain song: no flags, no MIDI, no visuals, under a screen
+  // that still said "Stopped". The show is only made ready here (nothing sounds or is sent until Play is pressed again), as with the button.
+  transport.showAgain=()=>{
+    if(kind!=='perform'||!controller||transport.performer||!['stopped','finished'].includes(controller.status))return false;
+    runAgain();return true;
+  };
+
   async function armShow(showBody){
     await scenesLoaded;
     midiSent={};controller=makeController();
@@ -234,6 +247,8 @@ export function createPerformanceApp(deps){
     await scenesLoaded;
     show('prepare',root=>mountPrepare(root,{api,songId:song.id,grid,scenes:()=>scenes,devices,showError,onClose:closePage,onHistory:()=>deps.onHistory?.(),onStepped:step=>deps.onStepped?.(step),currentMix:()=>transport.getSnapshot().mix,onMidiSetup:()=>midiSetup(),
       performSet:{name:()=>deps.setlists().find(l=>l.id===setlist.listId)?.name??null,run:performChosen},
+      // the one place an arrangement is chosen for a set list: this page's Performance dropdown (performance-setlist.js keeps what it says)
+      setArrangement:()=>setlist.arrangementOf(song.id),onChooseArrangement:id=>setlist.chooseArrangement(song.id,id),
       playhead:()=>transport.getSnapshot().seconds,playing:()=>transport.getSnapshot().playIntent,loopShown:()=>controller&&(previewing||showRunning())?controller.runner?.loopShown?.()??null:null,liveChanges:()=>previewing?controller?.runner?.overrides?.size??0:0,releaseLive:()=>{if(previewing)controller?.release({});},seek:seconds=>transport.seek(seconds)?.catch?.(showError),onPlanChange:planChanged}));
     planned={songId:song.id,grid};
     beforePrepare={songId:song.id,mix:transport.getSnapshot().mix,rate:transport.getSnapshot().rate};planKey=null;planShown=false;
@@ -300,13 +315,20 @@ export function createPerformanceApp(deps){
     },400);
   }
   // ---- standing still in Prepare: the mixer, the speed and the visuals show what the plan has set where the playhead is, so a change can be checked without playing it
-  let beforePrepare=null,planKey=null,planShown=false,planVersion=0,planVisual=null;
+  let beforePrepare=null,planKey=null,planShown=false,planVersion=0,planVisual=null,showingPlan=false;
+  // Changing the mixer or the speed here tells the transport's listeners at once, and one of them is this function: without the guard it
+  // called itself until the browser ran out of room ("Cannot read properties of null (reading 'solos')" when choosing Original arrangement).
   function showPlanHere(){
+    if(showingPlan)return;
+    showingPlan=true;
+    try{showPlan();}finally{showingPlan=false;}
+  }
+  function showPlan(){
     if(kind!=='prepare'||!planned||transport.performer)return;
     const s=transport.getSnapshot();
     if(s.songId!==planned.songId||s.playIntent)return;
     const plan=open?.plan?.();
-    if(!plan){letGoOfPlanView({keepSong:true});return;}
+    if(!plan){showOriginal();return;}
     const key=`${s.seconds}|${planVersion}`;if(key===planKey)return;planKey=key;planShown=true;
     const compiled=compilePerformance(plan,{measures:planned.grid.measures,frames:planned.grid.frames}),frame=Math.round(s.seconds*RATE),state=plannedStateAt(compiled,frame);
     const mix=plannedMixAt(compiled,frame),rate=state.rate??100;
@@ -315,12 +337,24 @@ export function createPerformanceApp(deps){
     if(!planVisual){planVisual=createVisualOut({timeOf:()=>Date.now(),post:message=>visuals.perform(message)});visuals.setPerformState(planVisual.current);}
     planVisual.event({type:'state',atPlayed:0,state});deps.onMonitorPlan?.(state);
   }
-  /** Back to the mix and speed you had before: leaving Prepare, or no plan to show. */
+  /** Back to the mix and speed you had before: leaving Prepare. */
   function letGoOfPlanView({keepSong=false}={}){
     if(planVisual){planVisual.event({type:'cleanup'});visuals.setPerformState(null);planVisual=null;}
-    if(planShown&&beforePrepare&&transport.getSnapshot().songId===beforePrepare.songId&&!transport.performer){transport.setMix(beforePrepare.mix);transport.setRate(beforePrepare.rate).catch(showError);}
-    planShown=false;planKey=null;deps.onMonitorPlan?.(null);
+    const restore=planShown&&beforePrepare&&transport.getSnapshot().songId===beforePrepare.songId&&!transport.performer;
+    planShown=false;planKey=null;deps.onMonitorPlan?.(null);           // settled before the mixer changes, which tells every listener at once
+    if(restore){transport.setMix(beforePrepare.mix);transport.setRate(beforePrepare.rate).catch(showError);}
     if(!keepSong)beforePrepare=null;
+  }
+  /** Original arrangement chosen (or nothing to show): the song as it is. An arrangement had set the mixer and speed, so they go to what the
+   *  Original arrangement plays (every stem at full, no mutes or solos, normal speed), not back to an older mix. Master stays where you put it. */
+  function showOriginal(){
+    if(planVisual){planVisual.event({type:'cleanup'});visuals.setPerformState(null);planVisual=null;}
+    const was=planShown;
+    planShown=false;planKey=null;deps.onMonitorPlan?.(null);
+    if(!was||transport.performer)return;
+    const s=transport.getSnapshot();
+    transport.setMix({...defaultMix(),master:s.mix?.master??1});
+    if(s.rate!==100)transport.setRate(100).catch(showError);
   }
   // another song chosen in the sidebar: Prepare moves to it once it's ready to play. One that isn't analyzed stays on the chart, which says what it needs.
   let followUntil=0;
@@ -350,7 +384,7 @@ export function createPerformanceApp(deps){
       openPerform();
     }catch(error){showError(error);}
   }
-  const setlist=createSetlistPanel({api,scenes:()=>scenes,setlists:deps.setlists,refresh:deps.refresh,redraw:()=>deps.redrawLibrary?.(),showError,onMidiSetup:midiSetup,onPerform:performShow,
+  const setlist=createSetlistPanel({api,scenes:()=>scenes,setlists:deps.setlists,refresh:deps.refresh,redraw:()=>{deps.redrawLibrary?.();if(kind==='prepare')open?.follow?.();},showError,onMidiSetup:midiSetup,onPerform:performShow,
     entryLength:async entry=>{const item=await loadEntry(api,entry);return {segments:item.compiled.segments,measures:item.grid?.measures,countBars:item.performance?.countBars??songCount(deps.prefs,entry.songId),music:pathSeconds(item.compiled.segments).music,live:item.compiled.requiresLiveControl};}});
   function performChosen(){
     if(showInHand()){openPerform();return;}
@@ -362,7 +396,7 @@ export function createPerformanceApp(deps){
     show('perform',root=>{
       view=mountPerform(root,{controller,onClose:closePage,chordAt:()=>deps.chordNow(),catalog:deps.songs,
         onShows:()=>closePage(),setHost:()=>deps.setHost?.(),onReleaseSet:()=>{},onError:showError,
-        onAgain:async()=>{const body=controller.show;release();try{await armShow(body);openPerform();}catch(error){showError(error);}},
+        onAgain:()=>runAgain(),
         fullscreen:()=>{const api=desktopWindow();if(api)api.toggle_fullscreen();else if(document.fullscreenElement)document.exitFullscreen();else document.documentElement.requestFullscreen().catch(()=>{});},
         openVisualizer:()=>$('visualizer-window').click(),
         copyObsAddress:deps.copyObsAddress||null,

@@ -77,6 +77,22 @@ export function changeLabel(before,after,position,measures){
 }
 /** A planned loop's size, as the player's loop readout names it: four bars or fewer, or longer. */
 export const loopFamily=bars=>bars<=4?'bars':'section';
+/** A planned loop moved to play bars measures[firstI] to measures[lastI] (whole bars, as the Loop tool makes them). Returns {performance} or
+ *  {error} in plain words: it must start on or before its last bar, and must not overlap another loop. Its passes and their actions go with it;
+ *  an action left outside the loop is moved to Every play by the usual rule when the change is made. */
+export function loopMoved(performance,id,measures,firstI,lastI,position){
+  const r=performance.regions.find(x=>x.id===id);if(!r)return {error:'That loop is gone.'};
+  if(!(Number.isInteger(firstI)&&Number.isInteger(lastI)&&firstI>=0&&lastI<measures.length))return {error:'There is no such bar in this song.'};
+  if(lastI<firstI)return {error:'A loop has to end on or after the bar it starts on.'};
+  const start=measures[firstI].start,end=measures[lastI].end;
+  const clash=performance.regions.find(x=>x.id!==id&&position(x.start)<end-.002&&position(x.end)>start+.002);
+  if(clash)return {error:'That would overlap another loop. Make this one shorter, or move or remove the other first.'};
+  const next=structuredClone(performance),region=next.regions.find(x=>x.id===id),to=measures[lastI];
+  region.start=address(measures[firstI].id);
+  region.end=lastI===measures.length-1?{measure:to.id,beat:{n:to.beats.length,d:1}}:address(measures[lastI+1].id);
+  region.family=loopFamily(lastI-firstI+1);
+  return {performance:next};
+}
 const isLoopFlag=a=>a?.type==='command'&&(a.command==='loop-bars'||a.command==='loop-section');
 /** Loop flags from before planned loops: each becomes a loop over the same bars, playing the same number of times (none: until you
  *  leave it), so it plays as it did. One that would overlap a loop already there stays a flag (it still works); a second flag for the
@@ -152,7 +168,9 @@ export function repeatWords(region,firstBar,lastBar){
   const bars=firstBar===lastBar?`bar ${firstBar}`:`bars ${firstBar} to ${lastBar}`;
   return {title:`Loop ${bars}`,plays:region.plays==='live'?'Until you leave it':`${region.plays} plays in all`};
 }
-const barAtFrame=(measures,seconds)=>measures.find(m=>seconds>=m.start&&seconds<m.end)||measures.at(-1);
+// A flag's place is kept to the nearest audio frame, which can come out a hair before the bar it is on: without the small allowance the
+// list named that flag's bar one too low (a flag on bar 129 read "Bar 128"), and a loop there seemed to start a bar early.
+const barAtFrame=(measures,seconds)=>measures.find(m=>seconds>=m.start-1e-4&&seconds<m.end-1e-4)||measures.at(-1);
 
 /** The Prepare page. deps: {api, songId, scenes(): [{id,name}], devices(): [names], grid (loadSongGrid's result), onClose, playhead(): the song's position in seconds, playing(), seek(seconds), onPlanChange(): the arrangement to play changed, showError}. */
 export function mountPrepare(root,deps){
@@ -197,6 +215,7 @@ export function mountPrepare(root,deps){
     if(k==='v'){setTool('select');event.stopPropagation();}else if(k==='a'){setTool('action');event.stopPropagation();}
     else if(event.key==='Delete'&&selection.kind==='cue'){deleteSelected();event.stopPropagation();}
     else if(event.key==='Delete'&&selection.kind==='cues'){deleteMany(selection.ids);event.stopPropagation();}
+    else if(event.key==='Delete'&&selection.kind==='region'&&perf()?.regions.some(r=>r.id===selection.id)){const id=selection.id;editorOpen?.close();regionId=null;scope={kind:'shared'};selection={kind:'none'};change(removeRegion(perf(),id));event.stopPropagation();}
     else if(event.key==='Escape'){selection={kind:'none'};paint();event.stopPropagation();}
   }
 
@@ -206,10 +225,23 @@ export function mountPrepare(root,deps){
   function drawRail(){renderRail(rail,{groups:[['prepare-select','prepare-action']],active:{select:'prepare-select',action:'prepare-action'}[tool],onPick:name=>setTool({'prepare-select':'select','prepare-action':'action'}[name])});}
 
   // ---- records
+  // Which arrangement the chosen set list plays for this song is this dropdown's to say, and nothing else's. In a set list the page opens on
+  // the arrangement the set plays (setArrangement: its id, null for the Original, undefined outside a set list), and choosing another here,
+  // or making one, tells the set (onChooseArrangement). Outside a set list it only chooses what to edit, as before.
+  const inSet=()=>deps.setArrangement?.()!==undefined;
+  const tellSet=id=>{if(inSet()){deps.onChooseArrangement?.(id||null);paint();}};   // painted again: the set's choice is shown in the dropdown
   async function reload(chooseId=null){
     records=await api('/api/performances/'+encodeURIComponent(songId));
-    const id=chooseId||record?.id||records[0]?.id||null;
+    const set=deps.setArrangement?.(),known=id=>!!id&&records.some(r=>r.id===id);
+    const id=chooseId||(set!==undefined&&(set===null||known(set))?set:record?.id||records[0]?.id||null);
     await open(id);
+  }
+  /** The set list has loaded, or another one was chosen: show the arrangement it plays. Never while a choice of yours is still being opened. */
+  let choosing=false;
+  function follow(){
+    const set=deps.setArrangement?.();
+    if(disposed||choosing||set===undefined||(set!==null&&!records.some(r=>r.id===set)))return;
+    if((record?.id||null)!==set){choosing=true;open(set).catch(deps.showError).finally(()=>{choosing=false;});}
   }
   async function open(id){
     clearTimeout(saveTimer);
@@ -228,17 +260,17 @@ export function mountPrepare(root,deps){
   async function makeNew(){
     const name=await askName('A name for this arrangement','Live version');if(!name)return;
     const body={...newPerformance({songId,name,id:uid()}),grid:gridFingerprint(measures)};
-    try{const r=await api('/api/performance/save',{body,base:0});await reload(r.id);}catch(error){deps.showError(error);}
+    try{const r=await api('/api/performance/save',{body,base:0});await reload(r.id);tellSet(r.id);}catch(error){deps.showError(error);}
   }
   async function duplicate(){
     if(!perf())return;const name=await askName('A name for the copy',`${perf().name} copy`);if(!name)return;
-    try{const r=await api('/api/performance/save',{body:{...structuredClone(perf()),id:uid(),name},base:0});await reload(r.id);}catch(error){deps.showError(error);}
+    try{const r=await api('/api/performance/save',{body:{...structuredClone(perf()),id:uid(),name},base:0});await reload(r.id);tellSet(r.id);}catch(error){deps.showError(error);}
   }
   async function rename(){if(!perf())return;const name=await askName('A new name',perf().name);if(!name)return;change({...perf(),name});}
   async function remove(){
     if(!record)return;
     if(await askChoice({title:`Remove “${perf().name}”?`,message:'A show that already uses it keeps working.',choices:[{id:'remove',label:'Remove',kind:'danger'}]})!=='remove')return;
-    try{await api('/api/performance/delete',{id:record.id});record=null;history=null;await reload();}catch(error){deps.showError(error);}
+    try{const gone=record.id;await api('/api/performance/delete',{id:gone});record=null;history=null;if(deps.setArrangement?.()===gone)tellSet(null);await reload();}catch(error){deps.showError(error);}
   }
   async function save(){
     if(!record)return;clearTimeout(saveTimer);
@@ -447,6 +479,11 @@ export function mountPrepare(root,deps){
   // every beat, as a repeat's count does on the Chart tab. A loop you start with L or R while playing gets a band too, while it lasts.
   const SR=44100,near=(a,b)=>Math.abs(a-b)<.002;
   let loopBadges=[],drawnLive='';
+  // A loop that has gone round and been left, in this play, is taken off the bars: its count used to jump from "×1!!" back to the number it
+  // started with, as if the loop were about to begin again. activeLoop: the one going round now; spent: those left behind (seconds, start and end).
+  // It comes back when the playhead is put before it again, or when the show goes round into it a second time.
+  let activeLoop=null,spent=[];
+  const isSpent=(start,end)=>spent.some(s=>near(s.start,start)&&near(s.end,end));
   const liveKey=live=>live?`${live.start}-${live.end}`:'';
   const inLoop=(loop,m)=>m.start>=loop.start-1e-6&&m.start<loop.end-1e-6;
   function loopBands(shown){
@@ -457,11 +494,13 @@ export function mountPrepare(root,deps){
       const range=a.command==='loop-bars'?fourBarRange(measures,grid.sections,Math.round(at*SR),a.params?.bars??4):sectionRange(measures,grid.sections,Math.round(at*SR),{trim:grid.trim});
       if(!range||out.some(l=>near(l.start,range.start/SR)&&near(l.end,range.end/SR)))continue;
       const plays=Number.isInteger(a.params?.plays)&&a.params.plays>=2?a.params.plays:null;
+      if(isSpent(range.start/SR,range.end/SR))continue;
       out.push({start:range.start/SR,end:range.end/SR,plays,label:range.label,cueId:x.cue.id});
     }
     // a planned loop (the Loop tool): the same band, and its count opens it to change it or edit a pass
     for(const r of perf()?.regions||[]){
       const start=position(r.start),end=position(r.end);if(!Number.isFinite(start)||!Number.isFinite(end))continue;
+      if(isSpent(start,end))continue;
       const first=barAtFrame(measures,start),last=barAtFrame(measures,Math.max(start,end-.001));
       out.push({start,end,plays:r.plays==='live'?null:r.plays,label:first===last?`bar ${first.number}`:`bars ${first.number}–${last.number}`,cueId:null,regionId:r.id});
     }
@@ -479,11 +518,18 @@ export function mountPrepare(root,deps){
   function drawLoopPiece(loop,m){
     const piece=el('div','pf-loop'),i=loop.bars.indexOf(m),n=loop.bars.length;
     const times=loop.plays?`${loop.plays} times`:'until you leave it';
-    piece.title=loop.regionId||loop.cueId?`Loops ${loop.label}, ${times}. Click its flags, band or count to change it.`:`You’re looping ${loop.label}. Press the same loop key again to leave it.`;
-    if(loop.regionId||loop.cueId){piece.classList.add('editable');piece.onclick=event=>{event.stopPropagation();openLoopBand(loop);};}   // like any flag: its flags, band and count open its action
+    const chosen=!!loop.regionId&&selection.kind==='region'&&selection.id===loop.regionId;
+    piece.title=loop.regionId||loop.cueId?`Loops ${loop.label}, ${times}. Click to select it, then Edit to change it.${loop.regionId?' With the Action tool, drag its start or end flag to other bars.':''}`:`You’re looping ${loop.label}. Press the same loop key again to leave it.`;
+    if(chosen)piece.classList.add('on');
+    if(loop.regionId||loop.cueId){piece.classList.add('editable');piece.onclick=event=>{event.stopPropagation();if(justDraggedLoop)return;selectLoop(loop);};}   // like any flag: a click selects it
     piece.append(el('i','pf-loop-band'));
     if(i===0)piece.insertAdjacentHTML('beforeend',loopFlag('start'));
     if(i===n-1)piece.insertAdjacentHTML('beforeend',loopFlag('end'));
+    if(loop.regionId&&tool==='action')for(const f of piece.querySelectorAll('.pf-loop-flag')){
+      const end=f.classList.contains('end')?'end':'start';f.classList.add('drag');
+      f.insertAdjacentHTML('afterbegin',`<title>Drag to move where this loop ${end==='start'?'starts':'ends'}. Or select the loop and press Edit to type its bars.</title>`);
+      f.onpointerdown=event=>startLoopDrag(event,loop.regionId,end);
+    }
     if(i===Math.floor(n/2)){
       const text=loop.plays?`×${loop.plays}`:'∞',badge=el('button','pf-loop-count'+(n%2?'':' edge')+(loop.regionId&&regionId===loop.regionId?' on':''),text);badge.type='button';
       badge.title=loop.regionId||loop.cueId?`Plays ${times}. While it plays, this counts down the plays still to come. Click to change the loop.`:`Loops ${times}.`;
@@ -503,16 +549,74 @@ export function mountPrepare(root,deps){
       if(b.node.parentNode!==host)host.append(b.node);
     }
   }
+  /** A click on a loop selects it, as a click on a flag does: its band lights up, and Edit (or Change the loop… on the right) opens it. */
+  function selectLoop(loop){
+    if(loop.cueId){selectCue(loop.cueId);return;}
+    if(!perf()?.regions.some(r=>r.id===loop.regionId))return;
+    editorOpen?.close();selection={kind:'region',id:loop.regionId};regionId=loop.regionId;paint();
+  }
+  /** Move a planned loop to other bars (dragging its flags, or typing its bars in its action screen). */
+  function moveLoop(id,firstI,lastI){
+    const moved=loopMoved(perf(),id,measures,firstI,lastI,position);
+    if(moved.error){status=moved.error;paint();return false;}
+    change(moved.performance);return true;
+  }
+  // dragging a loop's start or end flag (the Action tool): the bars it would cover light up as it goes, and it moves when let go
+  let loopDrag=null,justDraggedLoop=false,loopNote='';
+  function startLoopDrag(event,id,end){
+    if(event.button!==0)return;
+    const r=perf()?.regions.find(x=>x.id===id);if(!r)return;
+    event.preventDefault();event.stopPropagation();
+    const firstI=measures.indexOf(barAtFrame(measures,position(r.start))),lastI=measures.indexOf(barAtFrame(measures,position(r.end)-.001));
+    loopDrag={id,end,firstI,lastI,toI:end==='start'?firstI:lastI,moved:false};
+    const move=e=>{
+      const bar=document.elementsFromPoint(e.clientX,e.clientY).map(n=>n.closest?.('.pf-bar')).find(Boolean);if(!bar||!loopDrag)return;
+      const i=measures.findIndex(m=>String(m.id)===bar.dataset.bar);if(i<0)return;
+      const to=loopDrag.end==='start'?Math.min(i,loopDrag.lastI):Math.max(i,loopDrag.firstI);
+      if(to!==loopDrag.toI){loopDrag.toI=to;loopDrag.moved=true;}
+      markLoopDrag();
+    };
+    const up=()=>{
+      removeEventListener('pointermove',move);removeEventListener('pointerup',up);removeEventListener('pointercancel',up);
+      const d=loopDrag;loopDrag=null;markLoopDrag();
+      if(!d?.moved)return;
+      justDraggedLoop=true;setTimeout(()=>{justDraggedLoop=false;},0);
+      const [a,b]=d.end==='start'?[d.toI,d.lastI]:[d.firstI,d.toI];
+      if(moveLoop(d.id,a,b)){selection={kind:'region',id:d.id};regionId=d.id;paint();}
+    };
+    addEventListener('pointermove',move);addEventListener('pointerup',up);addEventListener('pointercancel',up);
+    markLoopDrag();
+  }
+  function markLoopDrag(){
+    const range=loopDrag?(loopDrag.end==='start'?[loopDrag.toI,loopDrag.lastI]:[loopDrag.firstI,loopDrag.toI]):null;
+    for(const b of scroller.querySelectorAll('.pf-bar')){const i=measures.findIndex(m=>String(m.id)===b.dataset.bar);b.classList.toggle('pf-loop-target',!!range&&i>=range[0]&&i<=range[1]);}
+    scroller.classList.toggle('pf-dragging-loop',!!loopDrag);
+  }
+  /** In a loop's action screen: the bars it plays, to type. */
+  function drawLoopBars(host,id){
+    const r=perf()?.regions.find(x=>x.id===id);if(!r)return;
+    const first=barAtFrame(measures,position(r.start)),last=barAtFrame(measures,position(r.end)-.001);
+    const box=el('div','pf-timing');host.append(el('h3','vx-cap','Bars'),box);
+    const range={min:measures[0].number,max:measures.at(-1).number,step:1};
+    const retime=(fromNumber,toNumber)=>{
+      const a=measures.findIndex(m=>m.number===fromNumber),b=measures.findIndex(m=>m.number===toNumber);
+      if(a<0||b<0){loopNote='There is no such bar in this song.';openLoopBand({regionId:id});return;}
+      if(!moveLoop(id,a,b))loopNote=status;openLoopBand({regionId:id});             // opened again, so its number of bars matches (and why not, if it could not move)
+    };
+    const from=numberInput(first.number,range,v=>retime(v,last.number)),to=numberInput(last.number,range,v=>retime(first.number,v));
+    box.append(field('From bar',from,'The first bar the loop plays'),field('To bar',to,'The last bar the loop plays before it goes round again'));
+    if(loopNote){box.append(el('p','pf-problem',loopNote));loopNote='';}
+  }
   /** The action screen for a loop, as for any flag: Loop bars, its number of bars and plays. A planned loop's passes are in the panel on the right. */
   function openLoopBand(loop){
     if(loop.cueId){openCue(loop.cueId);return;}
     const r=perf().regions.find(x=>x.id===loop.regionId);if(!r)return;
     const id=r.id,first=barAtFrame(measures,position(r.start)),last=barAtFrame(measures,position(r.end)-.001),count=measures.indexOf(last)-measures.indexOf(first)+1;
-    regionId=id;if(selection.kind==='region')selection={kind:'none'};paint();
+    regionId=id;selection={kind:'region',id};paint();
     editorOpen?.close();
     const passes=btn('','Edit one pass…','Give one time round its own actions, or choose what happens when the loop ends, in the panel on the right',()=>{editorOpen?.close();scope={kind:'pass',regionId:id,passId:perf().regions.find(x=>x.id===id)?.passes[0]?.id,index:0};selection={kind:'region',id};paint();});
     editorOpen=openActionEditor({title:`At bar ${first.number}`,action:{type:'command',command:'loop-bars',params:{bars:count,...(Number.isInteger(r.plays)&&r.plays>=2?{plays:r.plays}:{})}},ctx:editorContext(first.start*SR),
-      onChange:action=>changeLoop(id,action),
+      onChange:action=>changeLoop(id,action),extras:host=>drawLoopBars(host,id),
       tools:[passes,btn('danger','Delete','Remove this loop, and every pass’s own actions with it. Undo brings it back.',()=>{editorOpen?.close();regionId=null;scope={kind:'shared'};selection={kind:'none'};change(removeRegion(perf(),id));})],
       onClose:()=>{editorOpen=null;if(selection.kind!=='region')regionId=null;paint();}});
   }
@@ -537,8 +641,21 @@ export function mountPrepare(root,deps){
   function paintLoopCount(seconds){
     const now=deps.loopShown?.()??null,live=now&&!now.regionId?now:null;
     if(liveKey(live)!==drawnLive){drawTimeline();return;}   // a loop you started (or that ended) gets its band (or loses it)
+    const playing=!!deps.playing?.();
+    let changed=false;
+    if(playing){
+      const key=now?{start:now.start/SR,end:now.end/SR}:null;
+      const gone=!!activeLoop&&!(key&&near(key.start,activeLoop.start)&&near(key.end,activeLoop.end));
+      // it has been left: it is no longer the loop going round, and the playhead is out of its bars (a moment's gap between two passes is not leaving)
+      if(gone&&(seconds>=activeLoop.end-.002||seconds<activeLoop.start-.002)){if(!isSpent(activeLoop.start,activeLoop.end))spent.push(activeLoop);changed=true;activeLoop=key;}
+      else if(!gone)activeLoop=key;
+      if(key&&isSpent(key.start,key.end)){spent=spent.filter(s=>!(near(s.start,key.start)&&near(s.end,key.end)));changed=true;}                                        // going round again
+    }
+    const behind=spent.filter(s=>seconds>=s.start-.002);                                       // the playhead is before it again: it is shown again
+    if(behind.length!==spent.length){spent=behind;changed=true;}
+    if(changed){drawTimeline();return;}
     if(!loopBadges.length)return;
-    const playing=!!deps.playing?.();let beat=null;
+    let beat=null;
     if(playing){
       const m=measures.find(m=>seconds>=m.start&&seconds<m.end);
       if(m){const points=[...m.beats,m.end];let i=0;while(i<points.length-2&&points[i+1]<=seconds)i++;beat={key:m.id+':'+i,length:Math.max(.08,points[i+1]-points[i])};}
@@ -566,7 +683,8 @@ export function mountPrepare(root,deps){
     listB.setAttribute('aria-pressed',String(showList));if(!perf())listB.hidden=true;
     // Copy and Paste, as the same two pictures every program uses; they do what Ctrl+C and Ctrl+V do.
     const copyB=btn('sq','','Copy the selected action or actions (Ctrl+C). Then select a bar and press Paste.',()=>copySelected(),'copy');copyB.setAttribute('aria-label','Copy the selected actions');copyB.disabled=!selectedIds().length;
-    const editB=btn('sq','','Change the selected action: when it happens, what it does. (Click a flag to select it first.)',()=>{if(selection.kind==='cue')openCue(selection.id);},'pencil');editB.setAttribute('aria-label','Edit the selected action');editB.disabled=selection.kind!=='cue'||!find(selection.id);
+    const loopChosen=selection.kind==='region'&&!!perf()?.regions.some(r=>r.id===selection.id);
+    const editB=btn('sq','','Change the selected action or loop: when it happens, what it does, and for a loop the bars it plays. (Click a flag or a loop to select it first.)',()=>{if(selection.kind==='cue')openCue(selection.id);else if(loopChosen)openLoopBand({regionId:selection.id});},'pencil');editB.setAttribute('aria-label','Edit the selected action or loop');editB.disabled=!(selection.kind==='cue'&&find(selection.id))&&!loopChosen;
     const target=pasteTarget(),pasteB=btn('sq','',clipboard?.length?(target?`Paste ${clipboard.length===1?'the copied action':`the ${clipboard.length} copied actions`} at bar ${target.number} (Ctrl+V)`:'Select a bar first, then paste the copied actions there (Ctrl+V)'):'Nothing copied yet. Select an action and press Copy first.',()=>{const at=pasteTarget();if(at)pasteAt(at);},'paste');pasteB.setAttribute('aria-label','Paste the copied actions');pasteB.disabled=!clipboard?.length||!target;
     const zooms=el('span','pf-zoom');zooms.append(copyB,pasteB,editB,listB,magnet,zoomButton(-1,'Zoom out, to see more of the song','minus'),zoomButton(1,'Zoom in, to place actions more finely','plus'));
     const p=perf();if(!p){passBar.append(zooms);return;}
@@ -711,8 +829,15 @@ export function mountPrepare(root,deps){
     if(disposed)return;
     const opts=[el('option','','Original arrangement')];opts[0].value='';
     for(const r of records){const o=el('option','',r.name+(r.has_draft?' (draft)':''));o.value=r.id;opts.push(o);}
-    choice.replaceChildren(...opts);choice.value=record?.id||'';
-    choice.onchange=()=>open(choice.value||null).catch(deps.showError);
+    // The set list on the left still plays an arrangement that has since been deleted (deleting one while the set wasn't chosen left it there).
+    // Say so here, instead of showing another arrangement's name as if the set played that one: choosing any arrangement fixes it.
+    const setPlays=deps.setArrangement?.(),lost=!!setPlays&&!records.some(r=>r.id===setPlays);
+    if(lost){const o=el('option','','Deleted arrangement: choose one');o.value='__lost';opts.unshift(o);}
+    choice.replaceChildren(...opts);choice.value=lost?'__lost':record?.id||'';
+    choice.onchange=()=>{if(choice.value==='__lost')return;const id=choice.value||null;choosing=true;open(id).then(()=>tellSet(id)).catch(deps.showError).finally(()=>{choosing=false;});};
+    const setName0=deps.performSet?.name();
+    choice.title=inSet()&&setName0?`Which arrangement of this song the set list “${setName0}” plays, and the one you’re editing. Original arrangement plays the song as it is.`
+      :'Which saved arrangement of this song to edit. Original arrangement plays the song as it is. In a set list, this also chooses the arrangement that set plays.';
     const editing=!!perf();
     const setName=deps.performSet?.name();performB.disabled=!setName;performB.lastChild.textContent=setName?`Perform ${setName}`:'Perform';
     performB.title=setName?`Get the set list “${setName}” ready to play. It plays the saved version of each song’s arrangement, and nothing plays until you press Start.`:'Choose a set list on the left to perform it.';
@@ -721,8 +846,9 @@ export function mountPrepare(root,deps){
     const c=compiled();
     musicLength.textContent=clockText(c?pathSeconds(c.segments).music:grid.frames/44100)+(c&&c.requiresLiveControl?' (estimated; needs you there)':'');
     problems.replaceChildren();
+    if(lost)problems.append(el('p','pf-problem',`The set list “${deps.performSet?.name()||'on the left'}” still plays an arrangement of this song that was deleted. Choose the one it should play in Performance above.`));
     for(const e of c?.errors||[])problems.append(el('p','pf-problem',e.message));
-    for(const w of c?.warnings||[])problems.append(el('p','pf-note',w.message));
+    for(const w of c?.warnings||[])problems.append(el('p','pf-warning',w.message));   // not pf-note: that is a note flag on the bars, drawn small in a corner
     saved.title=status;
     // With the list open, the column on the right holds it and what you selected. With it closed, the bars get the room, and what you
     // select opens over their right edge, so selecting a bar never moves the bars under your pointer.
@@ -730,7 +856,7 @@ export function mountPrepare(root,deps){
     const floating=editing&&!showList;
     // The pop-up over the top right corner is only for what has settings of its own (a loop). A selected action or bar needs none: the flag opens its
     // details when clicked, Copy and Paste are in the toolbar, and Delete is the Delete key (and a button in the details), so it no longer covers the toolbar.
-    stage.classList.toggle('no-list',floating);side.hidden=floating&&['none','bars','cue','cues'].includes(selection.kind);
+    stage.classList.toggle('no-list',floating);side.hidden=floating&&(['none','bars','cue','cues'].includes(selection.kind)||selection.kind==='region'&&scope.kind==='shared');   // a loop just selected: the Edit button opens it (its panel would cover that button); its passes show the panel
     drawRail();drawPasses();drawTimeline();drawInspector();drawList();
     deps.onHistory?.();
   }
@@ -766,7 +892,7 @@ export function mountPrepare(root,deps){
     /** steps: back (negative) or forward (positive) through the history, in one go. */
     go(steps){if(!history)return;lastChangeAt=0;const labels=steps<0?history.undoLabels:history.redoLabels,label=labels[Math.min(Math.abs(steps),labels.length)-1];let moved=false;for(let i=0;i<Math.abs(steps);i++)moved=(steps<0?history.undo():history.redo())!==null||moved;if(moved){deps.onStepped?.({undid:steps<0,count:Math.abs(steps),label});clearSelectionIfGone();status='Draft not saved yet';clearTimeout(saveTimer);saveTimer=setTimeout(saveDraft,600);paint();deps.onPlanChange?.();}},
   };
-  return {paint,keydown,history:historyApi,get performance(){return perf();},
+  return {paint,keydown,follow,history:historyApi,get performance(){return perf();},
     /** What Play should follow: the arrangement as it stands, or null for the song as it is, or while it has a problem. */
     plan(){const c=compiled();return perf()&&c?.ok?perf():null;},
     get selection(){return selection;},setSelection(value){selection=value;paint();},change,dispose(){disposed=true;clearInterval(headTick);editorOpen?.close();watchWidth?.disconnect();clearTimeout(saveTimer);if(status==='Draft not saved yet')saveDraft();root.replaceChildren();}};

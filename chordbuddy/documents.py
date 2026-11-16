@@ -17,6 +17,7 @@ from .midi import read_midi, validate_midi, write_midi, split_tracks
 from .chords import chord_label
 from .chart import seed_chart,validate_chart
 from .music import read_music
+from .sound_start import song_sound_start
 from .timing_layout import remap_layout
 from .library import validate_song_metadata
 from .timing_store import TimingStore
@@ -166,7 +167,7 @@ class DocumentStore:
         if row['kind']=='chart':
             result['timing_binding']=self.timing.binding(document_id,row['cursor'])
             result['user_modified']=result['user_modified'] or result['timing_binding']!=self.timing.binding(document_id,0)
-        if row['kind'] in ('chart','abc'): result['music']=self._music(row)
+        if row['kind'] in ('chart','abc'): result['music']=dict(self._music(row),sound_start=self._sound_start(row))
         # Derive export status from the authoritative content, so a reload cannot
         # forget a committed edit whose optional file export failed. No DB migration.
         try:
@@ -178,6 +179,11 @@ class DocumentStore:
         except (OSError,PathBudgetError) as exc:
             result['export_warning']=f'Edit saved; exported file could not be checked: {exc}'
         return result
+
+    def _sound_start(self,row):
+        # where the recording first makes a sound: the chart shows a bar wholly in the silence before it as silence (chart-presentation.js)
+        try:return song_sound_start(self.library.folder(row['song_id']))
+        except (OSError,ValueError,KeyError):return None
 
     def _music(self,row,timing=None):
         song=self.library.song(row['song_id'])
@@ -232,7 +238,7 @@ class DocumentStore:
             try:
                 lines=[line.split(None,2) for line in structure.read_text(encoding='utf-8').splitlines() if line.strip()]
                 endpoint=max(float(line[1]) for line in lines)
-                generated=seed_sections(run,song['duration'])
+                generated=seed_sections(run,song['duration'],fold=False)   # as the chart's first version was made, sliver and all
             except (OSError,ValueError,IndexError):return {'available':False,'reason':'Structure provenance unavailable'}
             tail=baseline['sections'][-1]
             proven=bool(generated and generated[-1]==tail and tail['name']=='Instrumental' and tail['start']==endpoint)

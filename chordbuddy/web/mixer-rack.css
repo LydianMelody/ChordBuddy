@@ -8,7 +8,7 @@
 .presets button{padding:3px 9px;border:2px solid var(--ink);border-radius:999px;font:700 11px var(--g)}
 .presets button.on{background:var(--ink);color:var(--page)}
 .strips{flex:1;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-template-rows:minmax(0,1fr);gap:5px;min-height:0}
-.stem{display:grid;grid-template-rows:auto minmax(0,1fr) auto auto auto;justify-items:center;gap:6px;padding:0 0 7px;border:2px solid var(--ink);border-radius:10px;background:var(--desk);overflow:hidden;min-height:0}
+.stem{display:grid;grid-template-rows:auto minmax(0,1fr) auto auto auto auto;justify-items:center;gap:6px;padding:0 0 7px;border:2px solid var(--ink);border-radius:10px;background:var(--desk);overflow:hidden;min-height:0}
 .stem-icon{width:100%;display:grid;place-items:center;padding:6px 0;background:var(--cap,var(--tint));border-bottom:2px solid var(--ink)}
 .stem:nth-child(1){--cap:var(--a1)}.stem:nth-child(2){--cap:var(--hl)}.stem:nth-child(3){--cap:color-mix(in srgb,var(--hl) 50%,var(--a1))}.stem:nth-child(4){--cap:var(--a2)}.stem:nth-child(5){--cap:var(--a3)}.stem:nth-child(6){--cap:color-mix(in srgb,var(--a3) 40%,var(--page))}.stem:nth-child(7){--cap:var(--tint)}
 .stem:nth-child(1) .stem-icon,.stem:nth-child(4) .stem-icon{color:#fff}
@@ -23,6 +23,7 @@
 .mute,.solo{width:calc(100% - 8px);height:22px;border:2px solid var(--ink);border-radius:6px;font:800 11px var(--g);background:var(--page)}
 .stem.muted{opacity:.55}.stem.muted .mute{background:var(--ink);color:var(--page)}
 .stem.soloed{box-shadow:0 0 0 2px var(--hl),0 0 0 4px var(--ink)}.stem.soloed .solo{background:var(--hl)}
+.fader-num{font:700 8px/1 var(--g);font-variant-numeric:tabular-nums;letter-spacing:.02em;text-align:center;min-width:3ch;flex:none;opacity:.8}
 .strip-label{font:800 10px/1.05 var(--g);font-stretch:85%;text-transform:uppercase;text-align:center;min-height:21px;padding:0 2px}
 .master{display:flex;align-items:center;gap:10px;padding:8px 10px;border:2px solid var(--ink);border-radius:12px;background:var(--desk)}
 .master b{font:700 11px var(--m);text-transform:uppercase}

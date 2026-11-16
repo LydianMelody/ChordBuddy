@@ -1,193 +1,724 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="plum" data-scheme="light">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Replace a Stem</title>
+<!-- Chord Buddy's own look, read from the app's files as they are (see window.py): its fonts, its three color themes and its dark scheme. -->
+<link rel="stylesheet" href="/web/fonts/fonts.css">
+<link rel="stylesheet" href="/web/press-room.base.css">
+<link rel="stylesheet" href="/web/dark.css">
 <style>
-  /* The same look as Chord Buddy's pages (ink borders, hard shadows, warm paper), drawn here by itself: this page loads nothing from the app. */
-  :root{--ink:#1d1a26;--page:#fffaf2;--desk:#efe9f0;--soft:#6b6478;--hot:#e8446a;--tint:#d9cdee;--ok:#2f9e79;--bd:2.5px;--sh:4px}
-  @media (prefers-color-scheme:dark){:root{--ink:#f2ecf7;--page:#26222f;--desk:#17141d;--soft:#a79fb5;--tint:#4a3f63}}
-  *{box-sizing:border-box}
-  html,body{margin:0;background:var(--desk);color:var(--ink);font:500 14px/1.45 "Segoe UI",system-ui,sans-serif}
-  main{max-width:760px;margin:0 auto;padding:18px 16px 28px;display:flex;flex-direction:column;gap:14px}
-  h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.01em}
-  .lead{margin:2px 0 0;color:var(--soft)}
-  section{background:var(--page);border:var(--bd) solid var(--ink);border-radius:14px;box-shadow:var(--sh) var(--sh) 0 var(--ink);padding:12px 14px}
-  section>h2{margin:0 0 8px;font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--soft)}
-  .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px}
-  .row+.row{margin-top:8px}
-  label{font-weight:600}
-  select,input[type=number]{font:inherit;color:inherit;background:var(--page);border:2px solid var(--ink);border-radius:9px;padding:6px 8px}
-  select{min-width:0;flex:1 1 260px}
-  #role{flex:0 0 150px}
-  input[type=number]{width:104px}
-  input[type=range]{flex:1 1 220px;accent-color:var(--hot)}
-  button{font:inherit;font-weight:800;color:var(--ink);background:var(--page);border:var(--bd) solid var(--ink);border-radius:11px;padding:7px 13px;box-shadow:3px 3px 0 var(--ink);cursor:pointer}
-  button:active:not(:disabled){transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
-  button:disabled{opacity:.45;cursor:default}
-  button.hot{background:var(--hot);color:#fff}
-  .note{margin:8px 0 0;color:var(--soft)}
-  .note b{color:var(--ink)}
-  .warn{margin:6px 0 0;padding:6px 10px;border:2px dashed var(--ink);border-radius:9px;font-weight:600}
-  .tag{display:inline-block;padding:1px 8px;border:2px solid var(--ink);border-radius:999px;font-size:12px;font-weight:800;background:var(--tint)}
-  .tag.good{background:var(--ok);color:#fff}
-  .small{font-size:12px;color:var(--soft)}
-  #file{font-weight:700}
-  #log{margin:0;max-height:150px;overflow:auto;white-space:pre-wrap;font:500 12.5px/1.5 "Segoe UI",system-ui,sans-serif;color:var(--soft)}
-  #log p{margin:0 0 6px}
-  #log p:last-child{color:var(--ink);font-weight:600}
-  body.busy{cursor:progress}
-  body.busy main{opacity:.72}
-  #busy{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);padding:6px 16px;border:var(--bd) solid var(--ink);border-radius:999px;background:var(--tint);font-weight:800;box-shadow:3px 3px 0 var(--ink)}
+  /* This page's own layout. Colors and fonts are the app's tokens (--ink, --page, --desk, --a1 ...); the fallbacks only matter if its files are missing. */
+  html,body{height:100%;margin:0}
+  body{display:flex;flex-direction:column;gap:10px;padding:12px;box-sizing:border-box;background:var(--desk,#ece5ea);color:var(--ink,#231a2c);
+       font:500 14px/1.4 var(--g,"Segoe UI",system-ui,sans-serif);overflow:auto}
+  .card{background:var(--page,#fcf8f4);border:var(--bd,2.5px) solid var(--ink,#231a2c);border-radius:14px;box-shadow:var(--sh,4px) var(--sh,4px) 0 var(--ink,#231a2c)}
+  .bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:8px 12px}
+  h1{margin:0 6px 0 0;font-size:18px;font-weight:800;white-space:nowrap}
+  select,.pick,input[type=text]{font:inherit;color:inherit;background:var(--page,#fff);border:2px solid var(--ink,#231a2c);border-radius:10px;padding:6px 8px;min-width:0}
+  #song{flex:1 1 220px;max-width:460px}
+  #role{flex:0 1 150px}
+  #file{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 120px}
+  .btn{white-space:nowrap}
+  .btn[disabled]{opacity:.45;cursor:default;pointer-events:none}
+  .btn.on{background:var(--ink,#231a2c);color:var(--page,#fff)}
+  .btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+  .seg{display:inline-flex;border:var(--bd,2.5px) solid var(--ink,#231a2c);border-radius:12px;overflow:hidden;box-shadow:3px 3px 0 var(--ink,#231a2c)}
+  .seg button{font:inherit;font-weight:800;border:0;background:var(--page,#fff);color:inherit;padding:7px 11px;cursor:pointer;white-space:nowrap}
+  .seg button+button{border-left:2px solid var(--ink,#231a2c)}
+  .seg button.on{background:var(--ink,#231a2c);color:var(--page,#fff)}
+  .cap{font:700 11px var(--m,monospace);letter-spacing:.06em;text-transform:uppercase;color:var(--soft,#625869);white-space:nowrap}
+  .grow{flex:1 1 auto}
+  /* the timeline takes whatever height the window has left */
+  /* it never squeezes below what its controls need: a window too short for everything scrolls instead of hiding buttons under one another */
+  #stage{flex:1 0 auto;display:flex;flex-direction:column}
+  #view{flex:1 1 150px;min-height:150px;position:relative;margin:0 12px;border:2px solid var(--ink,#231a2c);border-radius:10px;overflow:hidden;background:var(--desk,#ece5ea);touch-action:none}
+  #canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  #empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:16px;color:var(--soft,#625869);font-weight:600}
+  #scroll{margin:6px 12px 0;accent-color:var(--ink,#231a2c)}
+  input[type=range]{min-width:0}
+  #volume{flex:0 1 130px;accent-color:var(--a1,#eb496f)}
+  #where{flex:1 1 200px;min-width:0;text-align:center;font-weight:700}
+  #where small{display:block;font-weight:600;color:var(--soft,#625869)}
+  .tag{display:inline-block;padding:1px 9px;border:2px solid var(--ink,#231a2c);border-radius:999px;font:700 12px var(--g,sans-serif);background:var(--tint,#e2d8e0);white-space:nowrap}
+  .tag.good{background:var(--a3,#22a598);color:var(--onA3,#231a2c)}
+  .tag.warn{background:var(--hl,#ffcf5c);color:#231a2c}
+  #bottom{display:flex;flex-wrap:wrap;gap:10px}
+  #levelcard{flex:3 1 360px;min-width:0}
+  #keycard,#flagcard{flex:1 1 100%;min-width:0}
+  #flagsong{flex:1 1 200px;max-width:340px}
+  #flagperf{flex:1 1 160px;max-width:260px}
+  #flagpreview{flex:1 1 240px;min-width:0;font-weight:600}
+  #flagnamewrap{display:inline-flex;align-items:center;gap:6px;font-weight:600;flex:0 1 230px;min-width:0}
+  #flagname{flex:1 1 auto;min-width:6em;width:100%}
+  #keyamount{font-weight:800;min-width:9.5em;text-align:center}
+  #keypreview{flex:1 1 220px;min-width:0;font-weight:600}
+  #keypreview b{font-weight:800}
+  #keywarn{flex:1 1 100%;margin:0;font-size:13px;color:var(--soft,#625869)}
+  #keywarn:empty{display:none}
+  .check{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+  .check.off{opacity:.5}
+  #actioncard{flex:2 1 300px;min-width:0;justify-content:flex-end}
+  #trim{flex:1 1 140px;accent-color:var(--a2,#4a2f86)}
+  #leveltext{font-weight:700;white-space:nowrap}
+  #notes{flex:1 1 100%;margin:0;color:var(--soft,#625869);font-size:13px}
+  #notes:empty{display:none}
+  details{padding:6px 12px}
+  summary{cursor:pointer;font-weight:700}
+  #log{margin:6px 0 2px;max-height:90px;overflow:auto;font-size:13px;color:var(--soft,#625869)}
+  #log p{margin:0 0 4px}
+  #log p:last-child{color:var(--ink,#231a2c);font-weight:600}
+  #last{font-weight:600;color:var(--soft,#625869);margin-left:8px}
+  #busy{position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:9;padding:5px 16px;border:var(--bd,2.5px) solid var(--ink,#231a2c);border-radius:999px;background:var(--hl,#ffcf5c);color:#231a2c;font-weight:800;box-shadow:3px 3px 0 var(--ink,#231a2c)}
   [hidden]{display:none!important}
+  header,#bottom,details{flex:none}
+  @media (max-height:640px){details{display:none}h1{font-size:16px}body{gap:8px;padding:8px}.bar{padding:6px 10px;gap:6px 8px}}
+  @media (max-width:760px){.cap.wide{display:none}}
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <h1>Replace a stem</h1>
-    <p class="lead">Swap one stem of a song for your own audio. The song’s chart, flags and other stems stay exactly as they are, and the stem you replace is kept so you can put it back. Nothing changes until you press Replace.</p>
+  <header class="card bar">
+    <h1>Replace stem</h1>
+    <select id="song" aria-label="Song" title="The song whose stem you want to replace. Only songs with split stems are listed."></select>
+    <select id="role" aria-label="Stem to replace" title="Which stem to replace. Vocals is the usual one."></select>
+    <button id="choose" type="button" class="btn hot" title="Pick the audio file to use in place of this stem: WAV, FLAC, MP3 or M4A">Choose audio</button>
+    <span id="file" title="">No file chosen</span>
   </header>
 
-  <section>
-    <h2>1 · Which song, and which stem</h2>
-    <div class="row">
-      <select id="song" aria-label="Song"></select>
-      <select id="role" aria-label="Stem to replace"></select>
+  <section id="stage" class="card">
+    <div class="bar">
+      <button id="play" type="button" class="btn hot" title="Play from the gold line (Space). Click anywhere on the bars to move the line."></button>
+      <div class="seg" role="group" aria-label="What to hear">
+        <button type="button" data-hear="new" class="on" title="Hear the song with the replacement in place of the stem it replaces">Updated mix</button>
+        <button type="button" data-hear="now" title="Hear the song as it is in your library right now, before any replacement">Current mix</button>
+        <button type="button" data-hear="solo" title="Hear only the replacement, at the level it will have in the song">New stem solo</button>
+      </div>
+      <button id="loop" type="button" class="btn" aria-pressed="false" title="Go round and round a few bars from the gold line (L), so you can slide the replacement until it sits right"></button>
+      <select id="loopbars" class="pick" aria-label="How many bars to loop" title="How many bars the loop goes round">
+        <option value="1">1 bar</option><option value="2">2 bars</option><option value="4" selected>4 bars</option><option value="8">8 bars</option>
+      </select>
+      <span class="grow"></span>
+      <span class="cap wide">Volume</span>
+      <input id="volume" type="range" min="0" max="100" step="1" aria-label="Preview volume" title="How loud the preview plays. It starts quiet on purpose.">
+      <button id="snap" type="button" class="btn sq on" aria-pressed="true" title="Snap. On: dragging moves the replacement a whole beat at a time, and the gold line lands on beats. Off: it moves freely."></button>
+      <button id="zoomout" type="button" class="btn sq" title="Zoom out, to see more of the song (Ctrl+wheel)"></button>
+      <button id="zoomin" type="button" class="btn sq" title="Zoom in, to line it up more finely (Ctrl+wheel)"></button>
+      <button id="fit" type="button" class="btn" title="Zoom out to show the whole song at once">Full song</button>
     </div>
-    <p class="note" id="song-note"></p>
-  </section>
-
-  <section>
-    <h2>2 · The new audio</h2>
-    <div class="row">
-      <button id="choose" type="button" title="Pick the audio file to use for this stem: WAV, FLAC, MP3 or M4A">Choose a file…</button>
-      <span id="file">No file chosen</span>
+    <div id="view">
+      <canvas id="canvas" title="Drag the replacement (the lower lane) left or right to line it up with the song. Click the bars to move the gold line." aria-label="The song’s bars, with the stem as it is now on top and the replacement underneath. Drag the replacement left or right to line it up."></canvas>
+      <div id="empty">Choose a song, then Choose audio. The replacement appears here on the song’s bars, and you slide it into place.</div>
     </div>
-    <p class="note" id="match"></p>
-    <div class="row">
-      <label for="offset">Start, in milliseconds</label>
-      <input id="offset" type="number" step="5" title="Where the file belongs in the song. A bigger number moves it later; a smaller one, earlier.">
-      <button id="suggested" type="button" title="Go back to the start that was found by listening">Use the suggested start</button>
-      <span class="small">bigger is later</span>
-    </div>
-    <div class="row">
-      <label for="trim">Level, in dB from the matched level</label>
-      <input id="trim" type="number" step="0.5" title="0 keeps the new stem as loud as the one it replaces. Plus is louder, minus is quieter.">
-      <span class="small" id="trim-range"></span>
-    </div>
-    <p class="note" id="level"></p>
-    <div id="notes"></div>
-  </section>
-
-  <section>
-    <h2>3 · Listen first</h2>
-    <div class="row">
-      <label for="position">From</label>
-      <input id="position" type="range" min="0" max="1" step="1" value="0">
-      <b id="position-words">0:00</b>
-    </div>
-    <div class="row">
-      <label for="volume">Volume</label>
-      <input id="volume" type="range" min="0" max="100" step="1">
-      <span class="small">starts quiet</span>
-    </div>
-    <div class="row">
-      <button id="play-new" type="button" class="hot" title="Hear the song with the new stem in place of the old one">Play with the new stem</button>
-      <button id="play-now" type="button" title="Hear the song as it is in your library right now">Play as it is now</button>
-      <button id="play-solo" type="button" title="Hear only the new stem, at the level it will have">New stem alone</button>
-      <button id="stop" type="button">Stop</button>
+    <input id="scroll" type="range" min="0" max="1000" value="0" aria-label="Scroll along the song" title="Scroll along the song (or turn the mouse wheel over the bars)">
+    <div class="bar">
+      <button type="button" class="btn" data-move="-bar" title="Move the replacement one whole bar earlier (Ctrl+Left), for when it is a bar out">◀ Bar</button>
+      <button type="button" class="btn" data-move="-beat" title="Move the replacement one beat earlier (Shift+Left), for when the phrases land a beat apart">◀ Beat</button>
+      <button type="button" class="btn" data-move="-nudge" title="Move the replacement a hundredth of a second earlier (Left arrow), for getting the consonants to land together">◀ Nudge</button>
+      <div id="where"></div>
+      <button type="button" class="btn" data-move="+nudge" title="Move the replacement a hundredth of a second later (Right arrow), for getting the consonants to land together">Nudge ▶</button>
+      <button type="button" class="btn" data-move="+beat" title="Move the replacement one beat later (Shift+Right), for when the phrases land a beat apart">Beat ▶</button>
+      <button type="button" class="btn" data-move="+bar" title="Move the replacement one whole bar later (Ctrl+Right), for when it is a bar out">Bar ▶</button>
+      <button id="suggested" type="button" class="btn" title="Put the replacement back where the tool first placed it, by listening to where it lines up with the song">Reset alignment</button>
     </div>
   </section>
 
-  <section>
-    <h2>4 · Replace</h2>
-    <div class="row">
-      <button id="replace" type="button" class="hot">Replace the stem</button>
-      <button id="restore" type="button" title="Put the song’s own stem back, exactly as it was">Put the original back</button>
+  <div id="bottom">
+    <div id="levelcard" class="card bar">
+      <span class="cap">Replacement level</span>
+      <span class="cap">Quieter</span>
+      <input id="trim" type="range" step="0.5" aria-label="Level of the replacement" title="How loud the replacement is. In the middle it is as loud as the stem it replaces. Left is quieter, right is louder.">
+      <span class="cap">Louder</span>
+      <button id="matched" type="button" class="btn" title="Set the level back to as loud as the stem it replaces">Match level</button>
+      <span id="leveltext"></span>
+      <p id="notes"></p>
     </div>
+    <div id="actioncard" class="card bar">
+      <button id="restore" type="button" class="btn" title="Put the song’s own stem back, exactly as it was before it was replaced">Restore original</button>
+      <button id="replace" type="button" class="btn hot" title="Save the replacement into the song, at this place and level. The stem it replaces is kept, so Restore original brings it back.">Replace stem</button>
+    </div>
+  </div>
+
+  <section id="keycard" class="card bar" aria-label="Transpose the chords and notes">
+    <span class="cap" title="For a song whose stems you replaced with ones in another key: this moves what Chord Buddy shows (the chords, the key, the lead sheet and the MIDI parts) to match. It does not change any sound.">Transpose analysis</span>
+    <button id="keydown" type="button" class="btn sq" title="One semitone lower">−</button>
+    <span id="keyamount" title="How far to move the chords and notes">0 semitones</span>
+    <button id="keyup" type="button" class="btn sq" title="One semitone higher">+</button>
+    <span id="keypreview"></span>
+    <label class="check" id="melodywrap" hidden title="This lead sheet has syllables you placed by hand under its notes. Moving the melody resets them (Undo in Chord Buddy brings them back). Unticked, only the lead sheet’s chord symbols move."><input id="melody" type="checkbox"> Move the lead sheet’s melody too</label>
+    <button id="transpose" type="button" class="btn hot" title="Move this song’s chords, key, lead sheet and MIDI parts by this much. Each gets one new step in its history in Chord Buddy, so Undo there takes it back.">Transpose</button>
+    <p id="keywarn"></p>
   </section>
 
-  <section>
-    <h2>What happened</h2>
+  <section id="flagcard" class="card bar" aria-label="Copy from another song">
+    <span class="cap" title="For two songs that are the same music, like a lowered version: copy the other song’s song structure, lyrics or action flags onto this one. Each lands at the same moment of the music, even where the two analyses number the bars differently.">Copy from</span>
+    <select id="flagsong" aria-label="The song to copy from" title="The song to copy from. Songs with a chart or an arrangement are listed."></select>
+    <label class="check" data-tip="Its sections: their names and where each begins and ends, plus which repeats are shown folded and where the chart’s lines break. This song keeps its own chords and its own lyrics (each line moves into the section it is sung in). One step in its chart’s history, so Undo on its Chart tab takes it back."><input id="flagstruct" type="checkbox"> Copy song structure</label>
+    <label class="check" data-tip="Its lyrics, each word at the same moment of the music. They replace this song’s own lyrics and go into whichever of this song’s sections they are sung in. One step in its chart’s history, so Undo on its Chart tab takes it back."><input id="flaglyrics" type="checkbox"> Copy lyrics</label>
+    <label class="check" data-tip="One of its arrangements from the Perform tab (action flags, loops, jumps and holds), added to this song as a new arrangement, each at the same moment of the music. Nothing is replaced."><input id="flagflags" type="checkbox"> Copy action flags</label>
+    <select id="flagperf" aria-label="Which arrangement to copy" title="Which of that song’s arrangements to copy"></select>
+    <label id="flagnamewrap" title="What the copied arrangement is called on this song’s Perform tab. It starts as the name of the one you are copying; type another to tell them apart. If this song already has one by that name, a number is added.">Arrangement name <input id="flagname" type="text" maxlength="80" autocomplete="off" spellcheck="false" aria-label="Name for the copied arrangement"></label>
+    <label class="check" id="flagcountwrap" hidden title="Chord Buddy counts bar 1 from the first chord in the chart. This song’s analysis heard a chord sooner than the other’s (in a fade-in, say), so its bars are numbered differently. Ticked, those early chords become rests in this song’s chart, and both songs then have bar 1 in the same place. Undo on its Chart tab takes it back."><input id="flagcount" type="checkbox" checked> <span id="flagcountwords"></span></label>
+    <span id="flagpreview"></span>
+    <button id="flagcopy" type="button" class="btn hot" title="Copy what is ticked onto the song chosen at the top. The other song is left as it is.">Copy to song</button>
+  </section>
+
+  <details class="card">
+    <summary>Activity log <span id="last"></span></summary>
     <div id="log" role="log" aria-live="polite"></div>
-  </section>
-</main>
-<div id="busy" role="status" hidden>Working…</div>
+  </details>
+  <div id="busy" role="status" hidden>Working…</div>
 
-<script>
+<script type="module">
+// The page of the Replace a Stem window. Python (controller.py) does the work and holds the truth; this draws it and sends what the person does.
+// The new audio is shown as a shape on the song's own bars, beats and sections (worked out by the app's own chart code), and is slid into place
+// by dragging it or with the Bar / Beat / Nudge buttons. Nothing here reads or writes the library.
 const $=id=>document.getElementById(id);
-let api=null,state=null,busy=false;
-const clock=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+const NUDGE=.01;                       // the tiny step, in seconds: a hundredth, about as fine as an ear can place a consonant
+let api=null,state=null,busy=0;
+let bars=[],sections=[],waves={},perSecond=100,seconds=0,hasChart=false;
+let view={start:0,pps:60},playhead=0,hear='new',looping=false,snapping=true;
+let offset=0,dragging=null,playing=null,restartTimer=0,levelTimer=0,trimDrag=false;
+let keySteps=0,keyPlan=null,keySerial=0,shownKey=null;
+let targetMeasures=[],targetChart=null,flagSources=[],flagPlan=null,flagBars=null,flagGrid=null,flagSerial=0,flagCount=null,flagStructureFor='';
+let flagTiming=null,flagNameTyped=false;
 
-function draw(next){
-  if(!next)return;
-  state=next;
-  const songBox=$('song'),was=songBox.value;
+// ---- the app's own pieces, if they can be had: its chart code (for the grid) and its icons
+let buildChartModel=null,icon=name=>'';
+try{({buildChartModel}=await import('/web/chart-model.js'));}catch{/* no bars then: the grid is drawn in seconds */}
+try{({icon}=await import('/web/icons.js'));}catch{/* words instead of pictures */}
+// the app's own way of naming a song's key (key-estimate.js): the same code that decides what its key chip says
+let keyCode=null,noChord=label=>!label||label==='N';
+try{keyCode=await import('/web/key-estimate.js');}catch{/* the key is then named from the saved choice or the model's file alone */}
+try{({isNoChordLabel:noChord}=await import('/web/chart-layout.js'));}catch{/* 'N' is the usual no-chord mark */}
+let gridFingerprint=null,matchBars=null,matchWords=null;
+try{({matchBars,matchWords}=await import('/tool/bar-match.js'));}catch{/* no copying of flags then; said in its row */}
+try{({gridFingerprint}=await import('/web/performance-compiler.js'));}catch{/* the copy is then saved without the bars' stamp, which the Perform tab adds on its next save */}
+const withIcon=(node,name,words)=>{node.innerHTML=(icon(name)||'')+(words?`<em style="font-style:normal">${words}</em>`:'');if(!icon(name)&&!words)node.textContent=name;};
+withIcon($('snap'),'magnet','');withIcon($('zoomout'),'minus','');withIcon($('zoomin'),'plus','');
+$('snap').setAttribute('aria-label','Snap to beats');$('zoomout').setAttribute('aria-label','Zoom out');$('zoomin').setAttribute('aria-label','Zoom in');
+
+// ---- the grid
+function readChart(chart){
+  bars=[];sections=[];hasChart=false;targetMeasures=[];targetChart=chart||null;
+  if(chart&&buildChartModel)try{
+    const model=buildChartModel(chart.content,chart.music);
+    bars=model.measures.map(m=>({id:m.id,start:m.start,end:m.end,number:m.number-model.barOffset,beats:(m.beats&&m.beats.length?m.beats:[m.start])}));
+    targetMeasures=model.measures;
+    sections=model.sections.map(s=>({name:s.name,start:s.start,end:s.end}));
+    hasChart=bars.length>0;
+  }catch{bars=[];sections=[];}
+}
+const barAt=t=>{if(!bars.length)return null;if(t<bars[0].start)return bars[0];for(const b of bars)if(t>=b.start&&t<b.end)return b;return bars.at(-1);};
+const beatLength=t=>{const b=barAt(t);return b?(b.end-b.start)/b.beats.length:.5;};      // with no chart, a "beat" is half a second
+const barLength=t=>{const b=barAt(t);return b?b.end-b.start:2;};
+const beatsNear=t=>{const b=barAt(t);return b?[...b.beats,b.end]:[Math.round(t*2)/2];};
+const nearestBeat=t=>beatsNear(t).reduce((best,x)=>Math.abs(x-t)<Math.abs(best-t)?x:best);
+const clockWords=t=>`${Math.floor(Math.max(0,t)/60)}:${String(Math.floor(Math.max(0,t)%60)).padStart(2,'0')}`;
+/** A place in the song the way a musician says it: "bar 9, beat 3". */
+function placeWords(t){
+  if(!hasChart)return clockWords(t);
+  if(t<bars[0].start-.02)return `${(bars[0].start-t).toFixed(1)} s before bar ${bars[0].number}`;
+  if(t>=bars.at(-1).end)return 'after the last bar';
+  const b=barAt(t);let i=0;while(i<b.beats.length-1&&b.beats[i+1]<=t+.005)i++;
+  const next=i<b.beats.length-1?b.beats[i+1]:b.end,part=(t-b.beats[i])/Math.max(.01,next-b.beats[i]);
+  const beat=part<.12?`beat ${i+1}`:part>.88?(i+1<b.beats.length?`beat ${i+2}`:`the end of the bar`):part>.38&&part<.62?`the “and” of ${i+1}`:`just ${part<.5?'after':'before'} ${part<.5?`beat ${i+1}`:(i+1<b.beats.length?`beat ${i+2}`:'the barline')}`;
+  return `bar ${b.number}, ${beat}`;
+}
+/** How far the new audio sits from where it was found, in beats and bars. */
+function movedWords(){
+  if(state?.suggested==null)return '';
+  const d=offset-state.suggested;if(Math.abs(d)<.004)return 'right where it was found';
+  if(!hasChart)return `${Math.abs(d).toFixed(2)} s ${d>0?'later':'earlier'} than where it was found`;      // a song with no chart has no beats to count in
+  const beat=beatLength(Math.max(0,offset)),n=Math.abs(d)/beat,way=d>0?'later':'earlier';
+  const perBar=Math.max(1,Math.round(barLength(Math.max(0,offset))/beat)),inBars=n/perBar;
+  let amount;
+  if(n<.2)amount='a touch';
+  else if(inBars>=1&&Math.abs(inBars-Math.round(inBars))<.06)amount=`${Math.round(inBars)} bar${Math.round(inBars)===1?'':'s'}`;
+  else{const q=Math.round(n*4)/4;amount=q===.25?'a quarter of a beat':q===.5?'half a beat':q===.75?'three quarters of a beat':q===1?'1 beat':`${q} beats`;}
+  return `${amount} ${way} than where it was found`;
+}
+
+// ---- asking Python: one thing at a time, in order; the slow ones show "Working…"
+let line=Promise.resolve();
+function ask(name,args=[],{slow=false}={}){
+  const run=async()=>{
+    if(slow){busy++;enable();}
+    try{const answer=await api[name](...args);if(answer&&'songs' in answer)take(answer);return answer;}
+    catch(error){note('That did not work: '+(error?.message||error));return null;}
+    finally{if(slow){busy--;enable();}}
+  };
+  line=line.then(run,run);return line;
+}
+function note(text){const p=document.createElement('p');p.textContent=text;$('log').append(p);$('last').textContent='· '+text;}
+async function loadTimeline(){
+  const t=await ask('timeline',[],{slow:true});if(!t)return;
+  readChart(t.chart);waves=t.waves||{};perSecond=t.per_second||100;
+  seconds=state?.seconds||0;clampView();draw();
+}
+
+// ---- what Python says is so
+function take(next){
+  const first=!state;state=next;
+  document.documentElement.dataset.theme=state.theme;document.documentElement.dataset.scheme=state.scheme;
+  const songBox=$('song');
   songBox.replaceChildren(new Option(state.songs.length?'Choose a song…':'No song has split stems yet',''),
-    ...state.songs.map(s=>new Option(`${s.title}${s.artist?' · '+s.artist:''}   ${s.length}${s.replaced.length?'   (replaced: '+s.replaced.join(', ').toLowerCase()+')':''}`,s.id)));
+    ...state.songs.map(s=>new Option(`${s.title}${s.artist?' · '+s.artist:''}  (${s.length})${s.replaced.length?'  · replaced: '+s.replaced.join(', ').toLowerCase():''}`,s.id)));
   songBox.value=state.song||'';
-  void was;
-  const roleBox=$('role');
-  if(!roleBox.options.length)roleBox.replaceChildren(...state.stems.map(s=>new Option(s.name,s.id)));
-  roleBox.value=state.role;
-  $('song-note').textContent=state.songs.length?'':'Split a song’s stems in Chord Buddy first, then come back here.';
-  $('file').textContent=state.file?`${state.file} · ${state.file_length}`:'No file chosen';
-  const match=$('match');match.replaceChildren();
-  if(state.match){
-    const tag=document.createElement('span'),c=state.confidence;
-    tag.className='tag'+(c>=.6?' good':'');tag.textContent=c>=.6?'Clear match':c>=.35?'Likely match':'A guess';
-    match.append(tag,' ',state.match);
-  }
-  if(document.activeElement!==$('offset'))$('offset').value=state.file?state.offset_ms:'';
-  if(document.activeElement!==$('trim'))$('trim').value=state.file?state.trim_db:'';
-  $('trim').min=state.trim_range[0];$('trim').max=state.trim_range[1];
-  $('trim-range').textContent=`from ${state.trim_range[0]} to +${state.trim_range[1]}`;
-  $('level').replaceChildren();
-  if(state.level){const b=document.createElement('b');b.textContent='Level: ';$('level').append(b,state.level);}
-  $('notes').replaceChildren(...state.notes.map(n=>{const p=document.createElement('p');p.className='warn';p.textContent=n;return p;}));
-  $('position').max=Math.max(1,Math.floor(state.seconds)-1);
-  $('position-words').textContent=clock(+$('position').value);
-  if(!$('volume').dataset.set){$('volume').value=state.start_volume;$('volume').dataset.set='1';}
-  $('play-new').textContent=`Play ${state.preview_seconds} s with the new stem`;
-  $('replace').textContent=state.song?`Replace the ${state.role_name.toLowerCase()} of “${state.title}”`:'Replace the stem';
+  if(!$('role').options.length)$('role').replaceChildren(...state.stems.map(s=>new Option(s.name,s.id)));
+  $('role').value=state.role;
+  $('file').textContent=state.file||'No file chosen';$('file').title=state.file||'';
+  if(!dragging)offset=state.offset;
+  seconds=state.seconds||0;
+  if(first){$('volume').value=state.start_volume;}
+  const trim=$('trim');trim.min=state.trim_range[0];trim.max=state.trim_range[1];if(!trimDrag)trim.value=state.trim_db;
+  // the level's state (the Match level button is the action): matched to the old stem, or how far from it
+  const fromMatch=Math.abs(state.trim_db)<.05?'Matched':`${state.trim_db>0?'+':''}${state.trim_db.toFixed(1)} dB from matched`;
+  $('leveltext').textContent=!state.file?'':`${fromMatch} · ${state.gain_db>0?'+':''}${state.gain_db.toFixed(1)} dB on the file${state.level_checked?'':' · checking…'}`;
+  $('leveltext').title=!state.file?'':'How much the replacement file is turned up or down to sit at this level';
+  $('notes').textContent=state.notes.join(' ');
+  $('replace').textContent=`Replace ${state.song?state.role_name.toLowerCase():'stem'}`;
   const log=$('log');log.replaceChildren(...state.messages.map(m=>{const p=document.createElement('p');p.textContent=m;return p;}));log.scrollTop=log.scrollHeight;
-  enable();
+  $('last').textContent=state.messages.length?'· '+state.messages.at(-1):'';
+  $('empty').hidden=!!state.song;
+  if(!state.song)$('empty').textContent=state.songs.length?'Choose a song, then Choose audio. The replacement appears here on the song’s bars, and you slide it into place.':'No song in your library has split stems yet. Split a song’s stems in Chord Buddy first, then come back.';
+  where();enable();draw();
+}
+function where(){
+  const box=$('where');box.replaceChildren();
+  if(!state?.file){box.textContent=state?.song?'Select a replacement audio file.':'';return;}
+  const c=state.confidence,tag=document.createElement('span');
+  tag.className='tag'+(c>=.6?' good':c<.35?' warn':'');tag.textContent=c>=.6?'Clear match':c>=.35?'Likely match':'Not sure: listen and slide it';
+  tag.title=c>=.6?'The replacement’s phrasing matches the stem it replaces, so it was put where the two line up.':'The replacement’s phrasing does not clearly match the stem it replaces. Loop a few bars and slide it until it sits right.';
+  // where its first sound lands is what the ear checks, not where the file happens to begin (files often start with silence)
+  const first=(waves.new||[]).findIndex(v=>v>.05),lands=offset+(first<0?0:first/perSecond);
+  const words=document.createElement('span');words.textContent=` Its first sound lands on ${placeWords(lands)}`;
+  const small=document.createElement('small');small.textContent=movedWords()+(state.drift_warning?' · The start and the end of the song disagree: this may be a different version or tempo, and can drift.':'');
+  box.append(tag,words,small);
 }
 function enable(){
-  const s=state||{};
-  $('song').disabled=$('role').disabled=busy;
-  $('choose').disabled=busy||!s.song;
-  $('offset').disabled=$('trim').disabled=$('suggested').disabled=busy||!s.file;
-  $('play-new').disabled=$('play-solo').disabled=$('replace').disabled=busy||!s.can_replace;
-  $('play-now').disabled=busy||!s.can_play;
-  $('restore').disabled=busy||!s.can_restore;
-  document.body.classList.toggle('busy',busy);$('busy').hidden=!busy;
+  const s=state||{},off=busy>0;
+  $('song').disabled=$('role').disabled=off;
+  $('choose').disabled=off||!s.song;
+  $('play').disabled=!s.can_play||(hear!=='now'&&!s.file);
+  for(const b of document.querySelectorAll('[data-move]'))b.disabled=off||!s.file;
+  $('suggested').disabled=off||!s.file||Math.abs(offset-(s.suggested??offset))<.004;
+  $('trim').disabled=off||!s.file;$('matched').disabled=off||!s.file||Math.abs(s.trim_db||0)<.05;
+  $('replace').disabled=off||!s.can_replace;$('restore').disabled=off||!s.can_restore;
+  $('keydown').disabled=$('keyup').disabled=off||!s.song;
+  $('flagsong').disabled=off||!s.song||!flagSources.length;
+  const flagsOn=ticked('flags');
+  // which arrangement, and its name, only matter for the action flags (the arrangement stays in view if its flags could not be read, to choose another)
+  $('flagnamewrap').hidden=!flagsOn;$('flagperf').hidden=!$('flagperf').options.length||(!flagsOn&&!!flagPlan);
+  $('flagperf').disabled=off;$('flagname').disabled=off||!flagsOn;
+  const someFlags=flagsOn&&!!flagPlan&&(flagPlan.copied.flags+flagPlan.copied.loops+flagPlan.copied.jumps+flagPlan.copied.holds)>0;
+  const someChart=['structure','lyrics'].some(p=>ticked(p)&&flagParts[p]);
+  $('flagcopy').disabled=off||!s.song||!flagBars||!(someFlags||someChart);
+  $('transpose').disabled=off||!s.song||!keySteps||!keyPlan||!keyPlan.parts.length;
+  $('busy').hidden=!off;
+  withIcon($('play'),playing?'pause':'play',playing?'Stop':'Play');
+  withIcon($('loop'),'loop','Loop');$('loop').classList.toggle('on',looping);$('loop').setAttribute('aria-pressed',String(looping));
+  $('snap').classList.toggle('on',snapping);$('snap').setAttribute('aria-pressed',String(snapping));
+  for(const b of document.querySelectorAll('[data-hear]'))b.classList.toggle('on',b.dataset.hear===hear);
 }
-// One request at a time: the buttons are off while Python works, and what comes back is drawn.
-async function ask(name,...args){
-  if(busy||!api)return;
-  busy=true;enable();
-  try{draw(await api[name](...args));}
-  catch(error){const p=document.createElement('p');p.textContent='That did not work: '+(error?.message||error);$('log').append(p);}
-  finally{busy=false;enable();}
+
+// ---- drawing
+const canvas=$('canvas'),g=canvas.getContext('2d');
+const RULER=46,GAP=6;
+const css=name=>getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const xOf=t=>(t-view.start)*view.pps,tOf=x=>view.start+x/view.pps;
+function size(){const r=$('view').getBoundingClientRect(),d=devicePixelRatio||1;return {w:Math.max(50,r.width),h:Math.max(50,r.height),d};}
+function clampView(){
+  const {w}=size(),whole=Math.max(1,seconds),lead=Math.max(0,-Math.min(0,offset)),tail=Math.max(whole,offset+(state?.file_seconds||0));
+  const min=-lead-1,max=Math.max(min,tail+1-w/view.pps);
+  view.pps=Math.max(w/(tail-min+2),Math.min(600,view.pps));
+  view.start=Math.max(min,Math.min(Math.max(min,tail+1-w/view.pps),view.start));
+  const range=Math.max(.001,(tail+1-w/view.pps)-min);$('scroll').value=String(Math.round((view.start-min)/range*1000));$('scroll').disabled=max<=min+.01;
 }
-$('song').onchange=()=>{if($('song').value)ask('select',$('song').value,$('role').value);};
-$('role').onchange=()=>{if(state?.song)ask('select',state.song,$('role').value);else state.role=$('role').value;};
-$('choose').onclick=()=>ask('choose');
-$('offset').onchange=()=>{if($('offset').value!=='')ask('adjust',+$('offset').value,null);};
-$('trim').onchange=()=>{if($('trim').value!=='')ask('adjust',null,+$('trim').value);};
-$('suggested').onclick=()=>ask('use_suggested');
-$('position').oninput=()=>{$('position-words').textContent=clock(+$('position').value);};
-const play=what=>ask('play',what,+$('position').value,+$('volume').value);
-$('play-new').onclick=()=>play('new');$('play-now').onclick=()=>play('now');$('play-solo').onclick=()=>play('solo');
-$('stop').onclick=()=>{api?.stop();};
-$('replace').onclick=()=>{
-  if(confirm(`Replace the ${state.role_name.toLowerCase()} of “${state.title}” with ${state.file}?\n\nThe stem being replaced is kept, and “Put the original back” restores it exactly.`))ask('replace');
+function fit(){const {w}=size();view.pps=w/(Math.max(1,seconds)+2);view.start=-1;clampView();draw();}
+function wave(peaks,t0,y,h,color,from=0,to=Infinity){
+  if(!peaks?.length)return;
+  const {w}=size();g.fillStyle=color;
+  const x0=Math.max(0,Math.floor(xOf(Math.max(t0,from)))),x1=Math.min(w,Math.ceil(xOf(Math.min(t0+peaks.length/perSecond,to))));
+  for(let x=x0;x<x1;x++){
+    const a=Math.floor((tOf(x)-t0)*perSecond),b=Math.max(a+1,Math.floor((tOf(x+1)-t0)*perSecond));
+    let m=0;for(let i=Math.max(0,a);i<Math.min(peaks.length,b);i++)if(peaks[i]>m)m=peaks[i];
+    const tall=Math.max(1,Math.sqrt(m)*h*.94);g.fillRect(x,y+(h-tall)/2,1,tall);       // a square root lifts the quiet parts, so soft singing still shows
+  }
+}
+function draw(){
+  const {w,h,d}=size();
+  if(canvas.width!==Math.round(w*d)||canvas.height!==Math.round(h*d)){canvas.width=Math.round(w*d);canvas.height=Math.round(h*d);}
+  g.setTransform(d,0,0,d,0,0);g.clearRect(0,0,w,h);
+  const ink=css('--ink')||'#231a2c',soft=css('--soft')||'#625869',page=css('--page')||'#fff',tint=css('--tint')||'#e2d8e0',a1=css('--a1')||'#eb496f',a2=css('--a2')||'#4a2f86',gold=css('--gold')||'#E3A21A',hl=css('--hl')||'#ffcf5c';
+  const font=(weight,px)=>`${weight} ${px}px ${css('--g')||'sans-serif'}`,mono=px=>`700 ${px}px ${css('--m')||'monospace'}`;
+  const trackH=Math.max(30,(h-RULER-GAP*3)/2),yNow=RULER+GAP,yNew=yNow+trackH+GAP;
+  // the song's span, and the lanes
+  g.fillStyle=page;g.fillRect(Math.max(0,xOf(0)),0,Math.min(w,xOf(seconds))-Math.max(0,xOf(0)),h);
+  // sections
+  g.font=font(800,11);g.textBaseline='middle';
+  sections.forEach((s,i)=>{
+    const x=xOf(s.start),x2=xOf(s.end);if(x2<0||x>w)return;
+    g.fillStyle=i%2?tint:hl;g.globalAlpha=.75;g.fillRect(x,0,x2-x,18);g.globalAlpha=1;
+    g.fillStyle='#231a2c';g.save();g.beginPath();g.rect(Math.max(0,x),0,x2-Math.max(0,x),18);g.clip();g.fillText(String(s.name).toUpperCase(),Math.max(4,x+5),9.5);g.restore();
+  });
+  // bars and beats (or seconds, for a song with no chart)
+  g.font=mono(11);g.textBaseline='alphabetic';
+  if(hasChart){
+    const barPx=barLength(tOf(w/2))*view.pps,every=barPx>=34?1:barPx>=17?2:barPx>=9?4:barPx>=4.5?8:16,showBeats=barPx>=70;
+    bars.forEach((b,i)=>{
+      const x=xOf(b.start);if(x>w||xOf(b.end)<0)return;
+      if(showBeats){g.fillStyle=ink;g.globalAlpha=.18;for(const t of b.beats.slice(1))g.fillRect(Math.round(xOf(t)),RULER-8,1,h-RULER+8);g.globalAlpha=1;}
+      const marked=i%every===0;
+      g.fillStyle=ink;g.globalAlpha=marked?.9:.3;g.fillRect(Math.round(x),marked?22:RULER-10,marked?2:1,h);g.globalAlpha=1;
+      if(marked){g.fillStyle=ink;g.fillText(String(b.number),x+5,36);}
+    });
+  }else{
+    const step=view.pps>=40?1:view.pps>=12?5:view.pps>=4?15:60;
+    for(let t=Math.max(0,Math.ceil(view.start/step)*step);t<=seconds&&xOf(t)<w;t+=step){g.fillStyle=ink;g.globalAlpha=.5;g.fillRect(Math.round(xOf(t)),22,1,h);g.globalAlpha=1;g.fillText(clockWords(t),xOf(t)+4,36);}
+  }
+  g.fillStyle=ink;g.fillRect(0,RULER-1,w,2);
+  // the stem as it is now
+  g.fillStyle=tint;g.globalAlpha=.45;g.fillRect(Math.max(0,xOf(0)),yNow,Math.min(w,xOf(seconds))-Math.max(0,xOf(0)),trackH);g.globalAlpha=1;
+  wave(waves.now,0,yNow,trackH,a2);
+  // the new audio: a clip you can take hold of. What falls outside the song is drawn faint: it will not be used.
+  const fileSeconds=state?.file_seconds||0;
+  if(waves.new&&fileSeconds){
+    const x=xOf(offset),x2=xOf(offset+fileSeconds);
+    g.fillStyle=a1;g.globalAlpha=dragging?.26:.16;g.fillRect(x,yNew,x2-x,trackH);g.globalAlpha=1;
+    g.globalAlpha=.3;wave(waves.new,offset,yNew,trackH,a1);g.globalAlpha=1;
+    wave(waves.new,offset,yNew,trackH,a1,0,seconds);
+    g.strokeStyle=ink;g.lineWidth=2;g.strokeRect(x+1,yNew+1,x2-x-2,trackH-2);
+    g.fillStyle=ink;g.fillRect(x,yNew,4,trackH);                                        // the file's first moment
+  }
+  // labels
+  g.font=font(800,11);g.textBaseline='top';
+  const label=(text,y)=>{const tw=g.measureText(text).width+12;g.fillStyle=page;g.globalAlpha=.9;g.fillRect(6,y+5,tw,17);g.globalAlpha=1;g.fillStyle=ink;g.fillText(text,12,y+8);};
+  if(state?.song)label(`Current ${state.role_name.toLowerCase()}`,yNow);
+  if(state?.file)label(`Replacement · ${state.file}`,yNew);
+  // the loop's bars, and the gold line
+  if(looping){const end=playhead+loopSeconds();g.fillStyle=gold;g.globalAlpha=.16;g.fillRect(xOf(playhead),RULER,xOf(end)-xOf(playhead),h-RULER);g.globalAlpha=1;}
+  const at=playing?headNow():playhead,px=Math.round(xOf(at));
+  g.fillStyle=gold;g.fillRect(px-1,18,3,h-18);g.beginPath();g.moveTo(px-7,18);g.lineTo(px+8,18);g.lineTo(px+.5,29);g.closePath();g.fill();
+}
+new ResizeObserver(()=>{clampView();draw();}).observe($('view'));
+
+// ---- playing
+function loopSeconds(){
+  const count=+$('loopbars').value;if(!hasChart)return count*2;
+  let i=bars.indexOf(barAt(playhead)),total=0;
+  if(bars[i]&&playhead>bars[i].start+.02)total-=playhead-bars[i].start;                   // from mid-bar: to the end of the bar `count` bars on
+  for(let k=0;k<count&&bars[i+k];k++)total+=bars[i+k].end-bars[i+k].start;
+  return Math.max(.5,total);
+}
+const headNow=()=>{if(!playing)return playhead;const t=(performance.now()-playing.at)/1000;return playing.start+(playing.loop?t%playing.seconds:Math.min(t,playing.seconds));};
+function frame(){
+  if(!playing)return;
+  if(!playing.loop&&(performance.now()-playing.at)/1000>=playing.seconds){stop();return;}
+  const at=headNow(),{w}=size();
+  if(xOf(at)>w-30||xOf(at)<0){view.start=at-30/view.pps;clampView();}
+  draw();requestAnimationFrame(frame);
+}
+async function play(){
+  const answer=await ask('play',[hear,playhead,+$('volume').value,looping?loopSeconds():null]);
+  if(!answer?.played){playing=null;enable();draw();return;}
+  playing={at:performance.now(),start:answer.played.start,seconds:answer.played.seconds,loop:answer.played.loop};
+  enable();requestAnimationFrame(frame);
+}
+function stop(){if(playing){playing=null;api.stop();}enable();draw();}
+/** Something that changes what is heard was changed while it plays: start again from the same place, a moment later (so a drag doesn't restart it at every pixel). */
+function replay(){if(!playing)return;clearTimeout(restartTimer);restartTimer=setTimeout(()=>{if(playing)play();},140);}
+
+// ---- sliding the new audio
+function moveTo(next,{settle=true}={}){
+  const file=state?.file_seconds||0;
+  offset=Math.max(-file+.25,Math.min(seconds-.25,next));
+  where();enable();clampView();draw();
+  if(settle){ask('move',[offset]);replay();checkLevelSoon();}
+}
+function checkLevelSoon(){clearTimeout(levelTimer);levelTimer=setTimeout(()=>{if(!dragging&&state?.file)ask('level',[]);},900);}
+function step(kind){
+  const way=kind[0]==='-'?-1:1,what=kind.slice(1),at=Math.max(0,offset);
+  moveTo(offset+way*(what==='bar'?barLength(at):what==='beat'?beatLength(at):NUDGE));
+}
+for(const b of document.querySelectorAll('[data-move]'))b.onclick=()=>step(b.dataset.move);
+$('suggested').onclick=()=>{if(state?.suggested!=null)moveTo(state.suggested);};
+
+// ---- the pointer on the bars: take hold of the new audio to slide it; anywhere else puts the gold line there
+const {trackTop}=(()=>({trackTop:()=>{const {h}=size(),th=Math.max(30,(h-RULER-GAP*3)/2);return RULER+GAP+th+GAP;}}))();
+function onClip(x,y){const f=state?.file_seconds||0;return !!f&&y>=trackTop()&&x>=xOf(offset)&&x<=xOf(offset+f);}
+canvas.onpointerdown=e=>{
+  if(!state?.song)return;
+  const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  canvas.setPointerCapture(e.pointerId);
+  if(onClip(x,y)){dragging={x,from:offset};canvas.style.cursor='grabbing';draw();}
+  else{dragging=null;setHead(tOf(x));}
 };
-$('restore').onclick=()=>{if(confirm(`Put the song’s own ${state.role_name.toLowerCase()} back on “${state.title}”?`))ask('restore');};
-function start(){api=window.pywebview.api;ask('state');}
-if(window.pywebview?.api)start();else window.addEventListener('pywebviewready',start);
+canvas.onpointermove=e=>{
+  const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  if(!dragging){canvas.style.cursor=onClip(x,y)?'grab':'pointer';if(e.buttons&1&&state?.song)setHead(tOf(x),false);return;}
+  let by=(x-dragging.x)/view.pps;
+  if(e.shiftKey)by/=8;                                                                // Shift: finer (the Nudge buttons do the same, a step at a time)
+  else if(snapping){const beat=beatLength(Math.max(0,dragging.from));by=Math.round(by/beat)*beat;}
+  moveTo(dragging.from+by,{settle:false});
+};
+canvas.onpointerup=canvas.onpointercancel=()=>{
+  if(dragging){const moved=Math.abs(offset-dragging.from)>.0005;dragging=null;canvas.style.cursor='grab';if(moved)moveTo(offset);else draw();}
+};
+function setHead(t,restart=true){
+  t=Math.max(0,Math.min(Math.max(0,seconds-.3),t));
+  playhead=snapping?nearestBeat(t):t;draw();if(restart)replay();
+}
+canvas.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=canvas.getBoundingClientRect(),x=e.clientX-r.left;
+  if(e.ctrlKey)zoom(e.deltaY<0?1.25:.8,x);
+  else{view.start+=(Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:e.deltaY)/view.pps;clampView();draw();}
+},{passive:false});
+function zoom(by,x=size().w/2){const t=tOf(x);view.pps*=by;clampView();view.start=t-x/view.pps;clampView();draw();}
+$('zoomin').onclick=()=>zoom(1.5);$('zoomout').onclick=()=>zoom(1/1.5);$('fit').onclick=fit;
+$('scroll').oninput=()=>{
+  const {w}=size(),lead=Math.max(0,-Math.min(0,offset)),tail=Math.max(seconds,offset+(state?.file_seconds||0)),min=-lead-1,max=tail+1-w/view.pps;
+  view.start=min+(+$('scroll').value/1000)*Math.max(0,max-min);draw();
+};
+
+// ---- the controls
+$('play').onclick=()=>playing?stop():play();
+for(const b of document.querySelectorAll('[data-hear]'))b.onclick=()=>{hear=b.dataset.hear;enable();replay();};
+$('loop').onclick=()=>{looping=!looping;enable();draw();replay();};
+$('loopbars').onchange=()=>{draw();replay();};
+$('snap').onclick=()=>{snapping=!snapping;enable();};
+$('volume').onchange=()=>replay();
+$('trim').oninput=()=>{trimDrag=true;};
+$('trim').onchange=()=>{trimDrag=false;ask('level',[+$('trim').value],{slow:true}).then(replay);};
+$('matched').onclick=()=>ask('level',[0],{slow:true}).then(replay);
+$('song').onchange=async()=>{if(!$('song').value)return;stop();await ask('select',[$('song').value,$('role').value],{slow:true});playhead=0;keySteps=0;$('melodywrap').hidden=true;shownKey=null;keyChanged();await loadTimeline();fit();await readShownKey();keyChanged();await loadFlagSources();if(state?.file)checkLevelSoon();};
+$('role').onchange=async()=>{if(!state?.song)return;stop();await ask('select',[state.song,$('role').value],{slow:true});await loadTimeline();if(state?.file)checkLevelSoon();};
+$('choose').onclick=async()=>{
+  stop();const before=state?.file;await ask('choose',[],{slow:true});
+  if(state?.file&&(state.file!==before||true)){await loadTimeline();
+    // show the first place the new audio sings, a few bars wide
+    const first=(waves.new||[]).findIndex(v=>v>.05),t=Math.max(0,offset+(first<0?0:first/perSecond));
+    playhead=snapping&&hasChart?(barAt(t)?.start??t):t;view.pps=size().w/Math.max(8,barLength(t)*8);view.start=playhead-barLength(t);clampView();draw();
+    ask('level',[]);
+  }
+};
+$('replace').onclick=async()=>{
+  if(!confirm(`Replace the ${state.role_name.toLowerCase()} of “${state.title}” with ${state.file}?\n\nThe stem being replaced is kept, and Restore original brings it back exactly.`))return;
+  stop();await ask('replace',[],{slow:true});await loadTimeline();
+};
+$('restore').onclick=async()=>{
+  if(!confirm(`Put the song’s own ${state.role_name.toLowerCase()} back on “${state.title}”?`))return;
+  stop();await ask('restore',[],{slow:true});await loadTimeline();
+};
+// ---- transposing what's shown (the chords, key, lead sheet and MIDI), for stems that were replaced in another key
+const stepWords=n=>!n?'0 semitones':`${Math.abs(n)} semitone${Math.abs(n)===1?'':'s'} ${n<0?'down':'up'}`;
+/** The key Chord Buddy shows for this song, decided exactly as its key chip decides it (songKey in app.js): a key chosen by hand wins; else
+ *  the analysis model's key, unless the chords plainly argue with it, in which case the key the chords suggest. Null when it can't be told. */
+async function readShownKey(){
+  shownKey=null;
+  if(!state?.song||!keyCode)return;
+  try{
+    const clues=await api.key_clues();
+    if(keyCode.KEY_CHOICES.includes(clues.saved)){shownKey=clues.saved;return;}
+    const chords=(targetChart?.content?.chords||[]).filter(c=>!noChord(c.label));
+    const model=clues.key_lab?keyCode.parseKeyLab(clues.key_lab):null;
+    shownKey=keyCode.chooseKey(model,chords).key?.label||null;
+  }catch{shownKey=null;}
+}
+async function keyChanged(){
+  $('keyamount').textContent=stepWords(keySteps);keyPlan=null;
+  const preview=$('keypreview'),warn=$('keywarn');preview.replaceChildren();warn.textContent='';
+  if(!keySteps||!state?.song){preview.textContent=state?.song?`${shownKey?`This song is in ${shownKey}. `:''}Use − and + to say how far the new stems were moved.`:'';enable();return;}
+  const serial=++keySerial,melody=$('melodywrap').hidden||$('melody').checked;
+  const answer=await api.transpose_plan(keySteps,melody,shownKey);if(serial!==keySerial)return;
+  if(answer?.error){preview.textContent=answer.error;enable();return;}
+  keyPlan=answer.plan;
+  if(keyPlan.has_anchors&&$('melodywrap').hidden){$('melodywrap').hidden=false;$('melody').checked=false;return keyChanged();}   // hand-placed syllables: the melody stays unless asked
+  const add=(text,bold)=>{const n=document.createElement(bold?'b':'span');n.textContent=text;preview.append(n);};
+  if(keyPlan.key){add('Key: ');add(`${keyPlan.key[0]} → ${keyPlan.key[1]}`,true);add('  ·  ');}
+  if(keyPlan.chords.length){add('Chords: ');add(keyPlan.chords.map(c=>c[0]).join(' ')+'  →  '+keyPlan.chords.map(c=>c[1]).join(' '),true);}
+  preview.title=keyPlan.parts.length?'What will move: '+keyPlan.parts.join('; ')+'.':'';
+  warn.textContent=keyPlan.warnings.join(' ');
+  enable();
+}
+$('keydown').onclick=()=>{keySteps=Math.max(-12,keySteps-1);keyChanged();};
+$('keyup').onclick=()=>{keySteps=Math.min(12,keySteps+1);keyChanged();};
+$('melody').onchange=()=>keyChanged();
+$('transpose').onclick=async()=>{
+  if(!keyPlan||!keySteps)return;
+  const melody=$('melodywrap').hidden||$('melody').checked;
+  const lines=[`Move the chords and notes of “${state.title}” ${stepWords(keySteps)}?`,'',...keyPlan.parts,'','Each gets one new step in its history in Chord Buddy, so Undo there takes it back. No sound is changed.'];
+  if(!confirm(lines.join(String.fromCharCode(10))))return;
+  await ask('transpose',[keySteps,melody,shownKey],{slow:true});
+  keySteps=0;await loadTimeline();await readShownKey();await keyChanged();
+};
+
+// ---- copying from another song (the same music): its song structure, its lyrics and its action flags, each ticked on its own
+const plural=(n,word)=>`${n} ${word}${n===1?'':'s'}`;
+const PART_BOX={structure:'flagstruct',lyrics:'flaglyrics',flags:'flagflags'};
+let flagParts={structure:null,lyrics:null,both:null},flagWhy={},flagTicks={},flagHow='';
+/** Ticked, and possible for this pair of songs. */
+const ticked=p=>!$(PART_BOX[p]).disabled&&$(PART_BOX[p]).checked;
+/** A part's box: usable or not, with why not added to its hover text. */
+function setPart(p,ok,why){
+  const box=$(PART_BOX[p]),label=box.closest('label');
+  box.disabled=!ok;box.checked=ok&&!!flagTicks[p];label.classList.toggle('off',!ok);
+  label.title=label.dataset.tip+(!ok&&why?`\n\nNot available: ${why}`:'');
+}
+async function loadFlagSources(){
+  flagSources=state?.song?(await api.flag_sources())||[]:[];
+  const box=$('flagsong');
+  box.replaceChildren(new Option(!state?.song?'Choose a song above first':flagSources.length?'Choose a song…':'No other song has a chart or an arrangement yet',''),
+    ...flagSources.map(s=>new Option(`${s.title}${s.artist?' · '+s.artist:''}`,s.id)));
+  $('flagperf').replaceChildren();flagChanged();
+}
+function flagSongChosen(){
+  const source=flagSources.find(s=>s.id===$('flagsong').value);
+  $('flagperf').replaceChildren(...(source?source.arrangements.map(a=>new Option(a.name,a.id)):[]));
+  flagNameTyped=false;nameFromArrangement();
+  flagChanged();
+}
+/** The name box starts as the chosen arrangement's name, and follows that choice until something is typed in it. */
+function nameFromArrangement(){
+  if(flagNameTyped)return;
+  const box=$('flagperf'),chosen=box.options[box.selectedIndex];
+  $('flagname').value=chosen?chosen.textContent:'';
+}
+/** Match the other song's bars to this song's (by when they are in the music), and ask what each part would bring. */
+async function flagChanged(){
+  flagPlan=flagBars=flagGrid=flagCount=flagTiming=null;flagParts={structure:null,lyrics:null,both:null};flagWhy={};flagHow='';
+  const preview=$('flagpreview');preview.textContent='';preview.title='';$('flagcountwrap').hidden=true;
+  for(const p of Object.keys(PART_BOX))setPart(p,false,'');
+  const source=flagSources.find(s=>s.id===$('flagsong').value),performance=$('flagperf').value;
+  if(!source){enable();return;}
+  const serial=++flagSerial;
+  if(!buildChartModel||!bars.length||!bars[0].id){preview.textContent='This song has no chart yet. Analyze it in Chord Buddy first.';enable();return;}
+  const chart=await api.chart_of(source.id);if(serial!==flagSerial)return;
+  let theirs=[],theirStart=null;
+  let theirBeats=new Map();
+  try{const model=buildChartModel(chart.content,chart.music);theirStart=model.presentation?.start??null;theirs=model.measures.map(m=>({id:m.id,number:m.number-model.barOffset,start:m.start,end:m.end,beats:(m.beats&&m.beats.length)||1}));
+    theirBeats=new Map(model.measures.map(m=>[m.id,(m.beats&&m.beats.length?m.beats:[m.start])]));}catch{theirs=[];}
+  if(!theirs.length){preview.textContent='That song has no chart yet. Analyze it in Chord Buddy first.';enable();return;}
+  if(!matchBars){preview.textContent='A part of this tool is missing (bar-match.js), so nothing can be copied.';enable();return;}
+  // Two analyses of the same music rarely number their bars alike, so bars are paired by when they are in the music (bar-match.js), after the
+  // two recordings have been lined up by ear in case one has more silence in front.
+  preview.textContent='Lining the two recordings up…';
+  const align=await api.flag_alignment(source.id);if(serial!==flagSerial)return;
+  const mine=bars.map(b=>({id:b.id,number:b.number,start:b.start,end:b.end,beats:b.beats.length}));
+  const match=matchBars(theirs,mine,align?.offset||0);
+  if(!match.matched){preview.textContent=matchWords(match,theirs,{theirs:source.title,mine:state.title});enable();return;}
+  // each pair of bars with its times too: a section's edge or a word's place is carried across by them (structure.py)
+  const mineById=new Map(mine.map(b=>[b.id,b])),matched={};
+  for(const b of theirs){const p=match.bars[b.id],to=p&&mineById.get(p.id);if(to)matched[b.id]={...p,number:b.number,from:[b.start,b.end],to:[to.start,to.end]};}
+  // and every bar's beat times, both songs': on a bar the two analyses cut differently, things go to the same moment of the music instead (flags.py)
+  const timing={shift:(align?.offset||0)+match.phase,
+    theirs:Object.fromEntries(theirs.map(b=>[b.id,{number:b.number,beats:theirBeats.get(b.id)||[b.start],end:b.end}])),
+    mine:bars.map(b=>({id:b.id,number:b.number,start:b.start,end:b.end,beats:b.beats}))};
+  flagBars=matched;flagTiming=timing;
+  try{flagGrid=gridFingerprint?gridFingerprint(targetMeasures):null;}catch{flagGrid=null;}
+  // the action flags: one arrangement of it
+  if(performance){
+    const answer=await api.flags_plan(performance,matched,null,timing);if(serial!==flagSerial)return;
+    if(answer?.error)flagWhy.flags=answer.error;else flagPlan=answer.plan;
+  }else flagWhy.flags='that song has no arrangement on its Perform tab.';
+  // Can this song's bars be counted like the other's? Its early chords (the ones before the other song's first chord) would become rests: try
+  // that on a copy of its chart, with the app's own chart code, and offer it only if the two then agree on every bar number.
+  if(match.shift&&Number.isFinite(theirStart)&&targetChart?.content?.chords){
+    const cutoff=theirStart+(align?.offset||0)+match.phase-beatLength(Math.max(0,theirStart))/2;
+    const real=c=>typeof c.label==='string'&&/^[A-G]/.test(c.label),early=targetChart.content.chords.filter(c=>c.start<cutoff&&real(c));
+    if(early.length)try{
+      const tried=buildChartModel({...targetChart.content,chords:targetChart.content.chords.map(c=>early.includes(c)?{...c,label:'N'}:c)},targetChart.music);
+      const renumbered=tried.measures.map(m=>({id:m.id,number:m.number-tried.barOffset,start:m.start,end:m.end,beats:(m.beats&&m.beats.length)||1}));
+      const again=matchBars(theirs,renumbered,align?.offset||0);
+      if(again.shift===0&&!again.mixed)flagCount={cutoff,count:early.length,chords:[...new Set(early.map(c=>c.label))]};
+    }catch{flagCount=null;}
+  }
+  if(flagCount){
+    $('flagcountwrap').hidden=false;
+    $('flagcountwords').textContent=`Count bars like “${source.title}” (${plural(flagCount.count,'early chord')} here, ${flagCount.chords.join(', ')}, ${flagCount.count===1?'becomes a rest':'become rests'})`;
+  }
+  // the song structure and the lyrics, each asked about on its own (the app's own chart rules are run on the result before it is offered)
+  for(const p of ['structure','lyrics']){
+    const answer=await api.structure_plan(source.id,matched,timing,[p]);if(serial!==flagSerial)return;
+    if(answer?.plan?.ok)flagParts[p]=answer.plan;else flagWhy[p]=answer?.plan?.reason||answer?.error||'';
+  }
+  // and both together: the lyrics then go into the other song's own sections, so what fits can differ from the lyrics alone
+  if(flagParts.structure&&flagParts.lyrics){
+    const answer=await api.structure_plan(source.id,matched,timing,['structure','lyrics']);if(serial!==flagSerial)return;
+    if(answer?.plan?.ok)flagParts.both=answer.plan;
+  }
+  // what is ticked to begin with, once per pair of songs (then your own ticks stay): the lyrics only when they would not replace this song's own
+  const key=source.id+'>'+state.song;
+  if(flagStructureFor!==key){flagStructureFor=key;flagTicks={structure:!!flagParts.structure,lyrics:!!flagParts.lyrics&&!flagParts.lyrics.replaces,flags:!!flagPlan};}
+  setPart('structure',!!flagParts.structure,flagWhy.structure);setPart('lyrics',!!flagParts.lyrics,flagWhy.lyrics);setPart('flags',!!flagPlan,flagWhy.flags);
+  const counting=flagCount&&$('flagcount').checked;
+  flagHow=[counting?'Bar 1 will be the same bar in both songs.':matchWords(match,theirs,{theirs:source.title,mine:state.title}),align?.words||''].filter(Boolean).join(' ');
+  showFlagPreview();enable();
+}
+/** One line saying what Copy to song will copy; anything to watch for is said after it, the how and why are in its hover text. */
+function showFlagPreview(){
+  const preview=$('flagpreview'),bits=[],watch=[];
+  const both=ticked('structure')&&ticked('lyrics')&&flagParts.both;
+  if(ticked('structure')){const p=flagParts.structure;bits.push(plural(p.sections.length,'section')+(p.folds?' (with folded repeats)':''));if(!both)watch.push(...p.notes);}
+  if(ticked('lyrics')){const p=flagParts.lyrics;bits.push(plural(p.lyric_lines,'lyric line'));if(p.replaces)watch.push(`They replace this song’s own ${plural(p.replaces,'lyric line')}.`);if(!both)watch.push(...p.notes);}
+  if(both)watch.push(...flagParts.both.notes);
+  if(ticked('flags')){const c=flagPlan.copied;bits.push([plural(c.flags,'action flag'),...(c.loops?[plural(c.loops,'loop')]:[]),...(c.jumps?[plural(c.jumps,'jump')]:[]),...(c.holds?[plural(c.holds,'hold')]:[])].join(', '));
+    if(flagPlan.left_out_words)watch.push(flagPlan.left_out_words);}
+  for(const p of ['structure','lyrics'])if(!flagParts[p]&&flagWhy[p]&&!/already has the same/.test(flagWhy[p]))watch.push(flagWhy[p]);
+  const list=bits.length>1?bits.slice(0,-1).join(', ')+' and '+bits.at(-1):bits[0];
+  preview.textContent=(bits.length?`Copies ${list}.`:'Tick what to copy.')+(watch.length?' '+[...new Set(watch)].join(' '):'');
+  preview.title=flagHow;
+}
+$('flagsong').onchange=()=>flagSongChosen();
+$('flagperf').onchange=()=>{nameFromArrangement();flagChanged();};
+$('flagname').oninput=()=>{flagNameTyped=$('flagname').value.trim()!=='';};
+$('flagcount').onchange=()=>flagChanged();
+for(const [p,id] of Object.entries(PART_BOX))$(id).onchange=()=>{flagTicks[p]=$(id).checked;showFlagPreview();enable();};
+$('flagcopy').onclick=async()=>{
+  if(!flagBars)return;
+  const source=flagSources.find(s=>s.id===$('flagsong').value);
+  const parts=['structure','lyrics'].filter(p=>ticked(p)&&flagParts[p]),withFlags=ticked('flags')&&!!flagPlan;
+  if(!parts.length&&!withFlags)return;
+  const named=$('flagname').value.trim()||flagPlan?.from;
+  const lines=[`Copy from “${source?.title}” to “${state.title}”?`,''];
+  if(parts.includes('structure'))lines.push(`• Song structure: ${flagParts.structure.summary}.`);
+  const lyricsPlan=parts.length===2&&flagParts.both?flagParts.both:flagParts.lyrics;
+  if(parts.includes('lyrics'))lines.push(`• Lyrics: ${lyricsPlan.summary.replace(/^.*?(\d+ lyric line)/,'$1')}.`+(flagParts.lyrics.replaces?` They replace its own ${plural(flagParts.lyrics.replaces,'lyric line')}.`:''));
+  if(withFlags)lines.push(`• Action flags: the arrangement “${flagPlan.from}”, added as a new arrangement named “${named}”. Nothing is replaced.`);
+  if(parts.length)lines.push('',`Undo on its Chart tab takes back the ${parts.length===2?'song structure and lyrics':parts[0]==='structure'?'song structure':'lyrics'}.`);
+  if(flagCount&&$('flagcount').checked)lines.push('',`Its bars will also be counted like “${source?.title}”: ${plural(flagCount.count,'early chord')} in its chart (${flagCount.chords.join(', ')}) ${flagCount.count===1?'becomes a rest':'become rests'}. Undo on its Chart tab takes that back.`);
+  if(!confirm(lines.join(String.fromCharCode(10))))return;
+  // counting the bars the other song's way first (the bars themselves do not change, only their numbers, so the flags' places stand)
+  if(flagCount&&$('flagcount').checked)await ask('count_bars_like',[flagCount.cutoff,source?.title||null],{slow:true});
+  if(parts.length)await ask('copy_structure',[source.id,flagBars,source?.title||null,flagTiming,parts],{slow:true});
+  if(withFlags)await ask('copy_flags',[$('flagperf').value,flagBars,flagGrid,named,flagTiming],{slow:true});
+  flagNameTyped=false;
+  await loadTimeline();
+  await loadFlagSources();
+};
+
+// keys: Space plays, L loops (as it does everywhere in Chord Buddy), the arrows slide the new audio (a nudge; Shift a beat; Ctrl a bar)
+addEventListener('keydown',e=>{
+  if(/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)&&e.target.type!=='range')return;
+  if(e.key===' '){e.preventDefault();if(!$('play').disabled)playing?stop():play();}
+  else if(e.key.toLowerCase()==='l'&&!e.ctrlKey&&!e.altKey){looping=!looping;enable();draw();replay();}
+  else if((e.key==='ArrowLeft'||e.key==='ArrowRight')&&state?.file&&e.target.type!=='range'){
+    e.preventDefault();step((e.key==='ArrowLeft'?'-':'+')+(e.ctrlKey?'bar':e.shiftKey?'beat':'nudge'));
+  }
+});
+
+// The window hands the page its bridge a moment after the page loads, and fills it in a moment after that: the page starts only once the bridge
+// can really be called (asking before then left the song list empty), whether the "ready" event is still to come or has already gone by.
+let started=false;
+function start(){
+  if(started||typeof window.pywebview?.api?.state!=='function')return;
+  started=true;api=window.pywebview.api;ask('state',[]).then(()=>{enable();draw();});
+}
+addEventListener('pywebviewready',start);
+const waiting=setInterval(()=>{start();if(started)clearInterval(waiting);},100);
+start();
+window.__stemTool={get state(){return state;},get offset(){return offset;},get view(){return view;},get bars(){return bars;},get playhead(){return playhead;},placeWords,movedWords,draw,fit};   // for looking inside while testing
 </script>
 </body>
 </html>

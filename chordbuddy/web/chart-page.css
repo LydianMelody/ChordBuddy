@@ -2,6 +2,11 @@
 .chart-flow{display:block}
 .chart-notices:empty{display:none}
 .chart-notice{margin:6px 0;padding:6px 10px;border:2px dashed var(--ink);border-radius:8px;background:var(--hl);font:700 12px var(--m)}
+.chart-sliver{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+/* the notice is yellow in both themes, so its button keeps light paper and dark ink in both */
+.chart-sliver-join{font:800 12px var(--g);padding:4px 10px;border:2px solid #1A1C24;border-radius:8px;background:#FFFDF5;color:#1A1C24;box-shadow:2px 2px 0 #1A1C24;cursor:pointer}
+.chart-sliver-join:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 #1A1C24}
+.chart-sliver-join:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #1A1C24}
 .chart-message{min-height:0;margin:4px 0;font:700 12px var(--m);color:var(--a1t)}
 .chart-message:empty{display:none}
 

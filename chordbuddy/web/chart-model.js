@@ -15,7 +15,7 @@ const EPS=1e-7;
 export function buildChartModel(content,music,{onsets=null}={}){
   const projection=buildCompactChart(content,music);
   let measures=[];try{measures=effectiveMeasures(music,content.layout||{});}catch{measures=[];}
-  const presentation=chartPresentation(content,measures);
+  const presentation=chartPresentation(content,measures,music?.sound_start);
   // Silence before the song starts is not a bar: bar 1 is the first bar with music in it. (Numbers stored with the bars never change; this is only what is shown.)
   // A bar that only reaches a few ms into the music (the same wobble as compact-chart.js allows at barlines) is still silence.
   const barOffset=measures.filter(m=>m.end<=presentation.start+BARLINE_SLACK).length;
@@ -49,9 +49,10 @@ function buildGroup(ctx,section,group){
   const bars=rawBars.map((m,index)=>{
     const start=m.viewStart??m.start,end=m.viewEnd??m.end;
     const events=projection.occurrences.filter(o=>o.groupId===group.id&&o.passNumber===rep.number&&(o.measureId===m.id||!o.measureId&&!m.beats.length)&&o.start<end&&o.end>start&&presentation.visible(o));
+    const first=start<=presentation.start+BARLINE_SLACK;     // nothing is held over into the first bar shown (a chord that began in the hidden silence starts here)
     const chunks=events.map((o,i)=>({
       key:group.id+':'+o.slotId,slotId:o.slotId,occurrence:o,chordId:o.chordId||null,label:o.label??'?',
-      continued:!!o.continued||o.start<start,start:Math.max(start,o.start),end:events[i+1]?Math.max(start,events[i+1].start):end,
+      continued:!first&&(!!o.continued||o.start<start),start:Math.max(start,o.start),end:events[i+1]?Math.max(start,events[i+1].start):end,
       repeat:repeatTail&&o.id===repeatTail.id&&o.end<=end?group.passes.length:0,
       lanes:{},
     }));

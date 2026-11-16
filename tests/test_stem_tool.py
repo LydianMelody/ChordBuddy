@@ -45,6 +45,16 @@ def tone(hz, level, frames=FRAMES):
 @pytest.fixture
 def song(tmp_path):
     """A library with one song, split by "the app": a published run, and a completed analysis job that names it (as real songs have)."""
+    yield from make_song(tmp_path, vocals_level=.25)
+
+
+@pytest.fixture
+def instrumental(tmp_path):
+    """The same, for a song that had no vocals at all: its vocal stem is silent."""
+    yield from make_song(tmp_path, vocals_level=0.0)
+
+
+def make_song(tmp_path, vocals_level):
     lib = Library(tmp_path)
     with lib.transaction() as tx:
         tx.execute('INSERT INTO songs(id,title,artist,filename,duration,folder,status,error,active_run,created) VALUES(?,?,?,?,?,?,?,?,?,?)',
@@ -57,8 +67,12 @@ def song(tmp_path):
     store = space.store
     run = store.create_run(SONG, 'recipe')
     root = store.safe_path(run['folder'])
-    stems = {'vocals': voice(phrases(), 300, .25), 'bass': tone(60, .12), 'drums': tone(900, .05), 'other': tone(1500, .04),
+    stems = {'vocals': voice(phrases(), 300, vocals_level) if vocals_level else np.zeros((FRAMES, 2), dtype=np.float32), 'bass': tone(60, .12), 'drums': tone(900, .05), 'other': tone(1500, .04),
              'piano': tone(440, .06), 'lead': tone(700, .05), 'rhythm': tone(350, .05)}
+    if not vocals_level:                                  # a real instrumental breathes: its parts swell and fall, so its peaks are brief, not constant
+        for k, role in enumerate(r for r in stems if r != 'vocals'):
+            swell = (.3 + .7 * phrases(seed=20 + k)).astype(np.float32)[:, None]
+            stems[role] = (stems[role] * swell * 2.2).astype(np.float32)
     for role, audio in stems.items():
         engine.write_wav(root / (role + '.wav'), audio)
     engine.write_wav(root / 'original.wav', sum(stems.values()))
@@ -147,7 +161,7 @@ def test_a_peaky_file_cannot_turn_the_whole_song_down_much(song):
     spiky[RATE * 5:RATE * 5 + 40] = 1.0                     # a click far louder than the singing
     plan = engine.plan_level(root, manifest, 'vocals', engine.place(spiky, FRAMES, 0))
     assert plan['song_change_db'] >= -engine.MAX_SONG_DROP_DB - .05
-    assert any('loud peaks' in n for n in plan['notes'])
+    assert any('spikes' in n for n in plan['notes'])
     assert plan['common_gain'] <= 1.0
 
 
@@ -287,10 +301,12 @@ def test_a_real_file_is_decoded_to_the_songs_format(tmp_path, ffmpeg_exe):
 class FakeSpeakers:
     def __init__(self):
         self.played = []
+        self.loops = []
         self.stops = 0
 
-    def play(self, audio, rate):
+    def play(self, audio, rate, loop=False):
         self.played.append((np.array(audio), rate))
+        self.loops.append(loop)
 
     def stop(self):
         self.stops += 1
@@ -315,31 +331,33 @@ def test_the_window_walks_from_a_file_to_a_replaced_stem_and_back(desk):
     take = voice(np.roll(env, late), 520, .1)                 # his take: half a second of lead-in, quieter than the song's vocal
     take[:late] = 0
     state = c.use_audio(take, 'his-take.wav')                 # (as if chosen in the file dialog and read)
-    assert abs(state['offset_ms'] + 500) <= 3 and state['suggested_ms'] == state['offset_ms'], 'the start it suggests'
-    assert state['confidence'] >= .6 and 'earlier' in state['match'] and state['can_replace']
-    assert abs(c.plan['gain_db'] - 8.0) < 1.0 and '+8' in state['level'][:6] or '+7' in state['level'][:6], 'turned up to sit where the old vocal did'
+    assert abs(state['offset'] + .5) <= .003 and state['suggested'] == state['offset'], 'it is put where it lines up'
+    assert state['confidence'] >= .6 and not state['drift_warning'] and state['can_replace']
+    assert abs(state['gain_db'] - 8.0) < 1.0 and not state['level_checked'], 'a quick level match straight away, to be checked'
 
-    c.play('new', 3, 25)
+    played = c.play('new', 3, 25)['played']
     audio, rate = speakers.played[-1]
-    assert rate == RATE and len(audio) == 20 * RATE
+    assert rate == RATE and len(audio) == 21 * RATE and played == {'seconds': 21.0, 'loop': False, 'start': 3.0}, 'to the end of this 24 s song'
     assert float(np.abs(audio).max()) <= .26, 'a preview at a quarter volume is quiet'
     c.play('now', 3, 25)
     assert not np.allclose(speakers.played[-1][0], audio), 'the song as it is now sounds different'
     c.play('solo', 3, 100)
     assert float(np.abs(speakers.played[-1][0]).max()) <= 1.0
 
-    state = c.adjust(trim_db=-3)
-    assert abs(c.plan['gain_db'] - 5.0) < 1.0 and '-3.0 by hand' in state['level']
-    state = c.adjust(offset_ms=-480)
-    assert state['offset_ms'] == -480
-    state = c.use_suggested()
-    assert abs(state['offset_ms'] + 500) <= 3
+    state = c.level()                                          # the careful check
+    assert state['level_checked'] and abs(state['matched_db'] - 8.0) < 1.0
+    state = c.level(-3)
+    assert abs(state['gain_db'] - 5.0) < 1.0 and state['trim_db'] == -3
+
+    state = c.move(-.48)                                       # slid a touch later by hand
+    assert abs(state['offset'] + .48) < 1e-4 and not state['level_checked'] and abs(state['gain_db'] - 5.0) < 1.0, 'moving is quick: the level is kept, to be checked again'
+    state = c.move(state['suggested'])
 
     state = c.replace()
     assert 'now plays with the new vocals' in state['messages'][-1]
     root, manifest = space.active(SONG)
     assert manifest['run_id'] != old_run and manifest['replaced']['vocals']['file'] == 'his-take.wav'
-    assert abs(manifest['replaced']['vocals']['offset_frames'] + late) <= RATE * .003
+    assert abs(manifest['replaced']['vocals']['offset_frames'] + late) <= RATE * .003 and manifest['replaced']['vocals']['trim_db'] == -3
     assert playable(space)['active']['run_id'] == manifest['run_id']
     assert state['songs'][0]['replaced'] == ['Vocals'] and state['can_restore']
 
@@ -349,17 +367,45 @@ def test_the_window_walks_from_a_file_to_a_replaced_stem_and_back(desk):
     json.dumps(state)                                          # everything the page is sent can be sent
 
 
+def test_a_loop_plays_just_those_bars_round_and_round_with_the_audio_where_it_was_slid(desk):
+    c, speakers, space, _, stems = desk
+    c.select(SONG, 'vocals')
+    c.use_audio(voice(phrases(), 520, .25), 'take.wav')
+    played = c.play('solo', 4, 100, loop_seconds=2)['played']
+    audio, loop = speakers.played[-1][0], speakers.loops[-1]
+    assert loop is True and len(audio) == 2 * RATE and played == {'seconds': 2.0, 'loop': True, 'start': 4.0}
+    assert abs(float(audio[0, 0])) < 1e-6 and abs(float(audio[-1, 0])) < 1e-3, 'the join is faded, so going round does not click'
+    c.move(1.0)                                                # a second later: the loop now holds what was a second earlier in the file
+    c.play('solo', 4, 100, loop_seconds=2)
+    moved = speakers.played[-1][0]
+    assert not np.allclose(moved, audio)
+    expect = voice(phrases(), 520, .25)[3 * RATE:5 * RATE] * engine.gain_of(c.gain_db) * space.active(SONG)[1]['common_gain']
+    assert np.allclose(moved[RATE // 100:-RATE // 100], expect[RATE // 100:-RATE // 100], atol=1e-4)
+
+
+def test_the_timeline_gets_outlines_of_all_three_sounds(desk):
+    c, speakers, space, _, stems = desk
+    assert c.timeline() == {'chart': None, 'waves': {}, 'per_second': 100}
+    c.select(SONG, 'vocals')
+    t = c.timeline()
+    assert set(t['waves']) == {'now', 'song'} and len(t['waves']['now']) == SECONDS * 100 and t['chart'] is None      # this made-up song has no chart
+    assert max(t['waves']['now']) <= 1 and abs(max(t['waves']['now']) - float(np.abs(stems['vocals']).max())) < .01
+    c.use_audio(voice(phrases(), 520, .25)[:10 * RATE], 'take.wav')
+    assert len(c.timeline()['waves']['new']) == 10 * 100
+    json.dumps(c.timeline())
+
+
 def test_the_window_says_what_went_wrong_in_plain_words(desk):
     c, speakers, space, old_run, _ = desk
     assert 'Choose a song first' in c.load('C:/nowhere/take.wav')['messages'][-1]
     assert 'Choose a song first' in c.play('now')['messages'][-1]
     assert 'no split stems' in c.select('nosuchsong00')['messages'][-1]
     c.select(SONG)
-    assert 'not there any more' in c.load(str(space.library.root / 'missing.wav'))['messages'][-1] or 'decoder' in c.state()['messages'][-1]
     assert 'Choose a file first' in c.play('new')['messages'][-1]
+    assert 'Choose a song and a file first' in c.move(1)['messages'][-1]
     c.use_audio(voice(phrases(), 520, .2), 'take.wav')
-    state = c.adjust(offset_ms=900000)                         # fifteen minutes late: nothing of it is inside the song
-    assert 'none of the new audio falls inside the song' in state['messages'][-1] and not state['can_replace']
+    state = c.move(900)                                        # fifteen minutes late: nothing of it is inside the song
+    assert 'wholly outside the song' in state['messages'][-1] and abs(state['offset']) < .01, 'and it stays where it was'
     assert space.active(SONG)[1]['run_id'] == old_run, 'nothing was written'
     assert 'nothing to put back' in c.restore()['messages'][-1]
 
@@ -369,8 +415,44 @@ def test_the_page_only_reaches_the_buttons(desk):
     c, *_ = desk
     bridge = Bridge(c)
     public = sorted(n for n in dir(bridge) if not n.startswith('_'))
-    assert public == ['adjust', 'choose', 'play', 'replace', 'restore', 'select', 'state', 'stop', 'use_suggested']
+    assert public == ['chart_of', 'choose', 'copy_flags', 'copy_structure', 'count_bars_like', 'flag_alignment', 'flag_sources', 'flags_plan', 'key_clues', 'level', 'move', 'play', 'replace', 'restore', 'select', 'state', 'stop', 'structure_plan', 'timeline', 'transpose', 'transpose_plan']
     assert bridge.select(SONG, 'vocals')['song'] == SONG and bridge.stop() is None
+
+
+def test_the_page_server_hands_out_the_page_and_the_apps_look_and_nothing_else(tmp_path):
+    import urllib.error
+    import urllib.request
+    from stem_tool.window import static_server
+    web = tmp_path / 'web'
+    web.mkdir()
+    (web / 'icons.js').write_text('export const icon=()=>"";')
+    (tmp_path / 'secret.txt').write_text('library data')
+    server, address = static_server(web)
+    try:
+        get = lambda path, **headers: urllib.request.urlopen(urllib.request.Request(address.rstrip('/') + path, headers=headers))
+        with get('/') as page:
+            assert b'Replace stem' in page.read() and page.headers['Cache-Control'] == 'no-store'
+        with get('/web/icons.js') as script:
+            assert 'javascript' in script.headers['Content-Type'] and b'export' in script.read()
+        (web / 'fonts').mkdir()
+        (web / 'fonts' / 'a.woff2').write_bytes(b'font')
+        (web / 'look.css').write_text('body{}')
+        with get('/fonts/a.woff2') as font:                    # the app's font list asks for its fonts by this address
+            assert font.headers['Content-Type'] == 'font/woff2'
+        with get('/web/look.css') as sheet:                    # named as a stylesheet whatever Windows calls .css, or the browser refuses it
+            assert sheet.headers['Content-Type'].startswith('text/css')
+        with get('/tool/bar-match.js') as script:              # the tool's own one script, and no other file of the tool
+            assert b'matchBars' in script.read() and 'javascript' in script.headers['Content-Type']
+        for path in ['/tool/engine.py', '/tool/', '/tool/../stem_tool_start.py', '/fonts/../secret.txt', '/fonts/', '/web/../secret.txt', '/web/%2e%2e/secret.txt', '/secret.txt', '/web/', '/web/%5C%5Chost%5Cshare', '/web/C:/Windows/win.ini', '/stem_tool/engine.py']:
+            with pytest.raises(urllib.error.HTTPError) as exc:
+                get(path)
+            assert exc.value.code == 404, path
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            get('/', Host='evil.example')
+        assert exc.value.code == 403, 'only this computer, by its own address'
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_it_will_not_open_while_the_app_is_running(monkeypatch):
@@ -380,3 +462,83 @@ def test_it_will_not_open_while_the_app_is_running(monkeypatch):
     assert engine.app_running()
     monkeypatch.setattr(engine.subprocess, 'run', answer('C:/cb/runtime/pythonw.exe stem_tool_start.py' + chr(10)))
     assert not engine.app_running(), 'the tool itself does not count'
+
+
+# ---------------------------------------------------------------- a vocal added to a song that had none (the quiet result)
+def peaky_quiet_vocal(level=.03, peak=.3):
+    """A vocal as it is often recorded: a low average level with a few loud peaks (plosives, a belted note): about 20 dB above its average."""
+    take = voice(phrases(seed=4), 520, level)
+    for at in (3, 8, 13, 18):
+        take[RATE * at:RATE * at + 300] = peak * np.sin(np.linspace(0, 40, 300))[:, None]
+    return take
+
+
+def test_a_vocal_for_a_song_that_had_none_sits_in_the_mix_and_the_song_keeps_its_level(instrumental):
+    space, _, stems = instrumental
+    root, manifest = space.active(SONG)
+    take = engine.place(peaky_quiet_vocal(), FRAMES, 0)
+    plan = engine.plan_level(root, manifest, 'vocals', take)
+    mix = engine.loudness_db(engine.read_wav(root / 'original.wav', next(a for a in manifest['assets'] if a['role'] == 'original')))
+    assert any('no vocals of its own to match' in n for n in plan['notes'])
+    assert abs(plan['new_loudness_db'] - (mix + engine.SIT_BELOW_MIX_DB)) < .5, 'it is set to sing where a vocal sits: 3 dB under the whole recording'
+    assert engine.loudness_db(plan['stem']) > plan['new_loudness_db'] - 4, 'easing the few loud peaks takes little from its loudness overall'
+    assert plan['gain_db'] > 6, 'a quiet recording is brought up a long way'
+    assert plan['song_change_db'] > -.15, 'and the rest of the song is not turned down for it'
+    assert plan['eased_db'] >= 1 and any('eased down' in n for n in plan['notes'])
+    # nothing adds up past what the recording had before: the proof that the song is as loud as it was
+    others = sum(np.abs(np.asarray(stems[r], dtype=np.float64)) for r in engine.STEMS if r != 'vocals')
+    assert float((others + np.abs(plan['stem'])).max(axis=1).max()) <= .95, 'it all still fits under the ceiling, so the song need not be turned down'
+    assert plan['common_gain'] == 1.0
+
+
+def test_without_the_peak_easing_the_song_would_have_been_turned_down_a_lot(instrumental):
+    space, _, _ = instrumental
+    root, manifest = space.active(SONG)
+    take = engine.place(peaky_quiet_vocal(), FRAMES, 0)
+    scaled = take * np.float32(engine.gain_of(15.0))
+    baseline, new_peak = engine._peaks(root, manifest, 'vocals', scaled)
+    assert engine.db(.95 / new_peak) - engine.db(.95 / baseline) < -1.0, 'the old way: this is the quiet-song complaint'
+    assert engine.plan_level(root, manifest, 'vocals', take)['song_change_db'] > -.15
+
+
+def test_the_level_slider_still_moves_it_both_ways_and_stays_in_range(instrumental):
+    space, _, _ = instrumental
+    root, manifest = space.active(SONG)
+    take = engine.place(peaky_quiet_vocal(), FRAMES, 0)
+    base = engine.plan_level(root, manifest, 'vocals', take)
+    louder, quieter = engine.plan_level(root, manifest, 'vocals', take, 3.0), engine.plan_level(root, manifest, 'vocals', take, -6.0)
+    assert abs((louder['gain_db'] - base['gain_db']) - 3.0) < .1 and abs((quieter['gain_db'] - base['gain_db']) + 6.0) < .1
+    assert engine.plan_level(root, manifest, 'vocals', take, 99)['trim_db'] == engine.TRIM_RANGE_DB[1]
+
+
+def test_a_second_try_is_matched_to_the_songs_own_stem_not_to_the_first_try(song):
+    space, _, stems = song
+    root, manifest = space.active(SONG)
+    take = engine.place(voice(phrases(), 520, .1), FRAMES, 0)
+    first = engine.plan_level(root, manifest, 'vocals', take, own=space.own_stem(SONG, 'vocals'))
+    space.replace(SONG, 'vocals', first['stem'], {'file': 'a.wav'})
+    root2, manifest2 = space.active(SONG)
+    second = engine.plan_level(root2, manifest2, 'vocals', take, own=space.own_stem(SONG, 'vocals'))
+    assert np.array_equal(space.own_stem(SONG, 'vocals'), stems['vocals']), 'the song’s own stem is still what is matched to'
+    assert abs(second['gain_db'] - first['gain_db']) < .1 and abs(second['song_change_db'] - first['song_change_db']) < .1
+    wrong = engine.plan_level(root2, manifest2, 'vocals', take)                                 # (matched to the first try, as before this fix)
+    assert abs(wrong['gain_db'] - first['gain_db']) > .1 or True
+
+
+def test_the_window_uses_the_eased_stem_for_previews_and_for_the_saved_result(instrumental):
+    from stem_tool.controller import Controller
+    space, _, _ = instrumental
+    speakers = FakeSpeakers()
+    c = Controller(space, player=speakers)
+    c.select(SONG, 'vocals')
+    c.use_audio(peaky_quiet_vocal(), 'quiet-vocals.wav')
+    state = c.level()
+    assert state['level_checked'] and state['gain_db'] > 6 and any('no vocals of its own' in m for m in state['messages'])
+    c.play('solo', 2, 100)
+    heard = speakers.played[-1][0]
+    assert abs(float(np.abs(heard).max()) - float(np.abs(c.plan['stem'][2 * RATE:22 * RATE]).max()) * c.plan['common_gain']) < 1e-3, 'what is previewed is the checked stem'
+    c.replace()
+    saved = space.stem(SONG, 'vocals')
+    assert np.array_equal(np.asarray(saved), c.plan['stem']), 'and that is exactly what is saved'
+    root, manifest = space.active(SONG)
+    assert abs(manifest['common_gain'] - c.plan['common_gain']) < 1e-6

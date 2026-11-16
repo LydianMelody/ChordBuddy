@@ -15,6 +15,7 @@ import {buildChartModel,playbackTarget} from './chart-model.js';
 import {isNoChordLabel} from './chart-layout.js';
 import {currentWordIndex} from './word-layout.js';
 import {planChartChordEdit,planSectionEdit} from './practice-edit.js';
+import {chartSlivers} from './section-slivers.js';
 import {addressAtSeconds} from './musical-grid.js';
 import {addChartChord,deleteChartChord,editChartChord,validateChart} from './editor.js';
 import {spellChord} from './spelling.js';
@@ -408,6 +409,7 @@ export function mountChartPage(root,handlers={}){
     refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[],repeats:[],cues:[]};
     occById=new Map(model.projection.occurrences.map(o=>[o.id,o]));cueMap=placeCues(model,[...(data.content.cues||[]),...(handlers.planNotes?.()||[])]);   // plus the notes of the arrangement playing now (they're its, not the song's)
     notices.replaceChildren();for(const w of model.warnings)notices.append(el('p','chart-notice',w));
+    for(const sliver of chartSlivers(data.content.sections,model.measures))notices.append(sliverNotice(sliver));
     fixSel=fixing.a?fixSelection():{ids:new Set()};
     cutTimes=cutPoints();
     renderTools();
@@ -957,6 +959,25 @@ export function mountChartPage(root,handlers={}){
       pendingName=newId;
       if(!await commitPlain(result.candidate,'Split section'))pendingName=null;
     }catch(e){pendingName=null;fail(e);}
+  }
+  // A section shorter than one beat (most often a few milliseconds called "Instrumental" before the first bar) has no bars, so it is never
+  // drawn and the strip above a section cannot reach it. The chart says it is there and offers a button that joins it to its neighbor.
+  function sliverNotice({section,home,index}){
+    const where=index===0?`before “${home.name}”`:`after “${home.name}”`,length=Math.max(.01,section.end-section.start).toFixed(2);
+    const note=el('p','chart-notice chart-sliver');
+    note.append(el('span','',`There is a section “${section.name}” ${where} that lasts only ${length} s, less than one beat, so it has no bars to show. `));
+    const join=el('button','chart-sliver-join',`Join it to “${home.name}”`);join.type='button';
+    join.title=`Remove the section “${section.name}” and let “${home.name}” take its ${length} s, so the player and the timeline say “${home.name}” there too. Its chords and words, if any, move to “${home.name}”. Undo takes it back.`;
+    join.onclick=()=>absorbSliver(section,home);
+    note.append(join);return note;
+  }
+  async function absorbSliver(section,home){
+    if(blocked()||!canEdit())return;
+    try{
+      const result=planSectionEdit(data.content,data.music,{sectionId:section.id,operation:'absorb'});
+      if(result.conflicts?.length)return fail(Error(result.conflicts[0].message));
+      await commitPlain(result.candidate,`Join ${section.name} to ${home.name}`);
+    }catch(e){fail(e);}
   }
   async function joinWithPrevious(section){
     if(blocked()||!canEdit())return;

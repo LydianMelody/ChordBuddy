@@ -35,7 +35,11 @@ from chordbuddy.separation_store import SeparationStore
 RATE = SAMPLE_RATE
 STEM_WORDS = {'vocals': 'Vocals', 'bass': 'Bass', 'drums': 'Drums', 'piano': 'Piano', 'other': 'Other', 'lead': 'Lead guitar', 'rhythm': 'Rhythm guitar'}
 MAX_SECONDS = 30 * 60            # longer than any song; a wrong file (an album, a podcast) is turned away
-MAX_BOOST_DB = 12.0              # a very quiet file is never boosted more than this: past it, its noise would come up too
+MAX_BOOST_DB = 24.0              # a very quiet file is never boosted more than this: past it, its noise would come up too
+SILENT_DB = -50.0                # a stem quieter than this has nothing to match a level to (bleed and rounding noise)
+SIT_BELOW_MIX_DB = -3.0          # with nothing to match, the new stem is set to sing this much below the loudness of the whole recording
+LIMIT_FLOOR = .25                # the peak limiter never turns a moment down by more than this ratio (12 dB): past it, the stem itself is lowered
+LIMIT_WINDOW = .012              # seconds the limiter looks ahead and eases in and out over
 MAX_CUT_DB = 30.0
 MAX_SONG_DROP_DB = 1.5           # the new stem may turn the WHOLE song down by at most this much to make room; past it, the stem itself is lowered
 TRIM_RANGE_DB = (-12.0, 6.0)     # how far the level may be nudged by hand from the matched one
@@ -205,8 +209,9 @@ def place(new, frames, offset, gain=1.0):
     return out
 
 
-def _peaks(root, manifest, role, new):
-    """The loudest moment with the old stem, and with the new one in its place (both counting the recording itself, as the app's rule does)."""
+def _peaks(root, manifest, role, new, old=None):
+    """The loudest moment with the old stem, and with the new one in its place (both counting the recording itself, as the app's rule does).
+    old: the stem to count as the old one (the song's own), when that is not the one in the song now."""
     assets = {a['role']: a for a in manifest['assets']}
     maps = {r: read_wav(Path(root) / a['relative_path'], a) for r, a in assets.items()}
     old_peak = new_peak = 0.0
@@ -217,7 +222,7 @@ def _peaks(root, manifest, role, new):
             if r != role:
                 rest += np.abs(maps[r][start:end])
         original = float(np.abs(maps['original'][start:end]).max())
-        old_peak = max(old_peak, original, float((rest + np.abs(maps[role][start:end])).max()))
+        old_peak = max(old_peak, original, float((rest + np.abs((maps[role] if old is None else old)[start:end])).max()))
         new_peak = max(new_peak, original, float((rest + np.abs(new[start:end])).max()))
     return old_peak, new_peak
 
@@ -239,41 +244,91 @@ def _headroom(root, manifest, role, new, allowed):
     return most if np.isfinite(most) else 1.0
 
 
-def plan_level(root, manifest, role, placed, trim_db=0.0):
-    """The gain for the new stem, and what it does to the song. `placed` is the new stem at gain 1.
+def ease_to_headroom(root, manifest, role, stem, allowed):
+    """The new stem with its loudest moments eased down, only as far as needed, so that it and the other stems never add up to more than
+    `allowed` (and never by more than LIMIT_FLOOR at any moment). Returns (stem, {'reduction_db': the most it was turned down, 'share': the part of
+    the song it was turned down by more than half a decibel}).
 
-    It is matched in loudness to the stem it replaces (so it sits where the old one did), then nudged by trim_db, and held inside safe limits:
-    never boosted more than MAX_BOOST_DB, and lowered if it would otherwise turn the whole song down by more than MAX_SONG_DROP_DB."""
+    A vocal recorded with its peaks near full scale has a low average level: bringing its average up to where a vocal sits in a mix would push those
+    peaks past what the recording had room for, and the app would then turn the WHOLE song down to fit them. Easing just the peaks leaves the song
+    as loud as it was. (Easing a brief peak by many decibels is not audible; easing a long stretch is, which is why there is a floor.) The gain follows a short look-ahead (a minimum over LIMIT_WINDOW, then an average of the same width), which can never turn a
+    moment down less than it needs and changes the gain smoothly, so it does not crackle."""
+    from scipy.ndimage import minimum_filter1d, uniform_filter1d
     assets = {a['role']: a for a in manifest['assets']}
-    old = read_wav(Path(root) / assets[role]['relative_path'], assets[role])
-    old_loud, new_loud = loudness_db(old), loudness_db(placed)
+    maps = {r: read_wav(Path(root) / assets[r]['relative_path'], assets[r]) for r in STEMS if r != role}
+    frames = manifest['frames']
+    need = np.ones(frames, dtype=np.float32)
+    for start in range(0, frames, RATE * 4):
+        end = min(frames, start + RATE * 4)
+        rest = np.zeros((end - start, 2), dtype=np.float64)
+        for m in maps.values():
+            rest += np.abs(m[start:end])
+        rest = rest.max(axis=1)
+        loud = np.abs(stem[start:end]).max(axis=1).astype(np.float64)
+        room = np.maximum(allowed * .999 - rest, 0)
+        ratio = np.where(loud > 1e-9, np.minimum(1.0, room / np.maximum(loud, 1e-9)), 1.0)
+        need[start:end] = np.maximum(ratio, LIMIT_FLOOR)
+    if need.min() >= 1.0:
+        return stem, {'reduction_db': 0.0, 'share': 0.0}
+    width = max(3, int(LIMIT_WINDOW * RATE)) | 1
+    gain = uniform_filter1d(minimum_filter1d(need, width, mode='nearest'), width, mode='nearest').astype(np.float32)
+    gain = np.minimum(gain, need)                       # (they already are: this only guards against rounding)
+    return stem * gain[:, None], {'reduction_db': round(-db(float(gain.min())), 1), 'share': float((gain < .944).mean())}
+
+
+def plan_level(root, manifest, role, placed, trim_db=0.0, own=None):
+    """The level for the new stem, and what it does to the song. `placed` is the new stem at gain 1 (frames x 2). `own`: the song's own stem of
+    that kind, to match the level to (default: the one in the song now).
+
+    1. Level. It is matched to the loudness of the song's own stem. If there is none (a song that had no vocals), it is set to sit SIT_BELOW_MIX_DB
+       below the loudness of the whole recording, the way a vocal sits in a mix: a starting point, nudged by `trim_db` (the Level slider).
+    2. Peaks. Its loudest moments are eased down just enough that the song's overall level stays as it was; the whole song is turned down only if
+       that is not enough. The returned 'stem' is exactly what will be saved, and what the preview plays."""
+    assets = {a['role']: a for a in manifest['assets']}
+    own = read_wav(Path(root) / assets[role]['relative_path'], assets[role]) if own is None else own
+    own_loud, new_loud = loudness_db(own), loudness_db(placed)
     notes = []
-    if old_loud < -70:
-        matched = 0.0
-        notes.append(f'The song’s own {STEM_WORDS[role].lower()} stem is silent, so there was nothing to match the level to. The file is used at its own level.')
+    if own_loud < SILENT_DB:
+        mix = read_wav(Path(root) / assets['original']['relative_path'], assets['original'])
+        reference = loudness_db(mix) + SIT_BELOW_MIX_DB
+        matched = reference - new_loud
+        notes.append(f'The song has no {STEM_WORDS[role].lower()} of its own to match, so the new one was set to sit {abs(SIT_BELOW_MIX_DB):.0f} dB below the loudness of the whole recording, '
+                     'as a vocal usually does. That is a starting point: use the Level slider to taste.')
+        own_loud = reference
     else:
-        matched = old_loud - new_loud
+        matched = own_loud - new_loud
     trim = float(min(TRIM_RANGE_DB[1], max(TRIM_RANGE_DB[0], trim_db)))
     wanted = matched + trim
     if wanted > MAX_BOOST_DB:
-        notes.append(f'The file is very quiet. It was turned up by {MAX_BOOST_DB:.0f} dB, the most allowed, and is still quieter than the stem it replaces.')
+        notes.append(f'The file is very quiet. It was turned up by {MAX_BOOST_DB:.0f} dB, the most allowed, and is still quieter than it should be.')
     gain_db = float(min(MAX_BOOST_DB, max(-MAX_CUT_DB, wanted)))
-    old_peak, _ = _peaks(root, manifest, role, placed * np.float32(gain_of(gain_db)))
-    old_common = min(1.0, .95 / old_peak) if old_peak else 1.0
-    # the loudest the stems may add up to before the whole song would be turned down by more than MAX_SONG_DROP_DB, and the most gain that allows
-    allowed = .95 / (old_common * gain_of(-MAX_SONG_DROP_DB))
-    most = db(_headroom(root, manifest, role, placed, allowed))
-    lowered = max(0.0, gain_db - most)
-    gain_db = max(-MAX_CUT_DB, gain_db - lowered)
-    _, new_peak = _peaks(root, manifest, role, placed * np.float32(gain_of(gain_db)))
-    common = min(1.0, .95 / new_peak) if new_peak else 1.0
-    if lowered:
-        notes.append(f'It has loud peaks, so it was lowered a further {lowered:.1f} dB to keep the rest of the song at its level.')
-    song_change = db(common) - db(old_common)
+    lowered = 0.0
+    # how loud the song was before: with its own stem (never an earlier try), which is what its level must not fall below
+    for attempt in range(5):
+        scaled = placed * np.float32(gain_of(gain_db))
+        if attempt == 0:
+            baseline, _ = _peaks(root, manifest, role, scaled, own)
+            baseline_common = min(1.0, .95 / baseline) if baseline else 1.0
+        stem, eased = ease_to_headroom(root, manifest, role, scaled, baseline)
+        _, final_peak = _peaks(root, manifest, role, stem, own)
+        common = min(1.0, .95 / final_peak) if final_peak else 1.0
+        drop = db(baseline_common) - db(common)
+        if drop <= MAX_SONG_DROP_DB + .05 or gain_db <= -MAX_CUT_DB:
+            break
+        step = drop - MAX_SONG_DROP_DB + .1                   # easing the peaks was not enough (a click far above everything): the stem itself comes down
+        gain_db = max(-MAX_CUT_DB, gain_db - step)
+        lowered += step
+    if eased['reduction_db'] >= 1.0:
+        notes.append(f'Its loudest moments were eased down by up to {eased["reduction_db"]:.0f} dB, so the rest of the song keeps its level. '
+                     + ('That is a lot: if it sounds squashed, lower the Level slider.' if eased['reduction_db'] >= 5 or eased['share'] > .02 else 'That is gentle.'))
+    if lowered >= .5:
+        notes.append(f'It has a few very loud spikes, so it was lowered a further {lowered:.1f} dB to keep the rest of the song close to its level.')
+    song_change = db(common) - db(baseline_common)
     if song_change < -.1:
-        notes.append(f'The whole song will play {abs(song_change):.1f} dB quieter than before, to leave room for the new peaks. Nothing can clip.')
-    return {'gain_db': round(gain_db, 2), 'matched_db': round(float(matched), 2), 'trim_db': round(trim, 2), 'old_loudness_db': round(old_loud, 1),
-            'new_loudness_db': round(new_loud + gain_db, 1), 'song_change_db': round(float(song_change), 2), 'common_gain': common, 'notes': notes}
+        notes.append(f'Even so, the whole song will play {abs(song_change):.1f} dB quieter than before, to leave room for the new peaks. Nothing can clip.')
+    return {'gain_db': round(gain_db, 2), 'matched_db': round(float(matched), 2), 'trim_db': round(trim, 2), 'old_loudness_db': round(own_loud, 1),
+            'new_loudness_db': round(new_loud + gain_db, 1), 'song_change_db': round(float(song_change), 2), 'common_gain': common, 'notes': notes,
+            'eased_db': eased['reduction_db'], 'eased_share': eased['share'], 'stem': stem}
 
 
 # ---------------------------------------------------------------- the library
@@ -325,6 +380,14 @@ class Workspace:
         root, manifest = self.active(song_id)
         asset = next(a for a in manifest['assets'] if a['role'] == role)
         return read_wav(root / asset['relative_path'], asset)
+
+    def own_stem(self, song_id, role):
+        """The song's OWN `role` stem as a (frames, 2) array, for matching a level to: the one kept before any replacement if this stem has been
+        replaced (so a second try is matched to the song, never to the first try), else the current one."""
+        path = self.backup(song_id, role)
+        if path is not None:
+            return read_wav(path, index_wav(path))
+        return self.stem(song_id, role)
 
     def backup(self, song_id, role):
         """The stem that was replaced, if this song's `role` stem is a replacement: its path, else None."""
@@ -443,3 +506,37 @@ def preview(root, manifest, role, stem, start, seconds, common_gain=None):
     for r in STEMS:
         mix += stem[start:end] if r == role else read_wav(Path(root) / assets[r]['relative_path'], assets[r])[start:end]
     return mix * np.float32(manifest['common_gain'] if common_gain is None else common_gain)
+
+
+# ---------------------------------------------------------------- for the timeline
+PEAKS_PER_SECOND = 100
+
+
+def peaks(audio, per_second=PEAKS_PER_SECOND):
+    """The outline of a sound for drawing: its loudest moment in each hundredth of a second, as numbers from 0 to 1."""
+    hop = RATE // per_second
+    count = len(audio) // hop
+    if count <= 0:
+        return []
+    loud = np.abs(np.asarray(audio[:count * hop], dtype=np.float32)).reshape(count, hop, -1).max(axis=(1, 2))
+    return [round(float(x), 3) for x in np.minimum(loud, 1.0)]
+
+
+def quick_gain_db(old, new):
+    """The level match alone (no peak check): quick enough to use while the audio is being slid about. plan_level has the last word."""
+    old_loud, new_loud = loudness_db(old), loudness_db(new)
+    if old_loud < -70 or new_loud < -110:
+        return 0.0
+    return float(min(MAX_BOOST_DB, max(-MAX_CUT_DB, old_loud - new_loud)))
+
+
+def place_part(new, offset, start, count):
+    """`count` frames of the new audio as it would sit in the song from frame `start`, without building the whole stem (for previews)."""
+    out = np.zeros((count, 2), dtype=np.float32)
+    src_from, dst_from = start - offset, 0
+    if src_from < 0:
+        dst_from, src_from = -src_from, 0
+    n = min(len(new) - src_from, count - dst_from)
+    if n > 0:
+        out[dst_from:dst_from + n] = new[src_from:src_from + n]
+    return out

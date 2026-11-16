@@ -18,7 +18,7 @@ body.preparing #song-actions{display:flex!important}
 .pf-facts{display:inline-flex;align-items:baseline;gap:6px;font:800 15px var(--g);white-space:nowrap}
 .pf-check{display:flex;align-items:center;gap:6px;font:600 14px var(--g);cursor:pointer}
 .pf-problems:empty{display:none}
-.pf-problem,.pf-note{margin:0;padding:6px 10px;border:var(--bd) dashed var(--ink);border-radius:10px;font:600 13px var(--g)}
+.pf-problem,.pf-warning{margin:0;padding:6px 10px;border:var(--bd) dashed var(--ink);border-radius:10px;font:600 13px var(--g)}
 .pf-problem::before{content:'Needs a look: ';font-weight:800}
 .pf-none,.pf-hint,.pf-scope{margin:0;font:500 13px/1.4 var(--g);color:var(--soft)}
 
@@ -94,6 +94,12 @@ body.performing .perform-page{flex:none;padding:0 0 8px}
 .pf-loop-count.live[data-beat="a"]{animation:repeat-beat-a var(--beat-len,.5s) ease-out}
 .pf-loop-count.live[data-beat="b"]{animation:repeat-beat-b var(--beat-len,.5s) ease-out}
 .pf-loop-count.on{outline:3px solid var(--a2);outline-offset:2px}
+.pf-loop.on .pf-loop-band{background:color-mix(in srgb,var(--violet) 62%,var(--page))}
+.pf-loop.on .pf-loop-flag{fill:color-mix(in srgb,var(--violet) 62%,var(--page))}
+.pf-loop-flag.drag{cursor:ew-resize!important;touch-action:none}
+.pf-loop-flag.drag:hover{fill:var(--hl)}
+.pf-bar.pf-loop-target{background:color-mix(in srgb,var(--violet) 18%,transparent)}
+.pf-dragging-loop,.pf-dragging-loop *{cursor:ew-resize!important;user-select:none}
 .pf-legend{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;font:600 12px var(--g)}
 .pf-key{display:inline-flex;align-items:center;gap:3px}
 .pf-key svg{width:15px;height:15px;color:var(--kind)}

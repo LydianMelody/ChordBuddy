@@ -1,0 +1,415 @@
+<title>Playful Press Room</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Space+Mono:wght@400;700&display=swap">
+<style>
+/* Prototype only: nothing in the app loads this file. It tries a livelier version of the app's own Press Room look
+   (same three palettes, same fonts, same dark scheme) so the direction can be judged before anything changes.
+   Layout: a top bar of look controls, then a chart card beside a controls card, then song cards and pop-ups. */
+
+/* The app's own font files when opened from the project folder; Google Fonts when published. */
+@font-face{font-family:"CB Bricolage";src:url("../chordbuddy/web/fonts/BricolageGrotesque.woff2") format("woff2");font-weight:200 800;font-stretch:75% 100%}
+@font-face{font-family:"CB Space Mono";src:url("../chordbuddy/web/fonts/SpaceMono-Regular.woff2") format("woff2");font-weight:400}
+@font-face{font-family:"CB Space Mono";src:url("../chordbuddy/web/fonts/SpaceMono-Bold.woff2") format("woff2");font-weight:700}
+
+:root{
+  /* page ground, for the viewer's frame; the .cb element below carries the real palette */
+  --ground:#ECE5EA;--ground-ink:#231A2C;
+  --g:"Bricolage Grotesque","CB Bricolage",system-ui,sans-serif;
+  --m:"Space Mono","CB Space Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ground:#16121A;--ground-ink:#F3ECF0;color-scheme:dark}}
+:root[data-theme="dark"]{--ground:#16121A;--ground-ink:#F3ECF0;color-scheme:dark}
+html,body{background:var(--ground);color:var(--ground-ink)}
+
+/* ---------- Palettes: the app's three, light and dark (values copied from press-room.base.css and dark.css) ---------- */
+.cb[data-palette="tomato"]{--desk:#ECE6D8;--page:#FBF7EE;--ink:#1A1C24;--soft:#5E5F66;--a1:#EE5530;--a2:#2D4FD8;--a3:#39B98C;--hl:#FFD84A;--tint:#E3DCCB;--onA1:#1A1C24;--onA2:#fff;--onA3:#1A1C24}
+.cb[data-palette="forest"]{--desk:#E9E5D5;--page:#FCF8EC;--ink:#14261E;--soft:#4E5D55;--a1:#E8743B;--a2:#1F5C46;--a3:#93C08A;--hl:#F6C744;--tint:#DCDCC6;--onA1:#14261E;--onA2:#fff;--onA3:#14261E}
+.cb[data-palette="plum"]{--desk:#ECE5EA;--page:#FCF8F4;--ink:#231A2C;--soft:#625869;--a1:#EB496F;--a2:#4A2F86;--a3:#22A598;--hl:#FFCF5C;--tint:#E2D8E0;--onA1:#231A2C;--onA2:#fff;--onA3:#231A2C}
+.cb.dark[data-palette="tomato"]{--desk:#16171C;--page:#21232A;--ink:#F3EEE1;--soft:#BDB8AC;--tint:#2F323B;--a1:#FF6A45;--a2:#5E80FA;--a3:#3FCB9B;--hl:#FFD84A;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A}
+.cb.dark[data-palette="forest"]{--desk:#131915;--page:#1D2621;--ink:#EEEADB;--soft:#AFB8AE;--tint:#29352F;--a1:#F28A4E;--a2:#3D9170;--a3:#9DCC93;--hl:#F6C744;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A}
+.cb.dark[data-palette="plum"]{--desk:#16121A;--page:#221C28;--ink:#F3ECF0;--soft:#BCB0C0;--tint:#32293A;--a1:#F05A7E;--a2:#8D68E2;--a3:#33C4B3;--hl:#FFCF5C;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A}
+.cb.dark{color-scheme:dark}
+/* writing that sits on the highlight yellow stays dark in both schemes */
+.cb{--onHl:#1A1C24}
+
+/* ---------- Proposed shared tokens (the new part) ---------- */
+.cb{
+  --bd:2.5px;            /* outline */
+  --sh-1:2px;--sh-2:4px;--sh-3:7px;   /* hard shadow: pressed, resting, lifted */
+  --r-s:8px;--r-m:12px;--r-l:18px;--r-pill:999px;
+  --dur-tap:90ms;--dur-pop:280ms;--dur-move:420ms;
+  --spring:linear(0,.35 9%,.8 18%,1.06 28%,1.12 34%,1.08 42%,.99 55%,.98 64%,1 80%,1);
+  --ease-out:cubic-bezier(.2,.8,.2,1);
+}
+@supports not (transition-timing-function:linear(0,1)){.cb{--spring:cubic-bezier(.34,1.56,.64,1)}}
+/* Motion levels: Lively = everything; Calm = feedback only, nothing that keeps moving; Still = no motion at all */
+.cb[data-motion="calm"]{--dur-move:200ms;--spring:var(--ease-out)}
+.cb[data-motion="still"] *,.cb[data-motion="still"] *::before,.cb[data-motion="still"] *::after{animation:none!important;transition:none!important}
+.cb[data-motion="calm"] .idle{animation:none!important}
+
+/* ---------- Page frame ---------- */
+*{box-sizing:border-box}
+body{margin:0}
+.cb{min-height:100%;background:var(--desk);color:var(--ink);font:15px/1.45 var(--g);-webkit-font-smoothing:antialiased;
+  background-image:radial-gradient(color-mix(in srgb,var(--ink) 9%,transparent) 1.2px,transparent 1.3px);background-size:22px 22px}
+.wrap{max-width:1180px;margin:0 auto;padding-block:20px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:22px}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--a2);outline-offset:3px}
+.label{font:700 10.5px var(--m);letter-spacing:.12em;text-transform:uppercase;color:var(--soft)}
+h2{margin:0;font:800 21px/1 var(--g);font-stretch:85%;letter-spacing:-.01em;text-wrap:balance}
+p{margin:0}
+.note{color:var(--soft);font-size:13px;max-width:62ch}
+
+/* ---------- Top bar ---------- */
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:14px 22px}
+.brand{display:flex;align-items:center;gap:12px;margin-right:auto}
+.mark{width:48px;height:48px;border:var(--bd) solid var(--ink);border-radius:14px;background:var(--a1);color:var(--onA1);display:grid;place-items:center;
+  font:800 27px/1 var(--g);box-shadow:var(--sh-2) var(--sh-2) 0 var(--ink);transform:rotate(-5deg);transition:transform var(--dur-pop) var(--spring)}
+.mark:hover{transform:rotate(4deg) scale(1.06)}
+.brand h1{margin:0;font:800 26px/.9 var(--g);font-stretch:78%;text-transform:uppercase}
+.brand small{display:block;font:700 10px var(--m);letter-spacing:.14em;color:var(--soft);margin-top:4px;text-transform:uppercase}
+.look{display:flex;flex-direction:column;gap:5px}
+
+/* ---------- Cards ---------- */
+.grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:22px;align-items:start}
+@media (max-width:880px){.grid{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--page);border:var(--bd) solid var(--ink);border-radius:var(--r-l);box-shadow:var(--sh-2) var(--sh-2) 0 var(--ink);padding:18px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.card-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sticker{display:inline-block;padding:3px 10px;border:2px solid var(--ink);border-radius:var(--r-pill);background:var(--hl);color:var(--onHl);font:700 11px var(--m);letter-spacing:.06em;text-transform:uppercase;transform:rotate(-3deg)}
+
+/* ---------- Buttons ---------- */
+.btn{--fill:var(--page);--on:var(--ink);display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border:var(--bd) solid var(--ink);border-radius:var(--r-m);
+  background:var(--fill);color:var(--on);font-weight:750;cursor:pointer;box-shadow:var(--sh-2) var(--sh-2) 0 var(--ink);
+  transition:transform var(--dur-pop) var(--spring),box-shadow var(--dur-pop) var(--spring),background-color .15s}
+.btn:hover{transform:translate(-2px,-2px) rotate(-1deg);box-shadow:var(--sh-3) var(--sh-3) 0 var(--ink)}
+.btn:active{transform:translate(2px,2px);box-shadow:var(--sh-1) var(--sh-1) 0 var(--ink);transition-duration:var(--dur-tap)}
+.btn.primary{--fill:var(--a1);--on:var(--onA1)}
+.btn.blue{--fill:var(--a2);--on:var(--onA2)}
+.btn.icon{padding:9px;border-radius:var(--r-pill)}
+.btn svg{width:18px;height:18px;flex:none}
+.btn kbd,.kbd{font:700 11px var(--m);padding:1px 6px;border:2px solid currentColor;border-radius:6px;opacity:.85}
+/* "Today" sample: how buttons look in the app now, for comparison */
+.today{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border:var(--bd) solid var(--ink);border-radius:10px;background:var(--page);font-weight:700;box-shadow:4px 4px 0 var(--ink);cursor:pointer}
+.today:active{transform:translate(2px,2px);box-shadow:2px 2px 0 var(--ink)}
+.compare{display:grid;grid-template-columns:auto 1fr;gap:12px 16px;align-items:center}
+.compare .row{display:flex;flex-wrap:wrap;gap:12px}
+
+/* ---------- Segmented choice ---------- */
+.seg{display:inline-flex;padding:3px;gap:3px;border:var(--bd) solid var(--ink);border-radius:var(--r-m);background:var(--page);box-shadow:var(--sh-1) var(--sh-1) 0 var(--ink);position:relative}
+.seg button{position:relative;z-index:1;border:0;background:none;padding:5px 11px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;transition:color .2s}
+.seg button[aria-pressed="true"]{color:var(--onA2)}
+.seg .blob{position:absolute;z-index:0;top:3px;bottom:3px;border-radius:8px;background:var(--a2);border:2px solid var(--ink);
+  transition:left var(--dur-move) var(--spring),width var(--dur-move) var(--spring)}
+
+/* ---------- Tool rail ---------- */
+.chart{display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px}
+.rail{display:flex;flex-direction:column;gap:8px;padding:8px;border:var(--bd) solid var(--ink);border-radius:var(--r-l);background:var(--tint)}
+.tool{position:relative;width:46px;height:46px;display:grid;place-items:center;border:2px solid var(--ink);border-radius:var(--r-m);background:var(--page);cursor:pointer;
+  transition:transform var(--dur-pop) var(--spring),box-shadow var(--dur-pop) var(--spring),background-color .15s}
+.tool svg{width:21px;height:21px}
+.tool .k{position:absolute;right:-6px;bottom:-6px;font:700 10px/1 var(--m);padding:2px 4px;border:2px solid var(--ink);border-radius:6px;background:var(--page)}
+.tool:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--ink)}
+.tool[aria-pressed="true"]{background:var(--hl);color:var(--onHl);box-shadow:3px 3px 0 var(--ink);transform:rotate(-4deg)}
+.tool[aria-pressed="true"] .k{background:var(--ink);color:var(--page)}
+.tool.boing{animation:boing var(--dur-move) var(--spring)}
+@keyframes boing{0%{transform:scale(.82) rotate(6deg)}100%{transform:scale(1) rotate(-4deg)}}
+
+/* ---------- Chord line ---------- */
+.line{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.sec{font:800 13px var(--g);text-transform:uppercase;letter-spacing:.04em;padding:4px 10px;border:2px solid var(--ink);border-radius:var(--r-s);background:var(--a3);color:var(--onA3);transform:rotate(-2deg)}
+.chord{min-width:54px;padding:10px 12px;text-align:center;border:2px solid var(--ink);border-radius:var(--r-m);background:var(--page);font:800 22px/1 var(--g);font-stretch:85%;
+  transition:transform var(--dur-pop) var(--spring),box-shadow var(--dur-pop) var(--spring)}
+/* the colors swap instantly so the playing chord is exact; only the lift is animated */
+.chord.now{background:var(--a1);color:var(--onA1);transform:translateY(-4px) rotate(-2deg);box-shadow:var(--sh-2) var(--sh-2) 0 var(--ink)}
+.rep{font:700 13px var(--m);padding:5px 9px;border:2px dashed var(--ink);border-radius:var(--r-pill);transition:background-color .2s}
+.rep.live{border-style:solid;background:var(--hl);color:var(--onHl)}
+.chart-main{display:flex;flex-direction:column;gap:16px;min-width:0}
+.toolhelp{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:2px solid var(--ink);border-radius:var(--r-m);background:var(--tint);font-size:13.5px}
+.toolhelp b{font-weight:800}
+
+/* ---------- Transport ---------- */
+.transport{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.btn.play[aria-pressed="true"]{--fill:var(--a3);--on:var(--onA3)}
+.btn.loop[aria-pressed="true"]{--fill:var(--hl);--on:var(--onHl)}
+.speed{display:flex;align-items:center;gap:10px;flex:1;min-width:200px}
+.speed output{font:700 13px var(--m);min-width:4.5ch;text-align:right;font-variant-numeric:tabular-nums}
+
+/* ---------- Range: chunky, but still a native input ---------- */
+input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:26px;background:none;cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:12px;border:2px solid var(--ink);border-radius:var(--r-pill);
+  background:linear-gradient(var(--a3),var(--a3)) 0/var(--fill,50%) 100% no-repeat,var(--page)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;margin-top:-8px;border:var(--bd) solid var(--ink);border-radius:8px;background:var(--hl);
+  box-shadow:2px 2px 0 var(--ink);transition:transform var(--dur-pop) var(--spring)}
+input[type=range]:active::-webkit-slider-thumb{transform:rotate(12deg) scale(1.12)}
+input[type=range]::-moz-range-track{height:8px;border:2px solid var(--ink);border-radius:var(--r-pill);background:var(--page)}
+input[type=range]::-moz-range-progress{height:8px;background:var(--a3);border-radius:var(--r-pill)}
+input[type=range]::-moz-range-thumb{width:20px;height:20px;border:var(--bd) solid var(--ink);border-radius:8px;background:var(--hl);box-shadow:2px 2px 0 var(--ink)}
+
+/* ---------- Switch and checkbox: native inputs underneath ---------- */
+.opt{display:flex;align-items:center;gap:12px;cursor:pointer}
+.opt span{display:flex;flex-direction:column}
+.opt small{color:var(--soft);font-size:12.5px}
+.switch{-webkit-appearance:none;appearance:none;flex:none;margin:0;width:52px;height:30px;border:var(--bd) solid var(--ink);border-radius:var(--r-pill);background:var(--tint);position:relative;cursor:pointer;transition:background-color .2s}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:21px;height:21px;border:2px solid var(--ink);border-radius:50%;background:var(--page);box-shadow:2px 2px 0 var(--ink);transition:left var(--dur-move) var(--spring)}
+.switch:checked{background:var(--a3)}
+.switch:checked::after{left:24px}
+.check{-webkit-appearance:none;appearance:none;flex:none;margin:0;width:26px;height:26px;border:var(--bd) solid var(--ink);border-radius:8px;background:var(--page);box-shadow:2px 2px 0 var(--ink);display:grid;place-items:center;cursor:pointer;transition:background-color .15s}
+.check::after{content:"";width:12px;height:7px;border:solid var(--onA2);border-width:0 0 3px 3px;transform:rotate(-45deg) scale(0);margin-top:-3px;transition:transform var(--dur-pop) var(--spring)}
+.check:checked{background:var(--a2)}
+.check:checked::after{transform:rotate(-45deg) scale(1)}
+
+/* ---------- Song cards ---------- */
+.songs{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px}
+.song{display:flex;align-items:center;gap:12px;padding:12px;text-align:left;border:var(--bd) solid var(--ink);border-radius:var(--r-l);background:var(--page);cursor:pointer;
+  box-shadow:var(--sh-2) var(--sh-2) 0 var(--ink);transition:transform var(--dur-pop) var(--spring),box-shadow var(--dur-pop) var(--spring)}
+.song:hover{transform:translate(-2px,-3px) rotate(-.6deg);box-shadow:var(--sh-3) var(--sh-3) 0 var(--ink)}
+.song[aria-current="true"]{background:var(--hl);color:var(--onHl)}
+.song[aria-current="true"] small{color:inherit;opacity:.8}
+.tape{flex:none;width:46px;height:34px;border:2px solid var(--ink);border-radius:7px;background:var(--c);display:flex;align-items:center;justify-content:center;gap:7px}
+.tape i{width:10px;height:10px;border:2px solid var(--ink);border-radius:50%;background:var(--page)}
+.song[aria-current="true"] .tape i{animation:spin 2.4s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.song strong{display:block;font-weight:800}
+.song small{color:var(--soft);font:700 11px var(--m)}
+
+/* ---------- Pop-ups ---------- */
+.toast{position:fixed;left:50%;bottom:max(20px,env(safe-area-inset-bottom,0px));translate:-50% 0;z-index:20;display:flex;gap:10px;align-items:center;padding:11px 16px;
+  border:var(--bd) solid var(--ink);border-radius:var(--r-m);background:var(--a3);color:var(--onA3);font-weight:750;box-shadow:var(--sh-2) var(--sh-2) 0 var(--ink)}
+.toast[hidden]{display:none}
+.toast.in{animation:toast-in var(--dur-move) var(--spring)}
+@keyframes toast-in{from{transform:translateY(30px) rotate(3deg);opacity:0}}
+dialog{border:var(--bd) solid var(--ink);border-radius:var(--r-l);background:var(--page);color:var(--ink);padding:22px;max-width:min(420px,calc(100vw - 32px));box-shadow:var(--sh-3) var(--sh-3) 0 var(--ink)}
+dialog[open]{animation:pop-in var(--dur-move) var(--spring)}
+dialog::backdrop{background:color-mix(in srgb,var(--ink) 35%,transparent)}
+@keyframes pop-in{from{transform:scale(.85) rotate(-2deg);opacity:0}}
+dialog h3{margin:0 0 8px;font:800 22px var(--g);font-stretch:85%}
+dialog .acts{display:flex;justify-content:flex-end;gap:12px;margin-top:18px}
+
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;font-size:13.5px}
+.rules div{padding:12px;border:2px solid var(--ink);border-radius:var(--r-m);background:var(--page)}
+.rules b{display:block;margin-bottom:3px}
+
+@media (prefers-reduced-motion:reduce){.cb:not([data-motion="lively"]) .idle{animation:none}}
+@media (max-width:520px){.chart{grid-template-columns:minmax(0,1fr)}.rail{flex-direction:row;flex-wrap:wrap}.compare{grid-template-columns:minmax(0,1fr)}}
+</style>
+
+<div class="cb" id="cb" data-palette="plum" data-motion="lively">
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">C</div>
+      <div><h1>Chord Buddy</h1><small>Design prototype · nothing here is live</small></div>
+    </div>
+    <div class="look"><span class="label" id="lbl-pal">Colors</span>
+      <div class="seg" role="group" aria-labelledby="lbl-pal" data-key="palette">
+        <button type="button" data-v="tomato" title="Tomato: red-orange and blue accents">Tomato</button>
+        <button type="button" data-v="forest" title="Forest: orange and deep green accents">Forest</button>
+        <button type="button" data-v="plum" title="Plum: pink and purple accents">Plum</button>
+      </div></div>
+    <div class="look"><span class="label" id="lbl-scheme">Light or dark</span>
+      <div class="seg" role="group" aria-labelledby="lbl-scheme" data-key="scheme">
+        <button type="button" data-v="auto" title="Follow your computer's light or dark setting">Auto</button>
+        <button type="button" data-v="light" title="Always use the light paper look">Light</button>
+        <button type="button" data-v="dark" title="Always use the dark look">Dark</button>
+      </div></div>
+    <div class="look"><span class="label" id="lbl-motion">Motion</span>
+      <div class="seg" role="group" aria-labelledby="lbl-motion" data-key="motion">
+        <button type="button" data-v="lively" title="Bouncy presses, pops and spinning reels">Lively</button>
+        <button type="button" data-v="calm" title="Quick feedback when you click, nothing that keeps moving. Good for a live show.">Calm</button>
+        <button type="button" data-v="still" title="No animation at all">Still</button>
+      </div></div>
+  </header>
+
+  <div class="grid">
+    <section class="card" aria-labelledby="h-chart">
+      <div class="card-head"><h2 id="h-chart">Chart</h2><span class="sticker">Try it</span></div>
+      <div class="chart">
+        <div class="rail" role="toolbar" aria-label="Chart tools" aria-orientation="vertical">
+          <button type="button" class="tool" data-tool="V" aria-label="Select tool (V)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M5 3l14 8-6 2-3 6z"/></svg><span class="k">V</span></button>
+          <button type="button" class="tool" data-tool="E" aria-label="Edit chords tool (E)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M4 20l1-5L16 4l4 4L9 19z"/></svg><span class="k">E</span></button>
+          <button type="button" class="tool" data-tool="T" aria-label="Timing tool (T)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6"/></svg><span class="k">T</span></button>
+          <button type="button" class="tool" data-tool="Q" aria-label="Cue tool (Q)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><path d="M5 21V4h12l-3 4 3 4H5"/></svg><span class="k">Q</span></button>
+          <button type="button" class="tool" data-tool="W" aria-label="Lyrics tool (W)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 6h16M4 12h11M4 18h14"/></svg><span class="k">W</span></button>
+        </div>
+        <div class="chart-main">
+          <div class="toolhelp" aria-live="polite" id="toolhelp"></div>
+          <div class="line" aria-label="Verse chords">
+            <span class="sec">Verse</span>
+            <span class="chord">G</span><span class="chord">C</span><span class="chord">D</span><span class="chord">C</span>
+            <span class="rep" id="rep" title="These four chords play twice. The dots fill in as each pass plays." aria-label="Plays twice">(×2) ○○</span>
+          </div>
+          <div class="line" aria-label="Chorus chords">
+            <span class="sec">Chorus</span>
+            <span class="chord">Em</span><span class="chord">C</span><span class="chord">G</span><span class="chord">D</span>
+          </div>
+          <div class="transport">
+            <button type="button" class="btn icon play" id="play" aria-pressed="false" aria-label="Play the demo (Space)" title="Play or pause the demo (Space)">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path id="play-ic" d="M7 4l13 8-13 8z"/></svg></button>
+            <button type="button" class="btn loop" id="loop" aria-pressed="false" title="Repeat the Verse over and over while you practice (L)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l3 3-3 3M4 11V9a4 4 0 014-4h12M7 22l-3-3 3-3M20 13v2a4 4 0 01-4 4H4"/></svg>Loop <kbd>L</kbd></button>
+            <label class="speed" for="speed" title="Slow the demo down without changing its pitch">
+              <span class="label">Speed</span>
+              <input type="range" id="speed" min="50" max="100" step="5" value="100">
+              <output id="speed-out" for="speed">100%</output>
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="h-ctl">
+      <h2 id="h-ctl">Controls</h2>
+      <label class="opt" for="count-in"><input class="switch" type="checkbox" id="count-in" checked>
+        <span><b>Count in before playing</b><small>Four clicks so you know when to come in</small></span></label>
+      <label class="opt" for="lyrics"><input class="check" type="checkbox" id="lyrics" checked>
+        <span><b>Show lyrics under the chords</b><small>Hide them for a cleaner chart</small></span></label>
+      <div class="compare">
+        <span class="label">Today</span>
+        <div class="row"><button type="button" class="today">Save</button><button type="button" class="today">Cancel</button></div>
+        <span class="label">Proposed</span>
+        <div class="row"><button type="button" class="btn primary" id="save">Save</button><button type="button" class="btn" id="ask">Delete song…</button></div>
+      </div>
+      <p class="note">Hover lifts a button, a press pushes it into its shadow, and it settles with a small bounce. The Today buttons show the app's current style for comparison.</p>
+    </section>
+  </div>
+
+  <section class="card" aria-labelledby="h-songs">
+    <div class="card-head"><h2 id="h-songs">Songs</h2><span class="note">Click one to open it. The open song's reels turn (Lively only).</span></div>
+    <div class="songs" id="songs">
+      <button type="button" class="song" aria-current="true" style="--c:var(--a1)"><span class="tape"><i class="idle"></i><i class="idle"></i></span><span><strong>Harbor Lights</strong><small>G · 96 BPM · 3:42</small></span></button>
+      <button type="button" class="song" style="--c:var(--a2)"><span class="tape"><i class="idle"></i><i class="idle"></i></span><span><strong>Paper Moon Waltz</strong><small>D · 3/4 · 2:58</small></span></button>
+      <button type="button" class="song" style="--c:var(--a3)"><span class="tape"><i class="idle"></i><i class="idle"></i></span><span><strong>Static on the Line</strong><small>Em · 128 BPM · 4:10</small></span></button>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="h-rules">
+    <h2 id="h-rules">How motion behaves</h2>
+    <div class="rules">
+      <div><b>It answers you</b>Things move when you click, hover or choose. Nothing moves on its own except the open song's reels, and only in Lively.</div>
+      <div><b>The playhead never bounces</b>The chord that's playing moves exactly in time. Only the pop around it uses a spring.</div>
+      <div><b>Calm for shows</b>Calm keeps quick click feedback and drops anything that loops. Still turns motion off. Your computer's reduce motion setting picks Calm for you.</div>
+      <div><b>Cheap to draw</b>Only movement and fading animate, so audio and the visualizer keep their speed.</div>
+    </div>
+  </section>
+</div>
+
+<dialog id="dlg" aria-labelledby="dlg-h">
+  <h3 id="dlg-h">Delete “Paper Moon Waltz”?</h3>
+  <p>It goes to the Trash. You can bring it back from there until you empty the Trash.</p>
+  <div class="acts"><button type="button" class="btn" id="dlg-no">Keep it</button><button type="button" class="btn primary" id="dlg-yes">Move to Trash</button></div>
+</dialog>
+<div class="toast" id="toast" role="status" hidden></div>
+</div>
+
+<script>
+(()=>{
+const cb=document.getElementById('cb'),root=document.documentElement;
+const state={palette:'plum',scheme:'auto',motion:matchMedia('(prefers-reduced-motion: reduce)').matches?'calm':'lively'};
+const mq=matchMedia('(prefers-color-scheme: dark)');
+function applyScheme(){
+  let dark=state.scheme==='dark';
+  if(state.scheme==='auto'){const t=root.getAttribute('data-theme');dark=t==='dark'||(t!=='light'&&mq.matches);}
+  cb.classList.toggle('dark',dark);
+}
+mq.addEventListener('change',applyScheme);
+new MutationObserver(applyScheme).observe(root,{attributes:true,attributeFilter:['data-theme']});
+
+/* segmented choices: a colored blob slides to the chosen one */
+function placeBlob(seg,instant){
+  const on=seg.querySelector('[aria-pressed="true"]'),blob=seg.querySelector('.blob');
+  if(!on||!blob)return;
+  if(instant)blob.style.transition='none';
+  blob.style.left=on.offsetLeft+'px';blob.style.width=on.offsetWidth+'px';
+  if(instant){blob.offsetWidth;blob.style.transition='';}
+}
+document.querySelectorAll('.seg').forEach(seg=>{
+  const blob=document.createElement('span');blob.className='blob';blob.setAttribute('aria-hidden','true');seg.prepend(blob);
+  const key=seg.dataset.key;
+  seg.querySelectorAll('button').forEach(b=>{
+    b.setAttribute('aria-pressed',String(b.dataset.v===state[key]));
+    b.addEventListener('click',()=>{
+      state[key]=b.dataset.v;
+      seg.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+      placeBlob(seg);apply();
+    });
+  });
+});
+function apply(){cb.dataset.palette=state.palette;cb.dataset.motion=state.motion;applyScheme();}
+apply();
+const placeAll=i=>document.querySelectorAll('.seg').forEach(s=>placeBlob(s,i));
+placeAll(true);addEventListener('resize',()=>placeAll(true));
+document.fonts?.ready.then(()=>placeAll(true));
+
+/* tools */
+const help={
+  V:['Select','Click a chord to pick it, drag across several to pick a run. Copy, paste and loop work on what you picked.'],
+  E:['Edit chords','Click a chord and type a new one, like Am7. Press Enter to keep it.'],
+  T:['Timing','Drag a chord\'s edge to make it start earlier or later.'],
+  Q:['Cue','Add a cue, like "Drums stop", on its own lane above the chords.'],
+  W:['Lyrics','Type the words under the chords. Their timing stays put when you fix a typo.']
+};
+const tools=[...document.querySelectorAll('.tool')],helpBox=document.getElementById('toolhelp');
+function pickTool(k){
+  tools.forEach(t=>{const on=t.dataset.tool===k;t.setAttribute('aria-pressed',String(on));
+    if(on&&cb.dataset.motion!=='still'){t.classList.remove('boing');t.offsetWidth;t.classList.add('boing');}});
+  helpBox.innerHTML='<span class="kbd">'+k+'</span><span><b>'+help[k][0]+'.</b> '+help[k][1]+'</span>';
+}
+tools.forEach(t=>t.addEventListener('click',()=>pickTool(t.dataset.tool)));
+pickTool('V');
+
+/* demo playback: G C D C twice, then the chorus; Loop keeps repeating the verse */
+const verse=[...document.querySelectorAll('.line')[0].querySelectorAll('.chord')];
+const chorus=[...document.querySelectorAll('.line')[1].querySelectorAll('.chord')];
+const rep=document.getElementById('rep'),play=document.getElementById('play'),loop=document.getElementById('loop');
+const speed=document.getElementById('speed'),speedOut=document.getElementById('speed-out');
+let timer=null,step=0,pass=1;
+function order(){return [...verse.map(c=>[c,1]),...verse.map(c=>[c,2]),...chorus.map(c=>[c,0])];}
+function show(){
+  const seq=order();const looping=loop.getAttribute('aria-pressed')==='true';
+  if(looping&&step>=verse.length*2)step=0;
+  if(step>=seq.length)step=0;
+  const [el,p]=seq[step];
+  document.querySelectorAll('.chord.now').forEach(c=>c.classList.remove('now'));
+  el.classList.add('now');
+  rep.classList.toggle('live',p>0);rep.textContent='(×2) '+(p===1?'●○':p===2?'●●':'○○');
+  rep.setAttribute('aria-label',p?'Plays twice; now on pass '+p+' of 2':'Plays twice');
+}
+function tick(){step++;show();}
+function setPlaying(on){
+  play.setAttribute('aria-pressed',String(on));
+  document.getElementById('play-ic').setAttribute('d',on?'M6 4h4v16H6zM14 4h4v16h-4z':'M7 4l13 8-13 8z');
+  clearInterval(timer);
+  if(on){show();timer=setInterval(tick,700*100/speed.value);}
+}
+play.addEventListener('click',()=>setPlaying(play.getAttribute('aria-pressed')!=='true'));
+loop.addEventListener('click',()=>loop.setAttribute('aria-pressed',String(loop.getAttribute('aria-pressed')!=='true')));
+function paintSpeed(){speedOut.value=speed.value+'%';speed.style.setProperty('--fill',((speed.value-50)/50*100)+'%');}
+speed.addEventListener('input',()=>{paintSpeed();if(play.getAttribute('aria-pressed')==='true')setPlaying(true);});
+paintSpeed();
+
+addEventListener('keydown',e=>{
+  if(e.target.closest('input,textarea,dialog')||e.ctrlKey||e.metaKey||e.altKey)return;
+  const k=e.key.toUpperCase();
+  if(help[k]){pickTool(k);}
+  else if(k==='L'){loop.click();}
+  else if(e.code==='Space'){e.preventDefault();play.click();}
+});
+
+/* songs */
+document.querySelectorAll('.song').forEach(s=>s.addEventListener('click',()=>{
+  document.querySelectorAll('.song').forEach(x=>x.removeAttribute('aria-current'));s.setAttribute('aria-current','true');
+}));
+
+/* toast and dialog */
+const toast=document.getElementById('toast');let tt;
+function say(msg){toast.textContent=msg;toast.hidden=false;toast.classList.remove('in');toast.offsetWidth;toast.classList.add('in');
+  clearTimeout(tt);tt=setTimeout(()=>{toast.hidden=true;},2400);}
+document.getElementById('save').addEventListener('click',()=>say('Saved. Your changes are in the song.'));
+const dlg=document.getElementById('dlg');
+document.getElementById('ask').addEventListener('click',()=>dlg.showModal());
+document.getElementById('dlg-no').addEventListener('click',()=>dlg.close());
+document.getElementById('dlg-yes').addEventListener('click',()=>{dlg.close();say('Moved to the Trash. (Just a demo; nothing was deleted.)');});
+})();
+</script>

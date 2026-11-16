@@ -101,8 +101,8 @@ export function createSetlistPanel(deps){
     const index=show?.entries.findIndex(e=>e.songId===songId)??-1;if(index<0)return null;
     const e=show.entries[index],saved=performances.get(e.songId)||[],mine=saved.find(p=>p.id===e.performanceId),length=lengths.get(keyOf(e,performances)),isOpen=expanded.has(e.id);
     const box=el('div','set-extra'+(isOpen?' open':''));box.dataset.entry=e.id;
-    const summary=el('button','set-summary');summary.type='button';summary.setAttribute('aria-expanded',String(isOpen));summary.title=`How ${title} plays in this set: its arrangement and how it starts. Click to change them.`;
-    const words=[mine?.name??(e.performanceId?'Older arrangement':'Original arrangement'),index===0?'Starts when you press Start':startWord(e.transition?.kind)];
+    const summary=el('button','set-summary');summary.type='button';summary.setAttribute('aria-expanded',String(isOpen));summary.title=`How ${title} plays in this set: which arrangement (chosen at the top of its Perform tab), how it starts and its count-in. Click to change how it starts.`;
+    const words=[mine?.name??(e.performanceId?'Deleted arrangement: choose another on its Perform tab':'Original arrangement'),index===0?'Starts when you press Start':startWord(e.transition?.kind)];
     if(e.transition?.kind==='gap'&&index>0)words[1]=`${e.transition.seconds??5} second gap`;
     const countBars=countInOf(length?.measures,countOf(e.transition,length)).bars;
     if(countBars>0)words.push(`${countBars} bar count-in`);
@@ -112,11 +112,8 @@ export function createSetlistPanel(deps){
     summary.onclick=()=>{if(isOpen)expanded.delete(e.id);else expanded.add(e.id);deps.redraw();};
     box.append(summary);
     if(!isOpen)return box;
-    const options=[['','Original arrangement'],...saved.map(p=>[p.id,p.name])];
-    const value=e.performanceId||'';
-    const which=pick(options,value,`Which arrangement of ${title}`);which.title='Which arrangement this set plays. It plays the arrangement as it is now in Prepare, including changes you haven’t saved.';
-    which.onchange=()=>{const id=which.value||null;entryChange(e.id,{performanceId:id,revision:id?saved.find(p=>p.id===id).head:null});};
-    box.append(field('Arrangement',which));
+    // Which arrangement plays is chosen in ONE place, the Performance dropdown at the top of the song's Perform tab (arrangementOf and
+    // chooseArrangement below). A second choice here could say something else, and the set then played what this one said.
     if(index>0){
       const gap=pick(START_WORDS,e.transition?.kind||'immediate',`How ${title} starts`);
       gap.onchange=()=>entryChange(e.id,{transition:{...e.transition,kind:gap.value,seconds:gap.value==='gap'?(e.transition?.seconds??5):0,expected:gap.value==='control'?30:undefined}});
@@ -211,5 +208,19 @@ export function createSetlistPanel(deps){
       await deps.refresh();
     }catch(error){deps.showError(error);}
   }
-  return {sync,head,rowDetails,totalLine,perform,reloadFacts:()=>loadFacts().then(deps.redraw).catch(deps.showError),get listId(){return listId;},flush(){clearTimeout(timer);return saveDraft();}};
+  /** The arrangement this song plays in the set list on screen: its id, null for the Original arrangement, or undefined when the song isn't
+   *  in the list (or no list is chosen, or it hasn't loaded yet). The Perform tab's Performance dropdown shows this. */
+  function arrangementOf(songId){
+    const e=show?.entries.find(x=>x.songId===songId);
+    return e?e.performanceId||null:undefined;
+  }
+  /** The Perform tab's Performance dropdown was changed: the set list plays that arrangement of the song from now on. */
+  function chooseArrangement(songId,id){
+    if(!show||!show.entries.some(e=>e.songId===songId&&(e.performanceId||null)!==(id||null)))return;
+    const head=(performances.get(songId)||[]).find(p=>p.id===id)?.head??null;
+    const next=structuredClone(show);
+    for(const e of next.entries)if(e.songId===songId){e.performanceId=id||null;e.revision=id?head:null;}
+    change(next);loadFacts().then(deps.redraw);
+  }
+  return {sync,head,rowDetails,totalLine,perform,arrangementOf,chooseArrangement,reloadFacts:()=>loadFacts().then(deps.redraw).catch(deps.showError),get listId(){return listId;},flush(){clearTimeout(timer);return saveDraft();}};
 }

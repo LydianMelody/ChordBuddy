@@ -130,3 +130,19 @@ def test_lazy_chart_preserves_legacy_long_abc_chord_and_all_document_access(tmp_
     assert chart['content']['chords'][0]['label']==label
     assert store.get(score['id'])==changed
     assert (run/'score.abc').read_text()=='X:1\nK:C\n"G#m7/F#"G4|"C"C4|\n'
+
+
+def test_a_gap_shorter_than_a_beat_is_not_made_into_a_section(tmp_path):
+    """"Call Me - og" was given a 10 ms "Instrumental" before its Intro, because its first bar started at 0.01 s. A section shorter than one
+    beat is not a section: the gap goes to the section next to it. A gap with no beats that lasts a beat or longer (a fade in) stays."""
+    from chordbuddy.chart import seed_sections
+    (tmp_path/'beat.lab').write_text(''.join(f'{0.01+i*2/3:.3f}\t{i%4+1}\n' for i in range(200)))
+    (tmp_path/'structure.lab').write_text('0.01\t23.11\tintro\n23.11\t65.78\tverse\n65.9\t100\tchorus\n')
+    sections=seed_sections(tmp_path,104)
+    assert [(s['id'],s['name'],s['start'],s['end']) for s in sections]==[
+        ('s0','Intro',0,23.11),('s1','Verse',23.11,65.9),('s2','Chorus',65.9,100),('s3','Instrumental',100,104)]
+    # as older charts were made, for proving where their sections came from
+    assert [s['name'] for s in seed_sections(tmp_path,104,fold=False)]==['Instrumental','Intro','Verse','Instrumental','Chorus','Instrumental']
+    # a fade in of two seconds before the first named section is a section of its own
+    (tmp_path/'structure.lab').write_text('2\t50\tintro\n50\t104\tverse\n')
+    assert [s['name'] for s in seed_sections(tmp_path,104)]==['Instrumental','Intro','Verse']

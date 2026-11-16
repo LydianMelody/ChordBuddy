@@ -60,6 +60,7 @@ export class Transport{
   this.state.error=error?.message||String(error);this.emit();
  }
  async play(){
+  if(!this.performer&&this.showAgain?.())return;   // the show controls are open on a show that has ended: Play runs it again, not the plain song
   if(this.performer){if(this.performer.playPressed)this.performer.playPressed();else this.performer.resume();return;}   // a show's Play also starts it, or goes on to a song that waits for you
   this.countNext=true;   // Play counts in, when a count-in is set (countIn below); a seek while playing doesn't
   if(!this.state.ready)return;

@@ -86,8 +86,9 @@ export function mountMixer(root,{transport,onError=()=>{},exportTarget=()=>null,
     mute.onclick=()=>update(mix=>{mix.mutes[strip.index]=!mix.mutes[strip.index];});
     solo.onclick=()=>update(mix=>{mix.solos[strip.index]=!mix.solos[strip.index];});
     const label=make('div','strip-label',strip.label.replace(' guitar',' gtr'));label.title=strip.label;
-    node.append(cap,track,mute,solo,label);stripsRoot.append(node);
-    return {strip,node,fader,mute,solo,level};
+    const num=make('span','fader-num','100');num.title=strip.label+' volume, 0 to 100';num.setAttribute('aria-hidden','true');   // the fader's setting as a number (the slider itself is read aloud already)
+    node.append(cap,track,num,mute,solo,label);stripsRoot.append(node);
+    return {strip,node,fader,mute,solo,level,num};
   });
   master.oninput=()=>update(mix=>{mix.master=Number(master.value)/100;});
 
@@ -104,9 +105,10 @@ export function mountMixer(root,{transport,onError=()=>{},exportTarget=()=>null,
     root.classList.toggle('disabled',!ready);root.classList.toggle('stemless',state.ready&&state.stems===false);
     split.hidden=!(state.ready&&state.stems===false);splitButton.disabled=splitting.busy;splitButton.textContent=splitting.busy?'Splitting…':'Split stems';
     splitText.textContent=splitting.note||'The stems have not been split yet, so there is nothing to mix. The song plays as it was recorded.';
-    for(const {strip,node,fader,mute,solo,level} of strips){
+    for(const {strip,node,fader,mute,solo,level,num} of strips){
       const i=strip.index;
       if(document.activeElement!==fader)fader.value=Math.round(mix.gains[i]*100);
+      num.textContent=Math.round(mix.gains[i]*100);
       shown[i]=fallingLevel(shown[i],live?meterLevel(live[i]):0);level.parentElement.style.setProperty('--lvl',shown[i]);
       mute.setAttribute('aria-pressed',String(mix.mutes[i]));solo.setAttribute('aria-pressed',String(mix.solos[i]));
       node.classList.toggle('muted',levels[i]===0);node.classList.toggle('soloed',mix.solos[i]);

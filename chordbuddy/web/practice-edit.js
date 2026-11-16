@@ -1,6 +1,6 @@
 import {effectiveMeasures,validatePlacements} from './chart-layout.js';
 import {secondsAtAddress} from './musical-grid.js';
-import {deleteChartChord,editChartChord,editChartSection,mergeAdjacentChartSections,reassignChartChords,validateChart} from './editor.js';
+import {absorbChartSection,deleteChartChord,editChartChord,editChartSection,mergeAdjacentChartSections,reassignChartChords,validateChart} from './editor.js';
 import {buildCompactChart,compactEditTargets} from './compact-chart.js';
 const clone=structuredClone;
 function losses(before,after){
@@ -51,6 +51,7 @@ export function planSectionEdit(content,music,{sectionId,operation,fields={}}){
  const measures=effectiveMeasures(music,content.layout),section=content.sections.find(s=>s.id===sectionId);if(!section)throw Error('Choose an existing section.');
  let next;
  if(operation==='merge')next=mergeAdjacentChartSections(content,sectionId,fields.direction||'next',{acceptGap:fields.acceptGap===true});
+ else if(operation==='absorb')next=absorbChartSection(content,sectionId);
  else if(operation==='edit'){
   const value={};if(fields.name!==undefined)value.name=fields.name.trim();
   if(fields.startAddress)value.start=secondsAtAddress(measures,fields.startAddress);if(fields.endAddress)value.end=secondsAtAddress(measures,fields.endAddress);
