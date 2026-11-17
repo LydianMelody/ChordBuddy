@@ -8,6 +8,11 @@ const RATE=44100;
 export const AHEAD=.4;              // how far ahead sounds are sent: room for a slow page, and short enough that a change of plan rarely has to take any back
 const DRIFT=.03;                    // the cue track is put back in place if it's ever this far out
 const ASK_EVERY=2;                  // seconds between checks of the clocks while something is playing
+// The sound output closes after two minutes of no use (IDLE_CLOSE in monitor_audio.py) and opening it again takes a moment, longer if a headset has to wake.
+// A click due before it is open is thrown away as late, so a count-in that finds it closed comes back short or silent. From here on it is counted as
+// possibly closed after this long, and a count-in then opens it first and the music waits for that.
+export const COLD_AFTER=90;
+export const COLD_LEAD=.9;          // the least extra wait before the music when the output may be closed; it grows if opening it has been slow
 const START_MARGIN=.12;             // a cue track starting now is told to start this far ahead, so it starts in time
 
 /** The beats of the song between two source frames: [{frame, accent}], with the first of each bar as the accent. */
@@ -91,6 +96,7 @@ export function planCueJump({stretches,was,song,now,ahead=AHEAD}){
  *  practice(): {song, measures} for what's open. onProblem(message): said once, and the music carries on. */
 export function createMonitorOut({api,transport,performer=()=>null,practice=()=>null,now=()=>performance.now()/1000,onProblem=()=>{}}){
   let practiceCount=null;            // {song, clicks:[{k, at, accent}], until (source frame)}: the count-in Play asked for, in practice
+  let lastBusy=-Infinity,warmCost=null,warming=null;   // when the output was last used or opened; how long opening it took; the opening in progress
   let offset=null,fastest=Infinity,lastAsked=-Infinity,calibrating=null,sent=new Set(),cue=null,moving=false,lastKey=null,cycle=0,lastSource=null,failed=false,clickOn=false,cueWanted=false;
   const tracks=new Map();                         // song -> the version of its cue track, loaded and ready; null for none; a promise while it's asked for
   const fail=error=>{if(!failed){failed=true;onProblem(error?.message||String(error));}};
@@ -106,8 +112,20 @@ export function createMonitorOut({api,transport,performer=()=>null,practice=()=>
     calibrating??=(async()=>{
       for(let i=0;i<rounds;i++)await askClock();
       await api('/api/monitor/schedule',{events:[]});     // opens the output now, so the first click isn't lost to opening it
+      lastBusy=now();
     })().catch(fail).finally(()=>{calibrating=null;});
     return calibrating;
+  }
+  const cold=()=>offset===null||now()-lastBusy>COLD_AFTER;
+  /** Open the output now if it may be closed (never used yet, or idle long enough for the app to have closed it), and remember how long that took. */
+  function warm(){
+    if(!cold())return null;
+    warming??=(async()=>{
+      const began=now();
+      if(offset===null)await calibrate();else await api('/api/monitor/schedule',{events:[]});
+      lastBusy=now();warmCost=lastBusy-began;
+    })().catch(fail).finally(()=>{warming=null;});
+    return warming;
   }
   /** Take back everything, and start over from where the music is. */
   function reset(){
@@ -116,7 +134,7 @@ export function createMonitorOut({api,transport,performer=()=>null,practice=()=>
   }
   function send(events){
     if(!events.length)return;
-    moving=true;
+    moving=true;lastBusy=now();
     api('/api/monitor/schedule',{events:events.map(e=>({...e,at:toServer(e.at)}))}).then(()=>{failed=false;}).catch(fail);
   }
   /** A song's cue track, asked for once and made ready ahead of the moment it's needed. */
@@ -143,7 +161,8 @@ export function createMonitorOut({api,transport,performer=()=>null,practice=()=>
     if(!show&&!state.playIntent)lastKey=keyNow;          // moving the playhead while stopped is where the next Play starts, not a jump away from it
     const counting=!!show?.countIn?.length||(!show&&practiceCount?.song===open?.song);
     if(!(clickOn||cueWanted||counting)||!open||!(state.playIntent||show?.waiting)){if(moving)reset();lastSource=null;return;}
-    if(offset===null){calibrate();return;}
+    if(offset===null){if(counting)warm();else calibrate();return;}
+    if(counting&&cold())warm();
     if(!calibrating&&now()-lastAsked>ASK_EVERY)askClock().catch(()=>{});
     const t=now(),key=keyNow;
     // a jump nobody planned (a seek, a new song, a loop moved): start over. Going round a loop is part of the plan, below. A count-in Play asked for a moment
@@ -177,7 +196,9 @@ export function createMonitorOut({api,transport,performer=()=>null,practice=()=>
   return {
     tick,reset,calibrate,trackFor,
     /** A count-in Play asked for in practice. Taken back by a pause, a seek, or a new song, like everything else here. */
-    countIn(plan){practiceCount=plan;if(offset===null)calibrate();},
+    countIn(plan){practiceCount=plan;warm();},
+    /** Extra seconds the music should wait for a count-in, so the output can open first: none while it is open. Ask before countIn(). */
+    coldLead(){return cold()?Math.max(COLD_LEAD,(warmCost??0)*1.5+.4):0;},
     /** The cue track was added, replaced or removed. */
     forgetTrack(song){tracks.delete(song);cue=null;},
     /** The strips changed. A muted part isn't only silent: nothing is even scheduled for it. */
