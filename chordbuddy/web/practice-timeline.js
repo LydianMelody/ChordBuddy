@@ -108,7 +108,9 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
  timeButton.onclick=()=>setRuler('time');barsButton.onclick=()=>setRuler('bars');
  setRuler(rulerMode,false);
 
- function positionAt(t){const p=musicalPosition(numbered(),t);return p?(p.bar<1?'Before bar 1':'Bar '+p.bar)+(Number.isFinite(p.beat)?' · Beat '+p.beat.toFixed(2):' · timing unavailable'):'Musical position unavailable';}
+ // Bar and beat where they are known. A bar whose beats were never labeled shows just its number, and a moment outside every
+ // bar (before the first, after the last) shows the time, so the label always says something useful.
+ function positionAt(t){const p=musicalPosition(numbered(),t);return p?(p.bar<1?'Before bar 1':'Bar '+p.bar)+(Number.isFinite(p.beat)?' · Beat '+p.beat.toFixed(2):''):clock(Math.max(0,t));}
  const percentOf=(t,axis)=>100*(t-axis.start)/Math.max(.001,axis.end-axis.start);
  // The bar-and-beat label rides above the playhead but always stays wholly inside the scrubber, however narrow the window is.
  function placeLabel(percent){

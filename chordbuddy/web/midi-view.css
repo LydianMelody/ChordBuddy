@@ -13,7 +13,7 @@
 /* the editor grid:   corner | ruler | ·      the notes area takes all the room that is left, the keys and ruler never change size,
                       keys   | notes | pitch  and the two scroll bars sit right against the notes area, the same thickness each   */
 .roll-grid{flex:1;min-width:0;min-height:200px;display:grid;grid-template-columns:var(--keys) minmax(0,1fr) var(--bar);grid-template-rows:var(--ruler) minmax(0,1fr) var(--bar);
-  border:var(--bd) solid var(--k-edge);border-radius:8px;overflow:hidden;background:var(--page)}
+  border:var(--bd) solid var(--k-edge);border-radius:var(--k-r-m);overflow:hidden;background:var(--page)}
 .roll-grid.grabbing,.roll-grid.grabbing *{cursor:grabbing!important}
 .roll-corner{border-right:2px solid var(--k-edge);border-bottom:2px solid var(--k-edge);background:var(--page)}
 .roll-ruler-cell{position:relative;min-width:0;border-bottom:2px solid var(--k-edge);overflow:hidden;cursor:pointer}
@@ -48,7 +48,7 @@
 /* the bar of view controls above the roll */
 .roll-controls{justify-content:space-between}
 .roll-tracks{display:flex;flex-wrap:wrap;gap:6px}
-.roll-track{display:inline-flex;align-items:center;gap:6px;min-height:0;padding:4px 10px;border:2px solid var(--k-edge);border-radius:999px;background:var(--page);color:var(--ink);font:800 12px/1 var(--m);cursor:pointer;box-shadow:2px 2px 0 var(--k-shade)}
+.roll-track{display:inline-flex;align-items:center;gap:6px;min-height:0;padding:4px 10px;border:2px solid var(--k-edge);border-radius:999px;background:var(--page);color:var(--ink);font:800 12px/1 var(--m);cursor:pointer;box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
 .roll-track .roll-swatch{width:12px;height:12px;border:2px solid var(--k-edge);border-radius:50%;background:var(--tc)}
 .roll-track[aria-pressed="false"]{box-shadow:none;background:none}
 .roll-track[aria-pressed="false"] .roll-swatch{background:none}

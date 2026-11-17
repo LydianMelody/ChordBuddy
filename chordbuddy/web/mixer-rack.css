@@ -1,36 +1,36 @@
 /* The mixer rack: presets, one vertical channel strip per stem, Master. Shared by the main window (shell) and the visualizer's
    slide-out mixer, so both look the same in every theme. Needs press-room.base.css (and dark.css) for the colours. */
 /* ---------- Mixer rack (ported from the mockup) ---------- */
-.rack{width:318px;display:flex;flex-direction:column;gap:10px;padding:12px;border:var(--bd) solid var(--k-edge);border-radius:16px;background:var(--page);box-shadow:var(--sh) var(--sh) 0 var(--k-shade);min-height:0}
+.rack{width:318px;display:flex;flex-direction:column;gap:10px;padding:12px;border:var(--bd) solid var(--k-edge);border-radius:var(--k-r-l);background:var(--page);box-shadow:var(--sh) var(--sh) 0 var(--k-shade);min-height:0}
 .rack-head{display:flex;align-items:center;justify-content:space-between}
 .rack-head b{font:800 17px var(--g);font-stretch:85%;text-transform:uppercase;display:flex;gap:6px;align-items:center}
 .presets{display:flex;gap:5px;flex-wrap:wrap}
 .presets button{padding:3px 9px;border:2px solid var(--k-edge);border-radius:999px;font:700 11px var(--g)}
 .presets button.on{background:var(--ink);color:var(--page)}
 .strips{flex:1;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-template-rows:minmax(0,1fr);gap:5px;min-height:0}
-.stem{display:grid;grid-template-rows:auto minmax(0,1fr) auto auto auto auto;justify-items:center;gap:6px;padding:0 0 7px;border:2px solid var(--k-edge);border-radius:10px;background:var(--desk);overflow:hidden;min-height:0}
+.stem{display:grid;grid-template-rows:auto minmax(0,1fr) auto auto auto auto;justify-items:center;gap:6px;padding:0 0 7px;border:2px solid var(--k-edge);border-radius:var(--k-r-l);background:var(--desk);overflow:hidden;min-height:0}
 .stem-icon{width:100%;display:grid;place-items:center;padding:6px 0;background:var(--cap,var(--tint));border-bottom:2px solid var(--k-edge)}
 .stem:nth-child(1){--cap:var(--a1)}.stem:nth-child(2){--cap:var(--hl)}.stem:nth-child(3){--cap:color-mix(in srgb,var(--hl) 50%,var(--a1))}.stem:nth-child(4){--cap:var(--a2)}.stem:nth-child(5){--cap:var(--a3)}.stem:nth-child(6){--cap:color-mix(in srgb,var(--a3) 40%,var(--page))}.stem:nth-child(7){--cap:var(--tint)}
 .stem:nth-child(1) .stem-icon,.stem:nth-child(4) .stem-icon{color:#fff}
 .stem-icon .ic{width:17px;height:17px}
 
 .track{display:flex;gap:4px;height:100%;min-height:0;overflow:hidden;padding-top:4px}
-.meter{width:7px;border:1.5px solid var(--k-edge);border-radius:3px;background:var(--page);position:relative;overflow:hidden}
+.meter{width:7px;border:1.5px solid var(--k-edge);border-radius:var(--k-r-s);background:var(--page);position:relative;overflow:hidden}
 .meter i{position:absolute;left:0;right:0;bottom:0;height:calc(var(--lvl,0)*100%);background:linear-gradient(0deg,var(--a3) 0 60%,var(--hl) 60% 84%,var(--a1) 84%);background-size:100% 150px;background-position:bottom;-webkit-mask:repeating-linear-gradient(0deg,#000 0 4px,#0000 4px 6px);mask:repeating-linear-gradient(0deg,#000 0 4px,#0000 4px 6px)}
 .fader{writing-mode:vertical-lr;direction:rtl;width:20px;height:100%;appearance:none;-webkit-appearance:none;background:transparent;margin:0;cursor:pointer}
 .fader::-webkit-slider-runnable-track{width:4px;background:var(--ink);border-radius:2px}
-.fader::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:14px;border:2px solid var(--k-edge);border-radius:4px;background:var(--page);box-shadow:2px 2px 0 var(--k-shade);margin-left:-8px}
-.mute,.solo{width:calc(100% - 8px);height:22px;border:2px solid var(--k-edge);border-radius:6px;font:800 11px var(--g);background:var(--page)}
+.fader::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:14px;border:2px solid var(--k-edge);border-radius:var(--k-r-s);background:var(--page);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);margin-left:-8px}
+.mute,.solo{width:calc(100% - 8px);height:22px;border:2px solid var(--k-edge);border-radius:var(--k-r-m);font:800 11px var(--g);background:var(--page)}
 .stem.muted{opacity:.55}.stem.muted .mute{background:var(--ink);color:var(--page)}
 .stem.soloed{box-shadow:0 0 0 2px var(--hl),0 0 0 4px var(--ink)}.stem.soloed .solo{background:var(--hl)}
 .fader-num{font:700 8px/1 var(--g);font-variant-numeric:tabular-nums;letter-spacing:.02em;text-align:center;min-width:3ch;flex:none;opacity:.8}
 .strip-label{font:800 10px/1.05 var(--g);font-stretch:85%;text-transform:uppercase;text-align:center;min-height:21px;padding:0 2px}
-.master{display:flex;align-items:center;gap:10px;padding:8px 10px;border:2px solid var(--k-edge);border-radius:12px;background:var(--desk)}
+.master{display:flex;align-items:center;gap:10px;padding:8px 10px;border:2px solid var(--k-edge);border-radius:var(--k-r-l);background:var(--desk)}
 .master b{font:700 11px var(--m);text-transform:uppercase}
 .master input{flex:1;accent-color:var(--ink)}
 .master output{font:700 11px var(--m);width:30px;text-align:right}
 /* The click and the cue track: only you hear these, so they sit apart from the music's faders (monitor-strips.js) */
-.monitor{display:grid;grid-template-columns:minmax(0,1fr);gap:5px;padding:7px 10px 8px;border:2px dashed var(--k-edge);border-radius:12px;background:var(--desk)}
+.monitor{display:grid;grid-template-columns:minmax(0,1fr);gap:5px;padding:7px 10px 8px;border:2px dashed var(--k-edge);border-radius:var(--k-r-l);background:var(--desk)}
 .monitor-head b{font:700 10px var(--m);text-transform:uppercase}
 .monitor-row{display:flex;align-items:center;gap:7px;min-width:0}
 .monitor-row b{font:700 11px var(--m);text-transform:uppercase;width:38px;flex:none}
@@ -39,7 +39,7 @@
 .rack .monitor-row .mute{flex:none;width:28px;min-width:0;margin:0;padding:2px 0}
 .monitor-row.muted>:is(.monitor-icon,b,input){opacity:.5}
 .monitor-row .mute[aria-pressed=true]{background:var(--ink);color:var(--page)}
-.monitor-file{flex:none;padding:2px 7px;border:2px solid var(--k-edge);border-radius:8px;background:var(--page);font:700 11px var(--m)}
+.monitor-file{flex:none;padding:2px 7px;border:2px solid var(--k-edge);border-radius:var(--k-r-m);background:var(--page);font:700 11px var(--m)}
 .monitor-file:disabled{opacity:.5}
 .monitor-count b{width:auto;white-space:nowrap;letter-spacing:normal}
 .monitor-count-seg{flex:1;min-width:0}
@@ -49,7 +49,7 @@
 .rack-head{gap:8px}
 .rack-head b{margin-right:auto}
 .rack-count{font:700 10px var(--m);color:var(--soft)}
-.rack-head .fold{width:26px;height:26px;border-radius:8px}
+.rack-head .fold{width:26px;height:26px;border-radius:var(--k-r-m)}
 .rack .strips{min-height:260px}
 .stem .quiet{opacity:.6}
 .stem.quiet{opacity:.7}
@@ -57,7 +57,7 @@
 .rack .solo[aria-pressed="true"]{background:var(--hl)}
 .rack-column{display:flex;flex-direction:column;gap:10px;min-height:0;align-self:start;max-height:100%}
 .rack-column .rack{align-self:stretch;flex:0 1 auto}
-.rack-visual{flex:none;display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:var(--bd) solid var(--k-edge);border-radius:16px;background:var(--page);box-shadow:var(--sh) var(--sh) 0 var(--k-shade);font:700 11px var(--m);text-transform:uppercase;letter-spacing:.06em;color:var(--soft)}
+.rack-visual{flex:none;display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:var(--bd) solid var(--k-edge);border-radius:var(--k-r-l);background:var(--page);box-shadow:var(--sh) var(--sh) 0 var(--k-shade);font:700 11px var(--m);text-transform:uppercase;letter-spacing:.06em;color:var(--soft)}
 .rack-visual select{width:100%;min-width:0;height:36px;text-transform:none;letter-spacing:0}
 .rack.disabled .strips,.rack.disabled .presets,.rack.disabled .master{opacity:.5}
 .rack button:disabled,.rack input:disabled{cursor:default}
@@ -81,9 +81,41 @@
 .rack .strip-label{width:100%;min-height:24px;padding:0 1px;font:800 9.5px/1.08 var(--g);font-stretch:85%;letter-spacing:0;text-transform:uppercase;text-align:center;white-space:normal;word-break:keep-all;overflow-wrap:normal}
 @media (max-width:1100px){.rack{width:340px}}
 
+/* ---------- Faders you can find at a glance (2026-11, after Astra's mixer sketch, in the Press Room kit) ----------
+   Every fader, the seven strips, Master and the click/cue rows, is the same object: a recessed slot with faint tick marks, and a cap
+   in the writing color with a groove across it, so the part you grab is the highest-contrast thing on the strip in light and dark.
+   Sliders never take the text boxes' focus shadow; the keyboard focus ring (shell.css) still shows. */
+.rack{--slot:color-mix(in srgb,var(--ink) 16%,var(--desk));--tick:color-mix(in srgb,var(--ink) 30%,transparent)}
+.rack input[type=range]:focus{box-shadow:none}
+/* the shared text-box padding and border (shell.css) made a slider's cap stop short of the end of its slot: sliders have none */
+.rack input[type=range]{padding:0;border:0;border-radius:0}
+/* the strips: ticks every tenth behind the slot, the slot is the level meter, the cap rides over it */
+.rack .track::before{content:'';position:absolute;left:22%;right:22%;top:8px;bottom:8px;
+  background:repeating-linear-gradient(to top,var(--tick) 0 1px,transparent 1px 10%);pointer-events:none}
+.rack .meter{background:var(--slot);border-color:var(--k-edge)}
+.rack .fader::-webkit-slider-thumb{width:24px;height:16px;margin-left:-10px;border:2px solid var(--k-edge);border-radius:var(--k-r-s);
+  background:linear-gradient(var(--ink) 0 5px,var(--page) 5px 7px,var(--ink) 7px);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);cursor:grab}
+.rack .fader::-moz-range-thumb{width:20px;height:12px;border:2px solid var(--k-edge);border-radius:var(--k-r-s);
+  background:linear-gradient(var(--ink) 0 4px,var(--page) 4px 6px,var(--ink) 6px);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);cursor:grab}
+.rack .fader:active::-webkit-slider-thumb{cursor:grabbing;box-shadow:var(--k-sh-press) var(--k-sh-press) 0 var(--k-shade)}
+/* Master (and the click and cue rows): the same fader lying down, across the whole width under its name */
+.rack .master{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px 6px;padding:8px 10px 10px}
+.rack .master [data-icon]{display:grid;line-height:0}
+.rack .master input{grid-column:1/-1;grid-row:2;width:100%}
+.rack :is(.master,.monitor-row) input[type=range]{-webkit-appearance:none;appearance:none;height:22px;margin:0;background:transparent;cursor:pointer;accent-color:auto}
+.rack :is(.master,.monitor-row) input[type=range]::-webkit-slider-runnable-track{height:10px;border:1.5px solid var(--k-edge);border-radius:var(--k-r-s);
+  background:repeating-linear-gradient(to right,transparent 0 calc(10% - 1px),var(--tick) calc(10% - 1px) 10%),var(--slot)}
+.rack :is(.master,.monitor-row) input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:24px;margin-top:-8.5px;border:2px solid var(--k-edge);border-radius:var(--k-r-s);
+  background:linear-gradient(90deg,var(--ink) 0 5px,var(--page) 5px 7px,var(--ink) 7px);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);cursor:grab}
+.rack :is(.master,.monitor-row) input[type=range]::-moz-range-track{height:7px;border:1.5px solid var(--k-edge);border-radius:var(--k-r-s);background:var(--slot)}
+.rack :is(.master,.monitor-row) input[type=range]::-moz-range-thumb{width:12px;height:20px;border:2px solid var(--k-edge);border-radius:var(--k-r-s);
+  background:linear-gradient(90deg,var(--ink) 0 4px,var(--page) 4px 6px,var(--ink) 6px);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
+.rack :is(.master,.monitor-row) input[type=range]:active::-webkit-slider-thumb{cursor:grabbing;box-shadow:var(--k-sh-press) var(--k-sh-press) 0 var(--k-shade)}
+.rack :is(.master,.monitor-row) input[type=range]:disabled::-webkit-slider-thumb{cursor:default}
+
 /* ---------- Export the mix ---------- */
-.rack .export-mix{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center;margin:8px 0 0;padding:8px 12px;border:var(--bd) solid var(--k-edge);border-radius:12px;background:var(--hl);box-shadow:3px 3px 0 var(--k-shade);color:var(--ink);font:800 13px/1.15 var(--g);text-decoration:none;cursor:pointer}
+.rack .export-mix{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center;margin:8px 0 0;padding:8px 12px;border:var(--bd) solid var(--k-edge);border-radius:var(--k-r-l);background:var(--hl);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);color:var(--ink);font:800 13px/1.15 var(--g);text-decoration:none;cursor:pointer}
 .rack .export-mix [data-icon]{grid-row:1/3;display:inline-grid}
 .rack .export-mix small{font:400 10.5px/1.2 var(--m);color:var(--ink);opacity:.75}
-.rack .export-mix:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--k-shade)}
+.rack .export-mix:hover{transform:translate(-1px,-1px);box-shadow:var(--k-sh-lift) var(--k-sh-lift) 0 var(--k-shade)}
 .rack .export-mix.disabled{opacity:.45;pointer-events:none;box-shadow:none}

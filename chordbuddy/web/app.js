@@ -37,6 +37,7 @@ import {setKeySpelling,spellChord,spellAbc} from './spelling.js';
 import {onsetsFromNotes} from './word-layout.js';
 import {mountModelsPanel,mountChordModelPanel} from './models-view.js';
 import {mountDeskBars,combinedZoom} from './desk-bars.js';
+import {mountDeskFollow} from './desk-follow.js';
 import {createVisualPublisher,desktopWindow,joinChannels,playerRelay,CHANNEL} from './visual-bridge.js';
 import {mountVisualizer,loadVisualizations} from './visualizer-view.js';
 import {defaultVisualOptions,readSetup,readUsual,writeSetup,writeUsual} from './visual-setup.js';
@@ -131,7 +132,7 @@ const practiceView=mountChartPage($('chart-sections'),{
 });
 // (these two need the chart page above; the show system is built further down, so its history is read through a getter)
 const historyUi=createHistoryUi({$,model,practiceView,performanceApp:{get history(){return performanceApp.history;}},currentSong,currentRecord,historyAction}),{noteHistory,syncPrepareHistory,notePrepareStep}=historyUi;
-const exportFlow=createExportFlow({$,model,prefs,api,mediaUrl,practiceView,getLeadView:()=>leadView,currentSong,currentRecord,chartDoc,loadChartRecord,selectDocument,showError}),{renderExportMenu,exportChartPdf}=exportFlow;
+const exportFlow=createExportFlow({$,model,prefs,api,mediaUrl,practiceView,getLeadView:()=>leadView,currentSong,currentRecord,chartDoc,loadChartRecord,selectDocument,songContext:id=>midiSongContext(id),showError}),{renderExportMenu,exportChartPdf}=exportFlow;
 // The chart's tools (Play, Edit, Timing) sit in the rail beside it, with Ctrl and Shift as quick shortcuts on top (chart-page.js).
 // In time, the chart is drawn on a beat grid wider than the desk: it gets cassette bars (scroll and zoom) instead of scroll bars.
 // The bottom bar's grips and Ctrl+wheel share one zoom: the beat grid's own, and past either end of it the page shrinking (to 50%) or
@@ -141,6 +142,9 @@ const chartZoom=combinedZoom(
  {get:()=>practiceView.getZoom(),set:value=>practiceView.setZoom(value),limits:[ZOOM_LEVELS[0],ZOOM_LEVELS.at(-1)]},
  {get:()=>pageNav?.getZoom()??1,set:value=>pageNav?.setZoom(value)},MIN_PAGE_ZOOM,MAX_PAGE_ZOOM);
 const deskBars=mountDeskBars(document.querySelector('.stage'),$('desk'),chartZoom);
+// Scrolling the chart or lead sheet yourself stops it following the music until you seek, play again or press "Back to the music".
+const deskFollow=mountDeskFollow(document.querySelector('.stage'),$('desk'),{active:()=>['chart','abc'].includes(currentRecord()?.doc.kind)});
+transport.subscribe(snapshot=>deskFollow.observe(snapshot));
 // Zoom the in-time chart by `factor`, keeping the part of the page under the pointer (or the middle) where it was.
 function zoomChartAt(factor,clientX){
  const desk=$('desk'),box=desk.getBoundingClientRect(),px=Number.isFinite(clientX)?clientX-box.left:box.width/2,at=(desk.scrollLeft+px)/Math.max(1,desk.scrollWidth);
@@ -370,7 +374,7 @@ async function midiSongContext(songId){
   const runId=separationDetail?.active?.run_id||transport.getSnapshot().sourceRunId;
   if(runId)try{const f=await api('/api/visual-features/'+encodeURIComponent(runId));
     for(const [role,track] of Object.entries(f.tracks||{}))for(const [t,s] of track.hits||[])if(s>=0.25)(role==='drums'?drumHits:onsets).push(t);}catch{/* the melodies and chords are enough to guess with */}
-  const value={title:currentSong()?.title||'',duration:currentSong()?.duration||content.duration||music.duration||0,measures,firstBar,
+  const value={title:currentSong()?.title||'',duration:currentSong()?.duration||content.duration||music.duration||0,measures,firstBar,sections:scene.sections,
     chords:(content.chords||[]).filter(c=>Number.isFinite(c.start)&&c.end>c.start&&!isNoChordLabel(c.label)).map(c=>({start:c.start,end:c.end,label:spellChord(displayChordLabel(c.label))})),
     model:{vocal,instrumental},onsets,drumHits};
   songContexts.set(songId,{key,value});return value;

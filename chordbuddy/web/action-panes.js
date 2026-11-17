@@ -52,7 +52,7 @@ export function fieldRows(fields,values,change,{scenes=()=>[],inputs=()=>[],name
     else if(kind==='helixPreset'){control=el('select');options(control,[['','No change'],...Array.from({length:128},(_,i)=>[i+1,helixPresetName(i+1)])]);control.value=String(now[key]??'');control.onchange=()=>set(key,control.value===''?undefined:Number(control.value));}
     else if(kind==='text'){control=el('input');control.value=now[key]??'';control.onchange=()=>set(key,control.value);}
     else if(kind==='device'){control=el('input');control.setAttribute('list','pf-devices');control.value=now[key]??'';control.onchange=()=>set(key,control.value);}
-    else if(kind==='check'){control=el('input');control.type='checkbox';control.checked=!!now[key];control.onchange=()=>set(key,control.checked);}
+    else if(kind==='check'){control=el('input');control.type='checkbox';control.className='switch';control.setAttribute('role','switch');control.checked=!!now[key];control.onchange=()=>set(key,control.checked);}
     else if(kind==='tristate'){control=el('select');options(control,[['','No change'],['on','On'],['off','Off']]);control.value=now[key]===undefined?'':now[key]?'on':'off';control.onchange=()=>set(key,control.value===''?undefined:control.value==='on');}
     else if(kind==='track'){control=el('select');options(control,STRIPS.map(s=>[s.key,s.label]));control.value=now[key];control.onchange=()=>set(key,control.value);}
     else if(kind==='choice'){control=el('select');options(control,o.choices);control.value=String(now[key]);control.onchange=()=>set(key,o.choices.find(([v])=>String(v)===control.value)[0]);}

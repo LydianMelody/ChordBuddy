@@ -358,7 +358,7 @@ export function mountPatchBay(container,{onSave,stored=()=>null,onChoose=()=>{},
     const value=key in cable?cable[key]:spec.value;
     const change=v=>update(cable,{[key]:v},`Change ${spec.label} for ${input.label}`);
     if(spec.boolean){
-      const box=el('input');box.type='checkbox';box.checked=!!value;box.onchange=()=>change(box.checked);
+      const box=el('input');box.type='checkbox';box.className='switch';box.setAttribute('role','switch');box.checked=!!value;box.onchange=()=>change(box.checked);
       label.append(box,el('span','',spec.label));return label;
     }
     const range=el('input'),out=el('output');range.type='range';range.min=spec.min;range.max=spec.max;range.step=spec.step;range.value=value;

@@ -30,6 +30,7 @@ import {TOOL_ART,toolCursor,CHART_TOOLS,CHART_FOR_KEY} from './tool-icons.js';
 import {renderRail} from './tool-rail.js';
 import {detectFadeOut} from './fade-out.js';
 import {placeCues,addCues,editCue,cueWords} from './chart-cues.js';
+import {followHeld,releaseFollow} from './desk-follow.js';
 
 const el=(tag,cls='',text)=>{const n=document.createElement(tag);n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 const finite=Number.isFinite;
@@ -592,12 +593,15 @@ export function mountChartPage(root,handlers={}){
       }else if(!live&&r.beat){r.beat=null;delete r.node.dataset.beat;}
     }
   }
-  // Keep the playing row on screen while playing, without fighting the reader.
+  // Keep the playing row on screen while playing, without fighting the reader: once you scroll away it waits (desk-follow.js) until the
+  // row is back in view, you seek, or you press "Back to the music".
   function followPlayback(target){
     const row=refs.groups.find(r=>r.model.id===target.groupId)?.node;if(!row?.getBoundingClientRect)return;
     const desk=root.closest?.('.desk')||root.parentElement;const box=desk?.getBoundingClientRect?.(),r=row.getBoundingClientRect();
     if(!box||desk.scrollHeight<=desk.clientHeight)return;
-    if(r.top<box.top+box.height*.12||r.bottom>box.top+box.height*.8)row.scrollIntoView?.({block:'center',behavior:'smooth'});
+    const away=r.top<box.top+box.height*.12||r.bottom>box.top+box.height*.8;
+    if(!away){releaseFollow(desk);return;}
+    if(!followHeld(desk))row.scrollIntoView?.({block:'center',behavior:'smooth'});
   }
   function seekChunk(g,chunk){
     const pass=passForSeek(g),targets=compactJumpTargets(model.projection,{groupId:g.id,slotId:chunk.slotId}),target=targets.find(t=>t.passNumber===pass)||targets[0];

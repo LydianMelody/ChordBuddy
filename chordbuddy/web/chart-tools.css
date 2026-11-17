@@ -3,13 +3,20 @@
    (the tray): the tools inside are flat, and the tool in use is simply filled. */
 
 /* ---------- the stage: the rail stands beside the paper desk, never on it ---------- */
-.stage{flex:1;min-height:0;display:flex;gap:10px}
+.stage{flex:1;min-height:0;display:flex;gap:10px;position:relative}
+/* shown while you have scrolled away from the music during playback (desk-follow.js) */
+.back-to-music{position:absolute;left:50%;bottom:16px;z-index:5;transform:translateX(-50%);height:var(--k-h);padding:0 14px;
+  font:inherit;font-weight:700;color:var(--onA2,#fff);background:var(--a2);border:var(--k-bd,2px) solid var(--k-edge);border-radius:var(--k-r-m);
+  box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);cursor:pointer}
+.back-to-music:hover{box-shadow:var(--k-sh-lift) var(--k-sh-lift) 0 var(--k-shade);transform:translate(-50%,-1px)}
+.back-to-music:active{box-shadow:var(--k-sh-press) var(--k-sh-press) 0 var(--k-shade);transform:translate(-50%,1px)}
+.back-to-music[hidden]{display:none}
 .stage>.desk{flex:1;min-width:0}
 .tool-rail{flex:none;align-self:flex-start;max-height:100%;overflow-y:auto;padding:2px 8px 10px 2px;scrollbar-width:none}
 .tool-rail::-webkit-scrollbar{display:none}
-.tool-tray{width:62px;display:flex;flex-direction:column;align-items:stretch;gap:3px;padding:6px 5px;border:var(--bd) solid var(--k-edge);border-radius:18px;background:var(--page);box-shadow:3px 3px 0 var(--k-shade)}
-.tool-sep{height:0;margin:4px 10px;border-top:2.5px dotted var(--faint)}
-.tool-btn{position:relative;display:grid;justify-items:center;gap:2px;width:100%;min-height:0;padding:6px 2px 5px;border:0;border-radius:12px;background:none;box-shadow:none;color:var(--ink);transition:background .12s}
+.tool-tray{width:62px;display:flex;flex-direction:column;align-items:stretch;gap:3px;padding:6px 5px;border:var(--bd) solid var(--k-edge);border-radius:18px;background:var(--page);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
+.tool-sep{height:0;margin:4px 10px;border-top:var(--k-bd) dotted var(--faint)}
+.tool-btn{position:relative;display:grid;justify-items:center;gap:2px;width:100%;min-height:0;padding:6px 2px 5px;border:0;border-radius:var(--k-r-l);background:none;box-shadow:none;color:var(--ink);transition:background .12s}
 .tool-btn small{font:800 9.5px/1 var(--g);font-stretch:82%;letter-spacing:.07em;text-transform:uppercase}
 .tool-btn kbd{position:absolute;top:3px;right:3px;font:700 8.5px/1 var(--m);color:var(--soft)}
 /* the drawings sit straight on the tray; the tool in use is filled with the accent */
@@ -40,11 +47,11 @@
 .tool-options .opt{margin-left:auto}
 .tool-note{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:6px}
 .tool-note:empty{display:none}
-.tool-controls{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:5px 12px;border:2px solid var(--k-edge);border-radius:12px;background:var(--page);box-shadow:2px 2px 0 var(--k-shade)}
-.fix-choice{min-height:0;padding:5px 11px;border:2px solid var(--k-edge);border-radius:10px;background:var(--page);color:var(--ink);font:800 12.5px/1 var(--m);box-shadow:2px 2px 0 var(--k-shade);cursor:pointer}
+.tool-controls{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:5px 12px;border:2px solid var(--k-edge);border-radius:var(--k-r-l);background:var(--page);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
+.fix-choice{min-height:0;padding:5px 11px;border:2px solid var(--k-edge);border-radius:var(--k-r-l);background:var(--page);color:var(--ink);font:800 12.5px/1 var(--m);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);cursor:pointer}
 .fix-choice.plain{font-weight:600}
-.fix-choice:hover{background:var(--a1);color:var(--onA1);transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--k-shade)}
-.fix-choice:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--k-shade)}
+.fix-choice:hover{background:var(--a1);color:var(--onA1);transform:translate(-1px,-1px);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
+.fix-choice:active{transform:translate(1px,1px);box-shadow:var(--k-sh-press) var(--k-sh-press) 0 var(--k-shade)}
 .fix-link{padding:0;font:700 11.5px var(--m);color:var(--ink);text-decoration:underline;text-underline-offset:3px;opacity:.75}
 .fix-link:hover{opacity:1}
 
@@ -54,9 +61,9 @@
 .status-warn{padding:0 7px;border:1.5px solid var(--k-edge);border-radius:999px;background:var(--hl);color:#1A1C24;font:800 11px/1.5 var(--m);cursor:help}
 .tool-put-down{display:inline-flex;align-items:center;gap:6px;padding:0;font:700 11px var(--m);color:var(--soft);text-decoration:underline;text-underline-offset:3px}
 .tool-put-down:hover{color:var(--ink)}
-.tool-put-down kbd{font:700 10px var(--m);padding:0 5px;border:1.5px solid var(--k-edge);border-radius:5px;text-decoration:none;background:var(--page);color:var(--ink)}
+.tool-put-down kbd{font:700 10px var(--m);padding:0 5px;border:1.5px solid var(--k-edge);border-radius:var(--k-r-s);text-decoration:none;background:var(--page);color:var(--ink)}
 /* a refusal (a cut across a lyric, a save problem) is the one thing in the line that shouts */
-.tool-status .chart-message{flex-basis:100%;margin:2px 0 0;padding:4px 12px;border:2px solid var(--k-edge);border-radius:10px;background:#FFE1D8;color:#1A1C24;font:700 12px/1.4 var(--m);box-shadow:2px 2px 0 var(--k-shade)}
+.tool-status .chart-message{flex-basis:100%;margin:2px 0 0;padding:4px 12px;border:2px solid var(--k-edge);border-radius:var(--k-r-l);background:#FFE1D8;color:#1A1C24;font:700 12px/1.4 var(--m);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
 .tool-status .chart-message:empty{display:none}
 [data-lock="full"] .tool-rail,[data-lock="full"] .tool-options,[data-lock="full"] .tool-status{display:none}
 
@@ -141,7 +148,7 @@
 [data-acts~="time"] .pinb{cursor:pointer}
 
 /* ---------- tooltips ---------- */
-.tip{position:fixed;z-index:200;width:max-content;max-width:268px;padding:10px 13px 12px;border:var(--bd) solid var(--k-edge);border-radius:16px;background:var(--ink);color:var(--page);box-shadow:4px 4px 0 var(--a1);pointer-events:none;opacity:0;transform:translateY(5px) scale(.97);transition:opacity .15s,transform .15s}
+.tip{position:fixed;z-index:200;width:max-content;max-width:268px;padding:10px 13px 12px;border:var(--bd) solid var(--k-edge);border-radius:var(--k-r-l);background:var(--ink);color:var(--page);box-shadow:var(--k-sh-lift) var(--k-sh-lift) 0 var(--a1);pointer-events:none;opacity:0;transform:translateY(5px) scale(.97);transition:opacity .15s,transform .15s}
 .tip[hidden]{display:none}
 .tip.show{opacity:1;transform:none}
 .tip[data-side="above"]{transform:translateY(-5px) scale(.97)}
@@ -154,10 +161,10 @@
 .tip[data-side="right"]::before{left:-9px;top:var(--nub,24px);margin:-7px 0 0 0;border-right:0;border-top:0;transform:rotate(45deg)}
 .tip-head{display:flex;align-items:center;gap:9px;margin-bottom:4px}
 .tip-head b{font:800 15px/1 var(--g);font-stretch:82%;letter-spacing:.05em;text-transform:uppercase}
-.tip-head kbd{font:700 10px/1 var(--m);padding:2px 6px;border:1.5px solid var(--page);border-radius:6px}
+.tip-head kbd{font:700 10px/1 var(--m);padding:2px 6px;border:1.5px solid var(--page);border-radius:var(--k-r-m)}
 .tip p{margin:0;font:12.5px/1.5 var(--m)}
 .tip-art-wrap{margin:-2px -4px 9px}
-.tip-art{display:block;width:100%;height:auto;border-radius:10px;background:color-mix(in srgb,var(--page) 9%,transparent)}
+.tip-art{display:block;width:100%;height:auto;border-radius:var(--k-r-l);background:color-mix(in srgb,var(--page) 9%,transparent)}
 .tip-art text{font-family:var(--g)}
 .tip-art .a-chord{font:800 13px var(--g);fill:var(--page)}
 .tip-art .a-word{font:10px var(--type);fill:var(--page)}
@@ -234,7 +241,7 @@
 .key-box:hover small{color:#1A1C24}
 
 /* page zoom indicator and the hand cursor while panning with the middle button */
-.zoom-pill{position:fixed;left:50%;bottom:150px;transform:translateX(-50%);padding:6px 14px;border:var(--bd) solid var(--k-edge);border-radius:999px;background:var(--hl);color:#1A1C24;font:800 13px var(--m);box-shadow:3px 3px 0 var(--k-shade);opacity:0;pointer-events:none;transition:opacity .2s;z-index:60}
+.zoom-pill{position:fixed;left:50%;bottom:150px;transform:translateX(-50%);padding:6px 14px;border:var(--bd) solid var(--k-edge);border-radius:999px;background:var(--hl);color:#1A1C24;font:800 13px var(--m);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);opacity:0;pointer-events:none;transition:opacity .2s;z-index:60}
 .zoom-pill.show{opacity:1;pointer-events:auto;cursor:pointer}
 body.panning,body.panning *{cursor:grabbing!important;user-select:none!important}
 
@@ -255,5 +262,6 @@ button.meter-box:hover hr{border-top-color:#1A1C24}
 #workspace[data-kind="chart"] .tool-note{order:4}
 /* with everything on that one line, the chart sits closer to the top */
 #app:has(#workspace[data-kind="chart"]:not(.hidden)) .top{padding-bottom:2px}
-#workspace[data-kind="chart"] .toolbar{padding-bottom:4px}
+/* no space under the tabs: they stand right on the toolbar's line, their bottom edges on top of it, so there is one line, not two */
+#workspace[data-kind="chart"] .toolbar{padding-bottom:0}
 #workspace[data-kind="chart"] #desk{padding-top:2px}

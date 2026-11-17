@@ -19,12 +19,12 @@
 .lead-section-name{font-weight:800;letter-spacing:.05em;text-transform:uppercase}
 
 /* a frozen copy (sent to another editor) */
-.lead-banner{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;margin:6px 0 12px;padding:8px 14px;border:2px solid var(--k-edge);border-radius:12px;background:var(--hl);color:#1A1C24;box-shadow:3px 3px 0 var(--k-shade);font:700 12.5px/1.45 var(--m)}
+.lead-banner{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;margin:6px 0 12px;padding:8px 14px;border:2px solid var(--k-edge);border-radius:var(--k-r-l);background:var(--hl);color:#1A1C24;box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);font:700 12.5px/1.45 var(--m)}
 .lead-banner[hidden]{display:none}
 .lead-banner strong{font:800 14px var(--g);font-stretch:85%;text-transform:uppercase;letter-spacing:.05em}
 
 /* selecting a note */
-.lead-selbox{position:absolute;z-index:2;pointer-events:none;border:2.5px dashed var(--a1);border-radius:10px;background:color-mix(in srgb,var(--hl) 38%,transparent);transition:left .08s,top .08s}
+.lead-selbox{position:absolute;z-index:2;pointer-events:none;border:var(--k-bd) dashed var(--a1);border-radius:var(--k-r-l);background:color-mix(in srgb,var(--hl) 38%,transparent);transition:left .08s,top .08s}
 .abcjs-note.lead-sel{fill:var(--a1);stroke:var(--a1)}
 .lead-notation[data-tip]{cursor:default}
 [data-tool="select"] .lead-notation .abcjs-note{cursor:pointer}
@@ -34,35 +34,35 @@
 
 .lead-selected{font:800 12.5px var(--m);margin-right:4px}
 .lead-label{font:700 11px var(--m);text-transform:uppercase;letter-spacing:.08em}
-.lead-btn{min-width:0;min-height:0;padding:4px 10px;border:2px solid var(--k-edge);border-radius:9px;background:var(--page);color:var(--ink);font:800 12.5px/1 var(--m);box-shadow:2px 2px 0 var(--k-shade);cursor:pointer}
+.lead-btn{min-width:0;min-height:0;padding:4px 10px;border:2px solid var(--k-edge);border-radius:var(--k-r-m);background:var(--page);color:var(--ink);font:800 12.5px/1 var(--m);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);cursor:pointer}
 .lead-btn.icon{padding:4px 0;width:30px;font-size:15px}
-.lead-btn:hover{background:var(--a1);color:var(--onA1);transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--k-shade)}
-.lead-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--k-shade)}
+.lead-btn:hover{background:var(--a1);color:var(--onA1);transform:translate(-1px,-1px);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
+.lead-btn:active{transform:translate(1px,1px);box-shadow:var(--k-sh-press) var(--k-sh-press) 0 var(--k-shade)}
 .lead-btn.link{padding:0;border:0;background:none;box-shadow:none;color:var(--ink);font-weight:700;font-size:11.5px;text-decoration:underline;text-underline-offset:3px;opacity:.8}
 .lead-btn.link:hover{background:none;color:var(--ink);transform:none;opacity:1}
 .lead-check{display:inline-flex;align-items:center;gap:4px;font:700 12px var(--m)}
 .tool-controls .seg button.on{background:var(--a1);color:var(--onA1)}
 
 /* line breaks: a chip on the end of each bar */
-.lead-break{position:absolute;z-index:6;width:26px;height:26px;margin-left:-13px;padding:0;border:2px solid var(--k-edge);border-radius:50%;background:var(--page);color:var(--ink);display:grid;place-items:center;box-shadow:2px 2px 0 var(--k-shade);opacity:.5;cursor:pointer;transition:opacity .12s,transform .12s}
+.lead-break{position:absolute;z-index:6;width:26px;height:26px;margin-left:-13px;padding:0;border:2px solid var(--k-edge);border-radius:50%;background:var(--page);color:var(--ink);display:grid;place-items:center;box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);opacity:.5;cursor:pointer;transition:opacity .12s,transform .12s}
 .lead-break .tool-ic{width:17px;height:17px}
 .lead-break:hover:not(:disabled){opacity:1;transform:translateY(-1px)}
 .lead-break.on{background:var(--hl);color:#1A1C24;opacity:1}
 .lead-break.auto{border-style:dashed;box-shadow:none;cursor:default;opacity:.75}
 
 /* Typing lyrics under the staves (the words are the chart's; see lead-lyric-editor.js) */
-.lead-run{position:absolute;z-index:4;display:block;box-sizing:border-box;padding:1px 4px;font:13.5px/18px var(--type,Georgia,serif);white-space:nowrap;color:transparent;caret-color:var(--ink);cursor:text;border-radius:4px;outline:0}
+.lead-run{position:absolute;z-index:4;display:block;box-sizing:border-box;padding:1px 4px;font:13.5px/18px var(--type,Georgia,serif);white-space:nowrap;color:transparent;caret-color:var(--ink);cursor:text;border-radius:var(--k-r-s);outline:0}
 .lead-run:hover{background:color-mix(in srgb,var(--hl) 40%,transparent)}
 .lead-run.empty{box-shadow:inset 0 -2px 0 color-mix(in srgb,var(--a1) 55%,transparent)}
 .lead-run.empty:hover::before{content:attr(data-placeholder);color:var(--faint);font-style:italic}
-.lead-run.editing{color:var(--ink);background:var(--page);border:2px solid var(--k-edge);box-shadow:3px 3px 0 var(--k-shade);z-index:6;min-width:240px;padding:2px 8px}
+.lead-run.editing{color:var(--ink);background:var(--page);border:2px solid var(--k-edge);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);z-index:6;min-width:240px;padding:2px 8px}
 .lead-run.editing::before{content:none!important}
 
 /* Dragging a word to a note to pin it */
-.lead-chip{position:absolute;z-index:5;display:block;box-sizing:border-box;cursor:grab;border-radius:4px;touch-action:none}
+.lead-chip{position:absolute;z-index:5;display:block;box-sizing:border-box;cursor:grab;border-radius:var(--k-r-s);touch-action:none}
 .lead-chip:hover{background:color-mix(in srgb,var(--a2) 22%,transparent);box-shadow:inset 0 0 0 1.5px var(--a2)}
 .lead-chip.pinned::before{content:'';position:absolute;left:1px;top:1px;width:6px;height:6px;border-radius:50%;background:var(--a2);border:1px solid var(--k-edge)}
-.lead-ghost{position:absolute;z-index:9;pointer-events:none;padding:1px 8px;border:2px solid var(--k-edge);border-radius:7px;background:var(--hl);color:#1A1C24;font:13.5px/18px var(--type,Georgia,serif);box-shadow:3px 3px 0 var(--k-shade);transform:translate(-50%,-50%) rotate(-2deg)}
+.lead-ghost{position:absolute;z-index:9;pointer-events:none;padding:1px 8px;border:2px solid var(--k-edge);border-radius:var(--k-r-m);background:var(--hl);color:#1A1C24;font:13.5px/18px var(--type,Georgia,serif);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);transform:translate(-50%,-50%) rotate(-2deg)}
 .lead-drop{position:absolute;z-index:8;width:3px;pointer-events:none;background:var(--a1);border-radius:2px}
 
 /* the chord form and the ABC text, as cards */
@@ -71,7 +71,7 @@
 .lead-chord-now{fill:var(--hl);stroke:var(--k-edge);stroke-width:1.5;pointer-events:none}
 .lead-notation .score-chord-active,.lead-notation .score-chord-active *{fill:#1A1C24!important}
 /* typing a new chord right on its symbol */
-.lead-chord-input{position:absolute;z-index:5;box-sizing:border-box;padding:0 8px;border:2px solid var(--k-edge);border-radius:8px;background:var(--page);color:var(--ink);font:800 17px var(--g);text-align:center;box-shadow:3px 3px 0 var(--k-shade);outline:none}
+.lead-chord-input{position:absolute;z-index:5;box-sizing:border-box;padding:0 8px;border:2px solid var(--k-edge);border-radius:var(--k-r-m);background:var(--page);color:var(--ink);font:800 17px var(--g);text-align:center;box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);outline:none}
 .lead-chord-input:focus{border-color:var(--a2)}
 /* the playhead's place on the staff: a thin line that slides along with the music, never in the way of a click or on paper */
 .lead-playmark{position:absolute;width:3px;margin-left:-1.5px;border-radius:2px;background:var(--a1);opacity:.4;pointer-events:none;z-index:1}

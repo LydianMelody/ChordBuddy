@@ -13,6 +13,7 @@ import {spellChord} from './spelling.js';
 import {placeChartOnScore,eventTimes} from './lead-chart.js';
 import {rekeyAbc} from './abc-key.js';
 import {usualBeats,meterOf} from './bar-lengths.js';
+import {followHeld,releaseFollow} from './desk-follow.js';
 
 // Link the score's source-order measures to recording time.  This is a
 // conservative mapping: when counts differ we still expose the best ordered
@@ -54,7 +55,8 @@ export function followPlayback(container,time=Date.now()){
   const desk=container.closest?.('.desk');if(!desk)return;
   if(container._followedAt&&time-container._followedAt<700)return;
   const mark=node.getBoundingClientRect(),view=desk.getBoundingClientRect();
-  if(mark.top>view.top+90&&mark.bottom<view.bottom-120)return;
+  if(mark.top>view.top+90&&mark.bottom<view.bottom-120){releaseFollow(desk);return;}
+  if(followHeld(desk))return;                       // you scrolled away to read: wait (desk-follow.js)
   container._followedAt=time;
   desk.scrollTo({top:desk.scrollTop+(mark.top-view.top)-view.height*.3,behavior:'smooth'});
 }
@@ -309,7 +311,7 @@ function createView(container){
       const seg=el('div','seg');
       controls.append(el('span','lead-label','Bars per line'));
       for(const n of [0,2,3,4,8]){const b=el('button',settings().bars_per_line===n?'on':'',n?String(n):'Auto');if(!n)b.title='Fit as many bars on each line as the music and words allow';b.type='button';b.onclick=()=>patch({bars_per_line:n},'Change lead-sheet system length');seg.append(b);}
-      const staff=el('label','lead-check'),box=el('input');box.type='checkbox';box.checked=settings().show_instrumental;
+      const staff=el('label','lead-check'),box=el('input');box.type='checkbox';box.className='switch';box.setAttribute('role','switch');box.checked=settings().show_instrumental;
       box.onchange=()=>patch({show_instrumental:box.checked},'Toggle instrumental staff');staff.append(box,document.createTextNode(' Show the instrumental staff'));
       const sizes=el('div','seg');
       for(const [id,label] of [['large','Large'],['medium','Medium'],['small','Small']]){const b=el('button',settings().music_size===id?'on':'',label);b.type='button';b.onclick=()=>patch({music_size:id},'Change lead-sheet music size');sizes.append(b);}

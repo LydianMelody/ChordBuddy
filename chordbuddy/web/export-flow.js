@@ -4,12 +4,13 @@
 // screen, or null), calls renderExportMenu() when the tabs are drawn and exportChartPdf() from the other places that offer a PDF;
 // wire() attaches the menu's buttons.
 import {askChoice} from './dialogs.js';
+import {tempoMapMidi,SMOOTHING} from './tempo-map.js';
 
-export function createExportFlow({$,model,prefs,api,mediaUrl,practiceView,getLeadView,currentSong,currentRecord,chartDoc,loadChartRecord,selectDocument,showError}){
+export function createExportFlow({$,model,prefs,api,mediaUrl,practiceView,getLeadView,currentSong,currentRecord,chartDoc,loadChartRecord,selectDocument,songContext,showError}){
 // ---- Export: saving and exporting live in one menu, in the same place in every view ----
 function renderExportMenu(){
   const docs=model.detail?.documents||[],song=currentSong();
-  const has={ 'pdf-chart':docs.some(d=>d.kind==='chart'),'pdf-lead':docs.some(d=>d.kind==='abc'),midi:docs.some(d=>d.kind==='midi'),'midi-tracks':docs.some(d=>d.kind==='midi'),outputs:!!song?.active_run,song:!!song };
+  const has={ 'pdf-chart':docs.some(d=>d.kind==='chart'),'pdf-lead':docs.some(d=>d.kind==='abc'),midi:docs.some(d=>d.kind==='midi'),'midi-tracks':docs.some(d=>d.kind==='midi'),'tempo-map':docs.some(d=>d.kind==='chart'),outputs:!!song?.active_run,song:!!song };
   for(const button of document.querySelectorAll('[data-export]'))button.disabled=!has[button.dataset.export];
   $('export-button').classList.toggle('disabled',!song);
 }
@@ -20,9 +21,29 @@ async function runExport(kind){
   if(kind==='pdf-chart')return exportPdf('chart');
   if(kind==='pdf-lead')return exportPdf('lead');
   if(kind==='midi'||kind==='midi-tracks'){if(!midi)throw new Error('This song has no MIDI yet.');return downloadUrl(mediaUrl('/api/export-midi/'+encodeURIComponent(midi.id))+'&mode='+(kind==='midi'?'single':'tracks'));}
+  if(kind==='tempo-map')return exportTempoMap(song);
   if(kind==='outputs')return downloadUrl(mediaUrl('/api/export-outputs/'+encodeURIComponent(song.id)));
   if(kind==='song')return exportSong(song);
   if(kind==='lead-external')return openLeadElsewhere();
+}
+// The song's tempo map as a small MIDI file, so a DAW's grid follows the recording. The dialog says how to bring it into Reaper and Live,
+// since both ask a question on import that is easy to answer "no" to. (The file itself is built in tempo-map.js.)
+async function exportTempoMap(song){
+  const c=await songContext(song.id);
+  let smoothing=prefs.get('cb-tempo-smoothing','bar'),markers=prefs.get('cb-tempo-markers','1')==='1';
+  if(!SMOOTHING.some(s=>s.id===smoothing))smoothing='bar';
+  const answer=await askChoice({title:'Export the tempo map of “'+song.title+'”',
+    message:['A small MIDI file with the tempo changes Chord Buddy found, so your DAW’s beats and bars line up with the recording, even when the band speeds up and slows down.',
+      'Reaper: use Insert > Media file, import into a new project, and say yes when it asks about the tempo map. Ableton Live: drag the file onto an Arrangement track and say yes when it asks to import the tempo map. Then delete the “Delete me” note, which only exists so Live offers the import.'],
+    radios:{label:'How many tempo changes',value:smoothing,options:SMOOTHING.map(({id,label,hint})=>({id,label,hint})),onChange:id=>{smoothing=id;}},
+    checkbox:{label:'Add the section names as markers',hint:'Verse, Chorus and so on show up on your DAW’s timeline.',checked:markers,onChange:value=>{markers=value;}},
+    choices:[{id:'export',label:'Export',kind:'primary'}]});
+  if(answer!=='export')return;
+  prefs.set('cb-tempo-smoothing',smoothing);prefs.set('cb-tempo-markers',markers?'1':'0');
+  const bytes=tempoMapMidi({measures:c.measures,sections:c.sections,title:c.title,smoothing,markers});
+  const link=document.createElement('a'),url=URL.createObjectURL(new Blob([bytes],{type:'audio/midi'}));
+  link.href=url;link.download=`${(c.title||'Song').replace(/[\\/:*?"<>|]+/g,' ').trim()||'Song'} tempo map.mid`;
+  document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);
 }
 // Sending the lead sheet to MuseScore freezes it: Chord Buddy cannot read the changes back, so from then on it shows the copy that was
 // sent instead of following the chord chart. Say so first. ("Follow the chord chart again", above the lead sheet, undoes it.)

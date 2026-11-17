@@ -13,6 +13,7 @@ import {songGrid,placement,moveTo,rescale,switchMode,addAnchor,removeAnchor,snap
   beatBar,guessReferences,guessAlignment,cleanAlignment,defaultAlignment} from './midi-align.js';
 import {askChoice} from './dialogs.js';
 import {pitchLabel} from './midi-view.js';
+import {gridTiming} from './tempo-map.js';
 
 const summaryFiles=new Map();                   // files read for the manager's summaries, once per version (id:mtime)
 
@@ -47,18 +48,7 @@ export function rankSongs(songs,fileName,fileSeconds){
 
 /** A new MIDI file laid out on this song's beats, so whatever is played or drawn into it in a DAW lines up with no work at all. */
 export function customMidi({measures,model={},title=''}){
-  const grid=songGrid(measures),tpq=960,b=grid.beats;
-  if(!b.length)throw new Error('This song has no bars yet, so there is nothing to lay a MIDI file on. Analyze it first.');
-  // before the first beat: whole beats at the first beat's length, so the file's bar 1 can start at 0 s like the recording
-  const first=(b[1]??b[0]+0.5)-b[0],lead=b[0]>0.02?Math.max(1,Math.round(b[0]/first)):0,tick0=lead*tpq;
-  const tempos=[];if(lead)tempos.push({tick:0,usPerQuarter:Math.round(b[0]/lead*1e6)});
-  const pts=grid.end!=null?[...b,grid.end]:b;
-  for(let i=0;i<pts.length-1;i++){const us=Math.round((pts[i+1]-pts[i])*1e6);if(!tempos.length||tempos.at(-1).usPerQuarter!==us)tempos.push({tick:tick0+i*tpq,usPerQuarter:us});}
-  if(!tempos.length)tempos.push({tick:0,usPerQuarter:500000});
-  const timeSignatures=[];
-  grid.bars.forEach((start,i)=>{const n=(grid.bars[i+1]??b.length)-start;if(n>0&&timeSignatures.at(-1)?.numerator!==n)timeSignatures.push({tick:tick0+start*tpq,numerator:n,denominator:4});});
-  if(lead&&timeSignatures.length)timeSignatures.unshift({tick:0,numerator:lead,denominator:4});
-  const toTick=s=>Math.max(0,Math.round(s<b[0]?s/b[0]*tick0:tick0+secondsBeat(grid,s)*tpq));
+  const tpq=960,{tempos,timeSignatures,toTick}=gridTiming(songGrid(measures),tpq,'beat');   // tempo-map.js: the beats and bars as tempo and meter
   const track=(name,notes)=>({name,channel:0,notes:(notes||[]).filter(n=>Number.isFinite(n.start)&&n.end>n.start).map(n=>{const tick=toTick(n.start);
     return {tick,endTick:Math.max(tick+1,toTick(n.end)),pitch:n.pitch,velocity:Math.max(1,Math.min(127,Math.round(n.velocity||90)))};})});
   const tracks=[track('Vocal melody',model.vocal),track('Instruments',model.instrumental),{name:'Your part',channel:1,notes:[]}];

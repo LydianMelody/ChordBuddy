@@ -4,8 +4,9 @@
    wins over the older per-file values. Nothing here changes what any control does; it only changes how big, round, outlined, shadowed
    and lively things are.
 
-   Left exactly as they were, on purpose: the chord chart (.desk), the cassettes (song rows, the library shelf, the empty tape) and the
-   player bar with its scrubber (.player). They keep the older outline and shadow sizes below.
+   Left as they were, on purpose: the chord chart (.desk) and the cassettes (song rows, the library shelf, the empty tape, the
+   scrubber's cassette). They keep the older outline and shadow sizes below. The mixer, Perform, the Visuals editor, MIDI, the lead
+   sheet's tools and the player bar use the kit's corners and shadows directly in their own files (var(--k-r-*), var(--k-sh*)).
 
    Outline and shadow colors are their own tokens, so the dark look can color them differently from the writing. */
 :root{
@@ -22,8 +23,9 @@
 @supports (transition-timing-function:linear(0,1)){
   :root{--k-spring:linear(0,.35 9%,.8 18%,1.06 28%,1.12 34%,1.08 42%,.99 55%,.98 64%,1 80%,1)}
 }
-/* the parts left alone keep their old sizes */
-:is(.desk,.player,.song-row,.tape,.cassette,.cassette-view,.empty-tape){--bd:2.5px;--sh:4px}
+/* the parts left alone keep their old sizes: the chord chart and the cassettes (the player bar now has the kit's outline and shadows;
+   its transport buttons keep their own size, see the button rules below) */
+:is(.desk,.song-row,.tape,.cassette,.cassette-view,.empty-tape){--bd:2.5px;--sh:4px}
 
 /* ---------- Buttons: every standalone button is 28px tall with a 2px shadow; it lifts under the mouse and sinks when pressed ---------- */
 :is(.btn,.primary,.secondary,.hist button,.side .fold,.fold-open,.fold-open-right,.side .label button,.choice-actions :is(.btn,.secondary,.primary)):not(:is(.desk,.player) *){
@@ -44,6 +46,16 @@
 /* a menu's own button (Settings, Visualizer) stays pressed in while its menu is open */
 details[open]>summary.btn:not(:is(.desk,.player) *){transform:translate(var(--k-sh-press),var(--k-sh-press));box-shadow:var(--k-sh-press) var(--k-sh-press) 0 var(--k-shade)}
 
+/* ---------- The views' own controls (mixer, MIDI toolbar, Visuals editor, a message's buttons): the same 28px line ---------- */
+:is(.presets button,.monitor-file,.roll-track,.roll-fit,.vx-visual){height:var(--k-h);min-height:var(--k-h);padding-block:0;box-sizing:border-box}
+/* (the class list is repeated to outweigh the shared button rule above) */
+:is(.alert,.lock-banner) :is(.secondary,.btn,.primary):is(.secondary,.btn,.primary):not(:is(.desk,.player) *){height:var(--k-h);min-height:var(--k-h);padding-block:0}
+/* pickers and one-line text boxes outside the chart: the same 28px line, crisp corners */
+:is(select,input:is([type=text],[type=search],[type=number],[type=url],:not([type]))):not(:is(.desk,.player,.song-row,.tape) *):not(:is(.chord-input,.lead-chord-input,#song-title,#song-search)){
+  height:var(--k-h);min-height:var(--k-h);padding-block:0;box-sizing:border-box;border-radius:var(--k-r-m)}
+.dialog-actions .btn,.choice-actions .btn,dialog .btn{height:var(--k-h)}
+.rack-head .fold{width:var(--k-h);height:var(--k-h);min-height:var(--k-h);padding:0}
+
 /* ---------- Choices in a row (Chart / Lead sheet / MIDI and the like) ---------- */
 .seg:not(:is(.desk,.player) *){min-height:var(--k-h);border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-m);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
 .seg:not(:is(.desk,.player) *) button{padding:2px var(--k-row-px);line-height:1.2;border-right:var(--k-bd) solid var(--k-edge)}
@@ -63,7 +75,7 @@ input[type=checkbox]:focus,input[type=checkbox]:focus-visible{box-shadow:var(--k
 .side .setlist-item,.list-picker .setlist-item{min-height:var(--k-h);padding:0 var(--k-row-px);line-height:1.2;border:var(--k-bd) solid transparent;border-radius:var(--k-r-m)}
 .side .setlist-item:not(.selected):hover{border-color:var(--k-edge)}
 .side .setlist-item.selected{background:var(--k-sel-bg);color:var(--k-sel-fg);border-color:var(--k-edge);box-shadow:var(--k-sh-press) var(--k-sh-press) 0 var(--k-shade)}
-.side .search{height:var(--k-h);padding:0 var(--k-px);line-height:1.2;border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-m)}
+:is(.side .search,.library-search){height:var(--k-h);padding:0 var(--k-px);line-height:1.2;border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-m)}
 .side .search:focus-within{box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
 .side .inline-form input{min-height:var(--k-h);padding:var(--k-py) var(--k-px);border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-m)}
 .side .count{border-width:var(--k-bd)}
@@ -116,6 +128,17 @@ input[type=checkbox]::after{content:'';position:absolute;left:50%;top:50%;width:
   transform:translate(-50%,-50%) translateY(-2px) rotate(-45deg) scale(0);transition:transform .3s var(--k-spring)}
 input[type=checkbox]:checked::after{transform:translate(-50%,-50%) translateY(-2px) rotate(-45deg) scale(1)}
 input[type=checkbox]:not(:disabled):active{transform:translate(var(--k-sh-press),var(--k-sh-press));box-shadow:var(--k-sh-press) var(--k-sh-press) 0 var(--k-shade);transition-duration:.08s}
+/* Switches (class "switch", role "switch"): a setting that takes effect the moment you flip it (Overlay melody, Show instrumental
+   parts, a cue's on/off, a show's options, a visuals input that is on or off). The track turns green and the knob springs across,
+   as in the tune-up prototype. Ticking things in a list, an option in a form you then confirm, and "I understand" stay tick boxes. */
+input[type=checkbox].switch{width:38px;min-width:38px;height:22px;min-height:22px;aspect-ratio:auto;border-radius:999px;background:var(--tint)}
+input[type=checkbox].switch:checked{background:var(--a3)}
+input[type=checkbox].switch::after,input[type=checkbox].switch:checked::after{content:'';position:absolute;top:50%;left:1px;width:12px;height:12px;
+  border:2px solid var(--k-edge);border-radius:50%;background:var(--page);transform:translateY(-50%);transition:left .35s var(--k-spring),width .2s var(--k-spring)}
+input[type=checkbox].switch:checked::after{left:calc(100% - 17px)}
+input[type=checkbox].switch:not(:disabled):active::after{width:16px}
+input[type=checkbox].switch:checked:not(:disabled):active::after{left:calc(100% - 21px)}
+
 /* choices in a row, toggles, tabs and tool rails fade to their new color; pressing one squeezes it a little and it springs back when you
    let go (a press, not an animation on the chosen one, so a view that redraws itself never makes them bounce on their own) */
 :is(.seg,.presets,.mi-seg,.pf-shows,.pass-pick,.ruler-toggle,.pf-count,.tool-controls) button,.tab,.document-tab,.tl-btn,.setlist-item{

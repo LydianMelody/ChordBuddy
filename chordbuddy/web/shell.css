@@ -334,6 +334,12 @@ dialog{border:var(--bd) solid var(--k-edge);border-radius:16px;background:var(--
 
 /* ---------- Chart modes in the toolbar ---------- */
 .toolbar{flex-wrap:wrap;gap:10px 12px}
+/* Every view's toolbar is one line, like the chart's (chart-tools.css): the tabs, then that view's options, then history. Wrapping
+   used to drop the options (or an empty row) below the tabs and push the toolbar's line away from them, so the tabs no longer stood
+   on it. The options scroll sideways if the window is too narrow for them. */
+#workspace:not([data-kind="chart"]) .toolbar{flex-wrap:nowrap}
+#workspace:not([data-kind="chart"]) .toolbar>.tool-options{flex:1 1 0;min-width:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+#workspace:not([data-kind="chart"]) .toolbar>.tool-options>*{flex:none;white-space:nowrap}
 #workspace:not([data-kind="chart"]) .opt{display:none!important}
 #workspace:not([data-kind="chart"]):not([data-kind="abc"]):not([data-kind="midi"]) :is(.tool-rail,.tool-options,.tool-status){display:none!important}
 #workspace[data-kind="midi"] :is(#undo,#redo,#restore,#download){display:none}

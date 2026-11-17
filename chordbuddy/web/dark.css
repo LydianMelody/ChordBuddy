@@ -56,6 +56,10 @@
 [data-scheme="dark"] .empty-tape-label{background:linear-gradient(var(--hl),var(--hl)) 8px 7px/52% 7px no-repeat,var(--cream)}
 [data-scheme="dark"] .empty-tape-foot{background:color-mix(in srgb,var(--ink) 18%,var(--desk))}
 
+/* the mixer's stem icons sit on the stems' light colors, so they are drawn dark (the last, "Other", sits on the dark tint and stays light) */
+[data-scheme="dark"] .stem:nth-child(n) .stem-icon{color:#16131A}
+[data-scheme="dark"] .stem:nth-child(7) .stem-icon{color:var(--ink)}
+
 /* tool rails: tools not in use are light line drawings with no fill (light lines on bright yellow were hard to read); the tool in
    use keeps its yellow sticker and its drawing's yellow */
 [data-scheme="dark"] .tool-btn:not(.on) .tool-ic :is([fill="var(--hl)"],[fill="#FBF7EE"]){fill:none}

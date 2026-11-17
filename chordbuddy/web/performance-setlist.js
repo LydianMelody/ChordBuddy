@@ -148,9 +148,9 @@ export function createSetlistPanel(deps){
     // what each song shows on your screen during the show, under its controls: the chord chart unless you choose the lead sheet
     const view=pick([['chart','Chord chart'],['abc','Lead sheet']],show.view==='abc'?'abc':'chart','What each song shows during the show');view.onchange=()=>set(n=>{n.view=view.value==='abc'?'abc':'chart';});
     body.append(field('Show each song as',view,'What you read on your screen during the show. A song without a lead sheet shows its chord chart. The editing tools are put away while a show runs.'));
-    const keep=el('input');keep.type='checkbox';keep.checked=!!show.keepVisualsWhenMuted;keep.onchange=()=>set(n=>{n.keepVisualsWhenMuted=keep.checked;});
+    const keep=el('input');keep.type='checkbox';keep.className='switch';keep.setAttribute('role','switch');keep.checked=!!show.keepVisualsWhenMuted;keep.onchange=()=>set(n=>{n.keepVisualsWhenMuted=keep.checked;});
     body.append(field('Keep visuals when a stem is muted',keep,'Off: muting a stem also stops what it moves in the visuals. On: its visuals keep going, handy when you play that part yourself.'));
-    const carry=el('input');carry.type='checkbox';carry.checked=!!show.carryOverrides;carry.onchange=()=>set(n=>{n.carryOverrides=carry.checked;});
+    const carry=el('input');carry.type='checkbox';carry.className='switch';carry.setAttribute('role','switch');carry.checked=!!show.carryOverrides;carry.onchange=()=>set(n=>{n.carryOverrides=carry.checked;});
     body.append(field('Keep live changes into the next song',carry,'Off: each song starts from its plan. On: what you changed by hand stays until you release it.'));
     const clockDevice=el('input');clockDevice.setAttribute('list','pf-show-devices');clockDevice.value=show.midiClock?.device||'';clockDevice.placeholder='Off';clockDevice.onchange=()=>set(n=>{n.midiClock=clockDevice.value.trim()?{device:clockDevice.value.trim()}:null;});
     body.append(field('Send MIDI clock to',clockDevice,'A device name, for gear that follows MIDI clock. A Helix’s delays can warp while receiving clock, so use Virtual tap tempo in MIDI setup for a Helix. Leave empty for none.'));
