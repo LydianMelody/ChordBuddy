@@ -2,12 +2,12 @@
 import copy
 import numpy as np
 from scipy.signal import find_peaks
-from .separation_audio import index_wav,read_frames
+from .stem_audio import index as stem_index,read_frames
 
 DEFAULTS={'window':1024,'hop':220,'support_tolerance':.035,'minimum_coverage':.8,'minimum_margin':.12,'minimum_beats':12,'no_op_seconds':.002}
 
 def analyze_drum_rhythm(drums,baseline,provenance,settings,check_cancel,progress):
-    check_cancel();settings={**DEFAULTS,**settings};info=index_wav(drums)
+    check_cancel();settings={**DEFAULTS,**settings};info=stem_index(drums)
     rate=info['sample_rate'];window=settings['window'];hop=settings['hop']
     if not isinstance(window,int) or not isinstance(hop,int) or not 128<=window<=8192 or not 1<=hop<=window:raise ValueError('Invalid analysis window')
     bars=copy.deepcopy(baseline.get('bars',[]));beats=np.array([t for b in bars for t in b['beats']],dtype=float)

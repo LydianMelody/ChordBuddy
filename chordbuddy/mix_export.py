@@ -3,7 +3,7 @@ import subprocess
 import threading
 from pathlib import Path
 import numpy as np
-from .separation_audio import read_frames
+from .stem_audio import read_frames
 from .separation_contract import SAMPLE_RATE, STEMS
 
 # Order of the mixer's seven channels (the same order the player uses). Never reorder.

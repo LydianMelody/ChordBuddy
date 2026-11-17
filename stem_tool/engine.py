@@ -1,7 +1,8 @@
 """The work of replacing a stem: read the new audio, find where it lines up, set a safe level, and publish a new version of the song's stems.
 
 How Chord Buddy keeps stems (read from its code, which this module only calls and never changes):
-  * A split is a "run": a folder <song>/separation/<run id>/ holding original.wav and seven stem files, all 44.1 kHz stereo 32-bit float, and a
+  * A split is a "run": a folder <song>/separation/<run id>/ holding original.wav and seven stem files (44.1 kHz stereo: 32-bit float WAV, or
+    24-bit FLAC since stems were compressed, read the same way through chordbuddy/stem_audio.py), and a
     manifest.json that pins every file with a SHA-256 checksum. A run is never edited after it is published.
   * manifest['common_gain'] = min(1, 0.95 / peak), where peak is the loudest moment of the recording or of all stems added together. Playback
     multiplies everything by it, so the mix can never clip. Any new stem therefore cannot make the song clip: at worst the whole song is turned down.
@@ -27,7 +28,7 @@ from scipy.signal import correlate
 from chordbuddy.analysis_contract import digest
 from chordbuddy.analysis_store import AnalysisStore
 from chordbuddy.library import Library
-from chordbuddy.separation_audio import index_wav
+from chordbuddy.stem_audio import frames as stem_frames, index as stem_index, release, write_flac
 from chordbuddy.separation_checks import validate_mix
 from chordbuddy.separation_contract import SAMPLE_RATE, STEMS, TRACKS, file_hash
 from chordbuddy.separation_store import SeparationStore
@@ -46,7 +47,8 @@ TRIM_RANGE_DB = (-12.0, 6.0)     # how far the level may be nudged by hand from 
 SEARCH_SECONDS = 30.0            # how far either way the start is looked for
 EDGE_FADE = 0.01                 # seconds: a file that starts or stops mid-sound gets no click
 DRIFT_WARN_MS = 40.0
-BACKUP_SUFFIX = '.before-replacement.wav'
+BACKUP_SUFFIX = '.before-replacement.wav'      # beside an older float WAV stem; a FLAC stem's copy ends .before-replacement.flac
+BACKUP_NAMES = ('.before-replacement.flac', BACKUP_SUFFIX)
 
 
 class StemError(ValueError):
@@ -91,8 +93,17 @@ def check_audio(audio):
 
 
 def read_wav(path, info):
-    """One of the app's own stem files (float WAV), read through the place its manifest gives, as (frames, 2)."""
-    return np.memmap(path, dtype='<f4', mode='r', offset=info['data_offset'], shape=(info['frames'], 2))
+    """One of the app's own stem files (float WAV or FLAC), as a (frames, 2) array-like whose slices read only that part."""
+    return stem_frames(path, info)
+
+
+def backup_file(root, role):
+    """The copy of `role`'s stem kept from before it was replaced, in folder `root`: its path, or None."""
+    for suffix in BACKUP_NAMES:
+        path = Path(root) / (role + suffix)
+        if path.is_file():
+            return path
+    return None
 
 
 def write_wav(path, audio):
@@ -386,19 +397,20 @@ class Workspace:
         replaced (so a second try is matched to the song, never to the first try), else the current one."""
         path = self.backup(song_id, role)
         if path is not None:
-            return read_wav(path, index_wav(path))
+            return read_wav(path, stem_index(path))
         return self.stem(song_id, role)
 
     def backup(self, song_id, role):
         """The stem that was replaced, if this song's `role` stem is a replacement: its path, else None."""
         root, manifest = self.active(song_id)
-        path = root / (role + BACKUP_SUFFIX)
-        return path if role in (manifest.get('replaced') or {}) and path.is_file() else None
+        path = backup_file(root, role)
+        return path if role in (manifest.get('replaced') or {}) else None
 
     # ------------------------------------------------------------ publishing
-    def replace(self, song_id, role, stem, report=None, restoring=False):
+    def replace(self, song_id, role, stem, report=None, restoring=None):
         """Publish a new version of the song's stems with `stem` (frames x 2, the song's length) as its `role` stem. Returns {run_id, previous_run_id, common_gain}.
-        restoring: `stem` is the song's own stem going back, so it is no longer listed as replaced and no copy of the outgoing one is kept."""
+        restoring: the path of the song's own stem going back (`stem` holds its audio). That very file is used again, so it comes back
+        exactly; it is no longer listed as replaced and no copy of the outgoing one is kept."""
         if role not in STEMS:
             raise StemError('Choose which stem to replace.')
         root, manifest = self.active(song_id)
@@ -413,16 +425,20 @@ class Workspace:
         try:
             for r in TRACKS:
                 if r != role:
-                    _share(root / assets[r]['relative_path'], target / (r + '.wav'))
-            write_wav(target / (role + '.wav'), stem)
+                    _share(root / assets[r]['relative_path'], target / assets[r]['relative_path'])   # the same file, WAV or FLAC
+            if restoring:
+                _share(restoring, target / (role + Path(restoring).suffix))
+            else:
+                write_flac(target / (role + '.flac'), stem)
             # the stem being replaced travels with the new version, so it can always be put back
-            earlier = root / (role + BACKUP_SUFFIX)
             if not restoring:
-                _share(earlier if earlier.is_file() else root / assets[role]['relative_path'], target / (role + BACKUP_SUFFIX))
+                earlier = backup_file(root, role) or root / assets[role]['relative_path']
+                _share(earlier, target / (role + '.before-replacement' + earlier.suffix))
             # a copy kept for another stem replaced earlier stays with the song too
             for other in (manifest.get('replaced') or {}):
-                if other != role and (root / (other + BACKUP_SUFFIX)).is_file():
-                    _share(root / (other + BACKUP_SUFFIX), target / (other + BACKUP_SUFFIX))
+                kept = backup_file(root, other) if other != role else None
+                if kept is not None:
+                    _share(kept, target / kept.name)
             # the app's checker wants the guitar it once split into Lead and Rhythm; it is their sum, and is removed again afterwards as the app does
             # (read from the OLD folder, so nothing in the new one is held open if it has to be removed)
             lead, rhythm = (np.array(read_wav(root / assets[r]['relative_path'], assets[r])) if r != role else stem for r in ('lead', 'rhythm'))
@@ -449,6 +465,7 @@ class Workspace:
             except Exception:
                 pass
             if not published:
+                release(target)
                 shutil.rmtree(target, ignore_errors=True)
             raise
         _, now = self.store.get_published_run(new_run['id'])
@@ -485,8 +502,8 @@ class Workspace:
         path = self.backup(song_id, role)
         if path is None:
             raise StemError('This song’s stem has not been replaced, so there is nothing to put back.')
-        original = np.array(read_wav(path, index_wav(path)))
-        return self.replace(song_id, role, original, restoring=True)
+        original = np.array(read_wav(path, stem_index(path)))
+        return self.replace(song_id, role, original, restoring=path)
 
 
 def _share(source, target):

@@ -1,6 +1,7 @@
 """Per-song retirement of superseded generated stems after valid publication.
 
-Only seven named stem WAVs and the generated guitar intermediate (already gone after newer splits) are removed.
+Only the seven named stem files (float WAV, or FLAC for newer splits) and the generated guitar intermediate (already gone after newer
+splits) are removed.
 Source MP3, decoded original WAV, manifests, logs, caches and all history remain.
 Interrupted purges resume only after another successful, validated publication.
 """
@@ -14,6 +15,7 @@ from .recycle import checked_path, checked_tree
 from .analysis_store import AnalysisStore
 from .playback_ready import PlaybackReadiness, ACTIVE
 from .separation_contract import STEMS, TRACKS, file_hash
+from .stem_audio import release
 
 _LOCKS = {}
 _LOCKS_GUARD = threading.Lock()
@@ -75,14 +77,15 @@ def _assets(root, row, source_hash, project):
         raise ValueError('Invalid obsolete stem manifest')
     assets = [a for a in manifest['assets'] if a['role'] in STEMS]
     assets.append(manifest['intermediate'])
-    names = [r + '.wav' for r in STEMS] + ['guitar.wav']
-    if [a['relative_path'] for a in assets] != names:
+    names = [a['relative_path'] for a in assets]
+    if len(names) != len(STEMS) + 1 or names[-1] != 'guitar.wav' or any(name not in (r + '.wav', r + '.flac') for name, r in zip(names, STEMS)):
         raise ValueError('Unexpected generated stem filename')
     return [{'name':a['relative_path'], 'sha256':a['file_sha256']} for a in assets], file_hash(manifest_path)
 
 
 def _unlink(path):
-    path.unlink()  # Exact validated generated WAV only; never a directory tree.
+    release(path.parent)  # Windows will not delete a stem the player still has open.
+    path.unlink()  # Exact validated generated stem only; never a directory tree.
 
 
 def _purge_reserved(project, separation, row, replacement, source_hash):

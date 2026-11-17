@@ -5,7 +5,8 @@ import shutil
 import threading
 import time
 from pathlib import Path
-from .separation_contract import ACTIVE,file_hash,recipe_digest
+from .separation_contract import ACTIVE,STEMS,file_hash,recipe_digest
+from .stem_audio import compress_assets,drop_wavs
 from .separation_recipe import build_recipe,model_root,separation_home,MODELS
 from .path_policy import worker_environment as environment, validate_project
 from .separation_checks import validate_mix
@@ -145,10 +146,16 @@ class SeparationManager:
         metadata=json.loads((root/'guitar-stage.json').read_text())
         if metadata['input_sha256']!=file_hash(root/'guitar.wav'):raise ValueError('Guitar specialist input mismatch')
         manifest=validate_mix(root,self.check_cancel)
+        # The seven stems are kept as lossless FLAC, about a third of the float WAVs the model wrote (stem_audio.py). They are made
+        # from the WAVs just checked, and each is decoded again and compared before it is used. original.wav stays a WAV: the
+        # analysis shares that very file.
+        self.check_cancel();manifest=compress_assets(root,manifest,STEMS)
         manifest.update(source_sha256=source_hash,recipe=run['recipe'],recipe_sha256=run['recipe_sha256'])
         self.check_cancel();self.store.activate_validated(run['id'],manifest)
         # Lead and Rhythm are made from guitar.wav and were just checked against it. Nothing plays it, so it is not kept (a 3-minute
-        # song's guitar.wav is 65 MB). Stem cleanup accepts it being gone.
+        # song's guitar.wav is 65 MB). Stem cleanup accepts it being gone. The stems' WAVs go too, now their FLACs are published.
         try:(root/'guitar.wav').unlink()
+        except OSError:pass
+        try:drop_wavs(root,STEMS)
         except OSError:pass
 

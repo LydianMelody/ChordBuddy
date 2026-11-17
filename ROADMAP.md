@@ -39,7 +39,7 @@ Before calling it ready for a real show:
 - `build_portable.py` expects a `Start Portable.cmd` that isn't in the project, so it can't run on this checkout. `InstallWindowsDependencies.cmd` is the way to install.
 - Dragging section boundaries on the navigation bar (the old Section dialog was dropped).
 - Listening tests of the time-stretch on drums.
-- Compress the stored stems. They are uncompressed WAV today, about 0.8 GB per song. Lossless FLAC (roughly half the size, exact seeking, no encoder delay) is the likely choice: lossy MP3 would add artifacts that the time-stretch makes easier to hear, and its start-of-file offset would have to be corrected for the shared clock. MP3 stays an export format only.
+- Compress the stems of songs split before FLAC. New splits store their stems as lossless 24-bit FLAC (about a third the size of float WAV); older songs keep their WAVs until they are split again. Converting them in place would also have to update each song's analysis record, which names its stem files by checksum. MP3 stays an export format only: it adds artifacts the time-stretch makes easier to hear, and its start-of-file offset would throw off the shared clock.
 
 ## Later possibilities
 

@@ -21,7 +21,7 @@ from .library import Library
 from .separation_store import SeparationStore
 from .separation import SeparationManager
 from .inference_jobs import InferenceGate
-from .separation_audio import wire_chunk,read_frames
+from .stem_audio import wire_chunk,read_frames
 from .separation_checks import waveform_peaks
 from .mix_export import parse_levels,encode_mix,export_stems
 from . import visual_features

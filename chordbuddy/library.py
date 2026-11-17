@@ -290,7 +290,10 @@ class Library:
             db.execute('DELETE FROM songs WHERE id=?',(song_id,))
         warning=None
         try:
-            if folder.exists():shutil.rmtree(folder)
+            if folder.exists():
+                from .stem_audio import release
+                release(folder)     # Windows will not delete a stem the player still has open
+                shutil.rmtree(folder)
         except OSError as exc:
             warning=f'The song was removed, but some of its files could not be deleted yet ({exc.strerror or exc}). They are harmless and can be deleted by hand: {folder}'
         return {'purged':True,'id':song_id,'warning':warning}

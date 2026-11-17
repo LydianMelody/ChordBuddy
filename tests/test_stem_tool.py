@@ -11,12 +11,20 @@ from chordbuddy.playback_ready import PlaybackReadiness
 from chordbuddy.separation_checks import validate_mix
 from chordbuddy.separation_contract import STEMS, TRACKS, file_hash
 from chordbuddy.separation_store import SeparationStore
+from chordbuddy import stem_audio
 from stem_tool import engine
 from stem_tool.engine import RATE, StemError, Workspace
 
 SECONDS = 24
 FRAMES = SECONDS * RATE
 SONG = 'a1b2c3d4e5f6'
+
+
+def as_stored(audio):
+    """`audio` as a replaced stem keeps it: 24-bit FLAC, so rounded to the nearest 24-bit step (and nothing more)."""
+    audio = np.asarray(audio, dtype=np.float32)
+    scale = stem_audio.scale_for(float(np.abs(audio).max()))
+    return ((stem_audio._quantize(audio, scale) >> 8).astype(np.float64) / stem_audio.FULL * scale).astype(np.float32)
 
 
 def phrases(seed=1, seconds=SECONDS):
@@ -203,7 +211,8 @@ def test_replacing_makes_a_new_version_the_app_accepts_and_leaves_the_old_one_al
     assert manifest['run_id'] == result['run_id']
     now = {a['role']: a['file_sha256'] for a in manifest['assets']}
     assert now['vocals'] != before['vocals'] and all(now[r] == before[r] for r in TRACKS if r != 'vocals'), 'only the vocals changed'
-    assert np.array_equal(space.stem(SONG, 'vocals'), new_vocals)
+    assert np.array_equal(np.asarray(space.stem(SONG, 'vocals')), as_stored(new_vocals)), 'the new vocals, kept as 24-bit FLAC'
+    assert (root / 'vocals.flac').is_file() and not (root / 'vocals.wav').exists()
     assert manifest['replaced']['vocals']['file'] == 'his-take.wav' and manifest['recipe_sha256'] == 'recipe'
     assert not (root / 'guitar.wav').exists()
     # the app's own readers: the stems validate, and the song is playable from the NEW run
@@ -224,6 +233,18 @@ def test_the_song_can_never_clip_whatever_is_put_in(song):
     assert float(total.max()) * manifest['common_gain'] <= .95 + 1e-6
 
 
+def test_a_replacement_louder_than_full_scale_keeps_its_peaks(song):
+    space, old_run, stems = song
+    loud = engine.place(voice(phrases(), 520, .25), FRAMES, 0)
+    loud = loud / float(np.abs(loud).max()) * np.float32(1.5)
+    space.replace(SONG, 'vocals', loud)
+    root, manifest = space.active(SONG)
+    vocals = next(a for a in manifest['assets'] if a['role'] == 'vocals')
+    assert vocals['relative_path'] == 'vocals.flac' and vocals['scale'] == 2.0, 'stored at half level, and the manifest knows it'
+    saved = np.asarray(space.stem(SONG, 'vocals'))
+    assert np.array_equal(saved, as_stored(loud)) and float(np.abs(saved).max()) > 1.49
+
+
 def test_the_original_can_be_put_back_exactly(song):
     space, old_run, stems = song
     original = file_hash(space.active(SONG)[0] / 'vocals.wav')
@@ -234,6 +255,7 @@ def test_the_original_can_be_put_back_exactly(song):
     result = space.restore(SONG, 'vocals')
     root, manifest = space.active(SONG)
     assert np.array_equal(space.stem(SONG, 'vocals'), stems['vocals'])
+    assert file_hash(root / 'vocals.wav') == original and not (root / 'vocals.flac').exists(), 'the very file, not a re-encoded copy'
     assert 'vocals' not in (manifest.get('replaced') or {}) and space.backup(SONG, 'vocals') is None
     assert playable(space)['active']['run_id'] == result['run_id']
     assert abs(manifest['common_gain'] - space.store.get_published_run(old_run)[1]['common_gain']) < 1e-9
@@ -539,6 +561,6 @@ def test_the_window_uses_the_eased_stem_for_previews_and_for_the_saved_result(in
     assert abs(float(np.abs(heard).max()) - float(np.abs(c.plan['stem'][2 * RATE:22 * RATE]).max()) * c.plan['common_gain']) < 1e-3, 'what is previewed is the checked stem'
     c.replace()
     saved = space.stem(SONG, 'vocals')
-    assert np.array_equal(np.asarray(saved), c.plan['stem']), 'and that is exactly what is saved'
+    assert np.array_equal(np.asarray(saved), as_stored(c.plan['stem'])), 'and that is exactly what is saved (as 24-bit FLAC)'
     root, manifest = space.active(SONG)
     assert abs(manifest['common_gain'] - c.plan['common_gain']) < 1e-6
