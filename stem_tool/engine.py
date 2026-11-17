@@ -9,9 +9,9 @@ How Chord Buddy keeps stems (read from its code, which this module only calls an
   * The song's playable run is named in two places: the table song_separations, and the "separation" stage of the song's analysis job.
 
 So a replacement is a NEW run: the other files are shared with the old run (hard links, no extra disk space where the drive allows), the new stem is
-written beside them, Chord Buddy's own checker builds and verifies the manifest, and both places are pointed at the new run. The old run is left
-exactly as it was, and the replaced stem is also kept in the new run under another name, so "put the original back" always works, even after the
-app has tidied the old run's stems away.
+written beside them, Chord Buddy's own checker builds and verifies the manifest, and both places are pointed at the new run. The replaced stem
+is also kept in the new run under another name, so "put the original back" always works. Then the app's own cleanup tidies the old run's stems
+away (Workspace.tidy): shared ones lose only their old name, and a stem nothing uses any more (an earlier try) is removed.
 """
 from __future__ import annotations
 
@@ -469,7 +469,58 @@ class Workspace:
                 shutil.rmtree(target, ignore_errors=True)
             raise
         _, now = self.store.get_published_run(new_run['id'])
-        return {'run_id': new_run['id'], 'previous_run_id': old_run, 'common_gain': now['common_gain']}
+        return {'run_id': new_run['id'], 'previous_run_id': old_run, 'common_gain': now['common_gain'], 'cleanup': self.tidy(song_id)}
+
+    # ------------------------------------------------------------ tidying older versions
+    def tidy(self, song_id):
+        """Remove what older versions of the song's stems hold and nothing plays any more, as the app does after a new split.
+
+        The app's own cleanup (chordbuddy/stem_retention.py) does the work and checks everything first: the new version must be published and
+        playable, and every file must match its checksum. A stem shared with the new version is only another name for the same file, so
+        that name goes and the audio stays. A replaced stem's earlier try, which nothing uses, is removed. The new version keeps its own copy
+        of the song's original stem, so "put the original back" still works. Returns the cleanup's result; a problem stops it and is reported in
+        result['warning'], never raised."""
+        from chordbuddy.stem_retention import prune_stem_history
+        result = prune_stem_history(self.project, self.store, self.analysis, song_id=song_id)
+        try:
+            self._drop_backup_names(song_id)
+        except (OSError, KeyError, ValueError) as exc:
+            result['warning'] = result.get('warning') or f'Older copies kept: {exc}'
+        return result
+
+    def tidy_all(self):
+        """tidy() every song that still has an older version of its stems. Returns {song_id: warning} for any that stopped."""
+        with self.library.lock:
+            songs = [r['song_id'] for r in self.library.db.execute(
+                "SELECT song_id FROM separation_runs WHERE status IN ('completed','purging') GROUP BY song_id HAVING COUNT(*) > 1")]
+        warnings = {}
+        for song_id in songs:
+            try:
+                warning = self.tidy(song_id).get('warning')
+            except Exception as exc:                          # one song's trouble never stops the tool opening
+                warning = str(exc)
+            if warning:
+                warnings[song_id] = warning
+        return warnings
+
+    def _drop_backup_names(self, song_id):
+        """The app's cleanup removes an old version's seven stems; the copies of replaced stems it keeps beside them are this tool's own.
+        Each is another name for a file the current version still holds, so only the name is removed. Anything else is left alone."""
+        root, _ = self.active(song_id)
+        kept = {(p.stat().st_dev, p.stat().st_ino) for p in root.iterdir() if p.is_file()}
+        with self.library.lock:
+            rows = self.library.db.execute("SELECT id, folder FROM separation_runs WHERE song_id=? AND status='purged'", (song_id,)).fetchall()
+        for row in rows:
+            folder = self.store.safe_path(row['folder'])
+            if not folder.is_dir() or folder == root:
+                continue
+            for path in folder.iterdir():
+                if not path.is_file() or not path.name.endswith(BACKUP_NAMES):
+                    continue
+                info = path.stat()
+                if info.st_nlink > 1 and (info.st_dev, info.st_ino) in kept:
+                    release(folder)
+                    path.unlink()
 
     def _repoint_analysis(self, song_id, old_run, new_run):
         """The song's analysis names its stems by run. Give it a matching record for the new run, and point its completed jobs at that."""

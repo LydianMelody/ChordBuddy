@@ -176,6 +176,69 @@ def test_published_flac_split_plays_and_its_cleanup_removes_flacs(tmp_path):
     lib.close()
 
 
+def two_published_runs(tmp_path, share):
+    """Two published FLAC splits of one song, the second made as Replace a Stem makes one: share(old_root, new_root, role) puts each
+    of the old run's stems into the new run (a hard link, a copy, or a new file)."""
+    lib, store = seed(tmp_path)
+    runs = []
+    for _ in range(2):
+        run = store.create_run('song', 'recipe')
+        root = tmp_path / run['folder']
+        song_folder(root)
+        if runs:
+            old = tmp_path / runs[0]['folder']
+            for r in STEMS:
+                (root / (r + '.wav')).unlink()
+                share(old, root, r)
+            lead, rhythm = (stem_audio.read_all(root / (r + '.flac'), stem_audio.index(root / (r + '.flac'))) for r in ('lead', 'rhythm'))
+            write_wav(root / 'guitar.wav', lead + rhythm)
+            manifest = validate_mix(root)
+        else:
+            manifest = stem_audio.compress_assets(root, validate_mix(root), STEMS)
+        manifest.update(source_sha256=file_hash(tmp_path / 'song/source.mp3'), recipe_sha256='recipe')
+        store.update_progress(run['id'], 'validating')
+        store.activate_validated(run['id'], manifest)
+        stem_audio.drop_wavs(root, STEMS)
+        (root / 'guitar.wav').unlink()
+        runs.append(run)
+    stem_audio.release()
+    return lib, store, [tmp_path / r['folder'] for r in runs], runs
+
+
+def prune(tmp_path, lib, store, runs):
+    return retention.prune_stem_history(tmp_path, store, AnalysisStore(lib), song_id='song',
+                                        readiness=lambda song: {'ready': True, 'active': {'run_id': runs[-1]['id']}})
+
+
+def test_cleanup_removes_only_the_old_name_of_a_stem_the_new_version_shares(tmp_path):
+    def share(old, new, role):
+        if role == 'vocals':
+            stem_audio.write_flac(new / 'vocals.flac', tone(seconds=1.5, peak=.5, seed=42))     # the replaced stem
+        else:
+            os.link(old / (role + '.flac'), new / (role + '.flac'))
+    lib, store, (old, new), runs = two_published_runs(tmp_path, share)
+    freed = (old / 'vocals.flac').stat().st_size
+    result = prune(tmp_path, lib, store, runs)
+    assert not result['warning'] and len(result['purged']) == 1
+    assert result['purged'][0]['bytes_removed_this_attempt'] == freed, 'only the old vocals took space of their own'
+    assert not any((old / (r + '.flac')).exists() for r in STEMS) and (old / 'original.wav').exists()
+    assert all((new / (r + '.flac')).stat().st_nlink == 1 for r in STEMS), 'the new version keeps every stem it shared'
+    assert store.get_published_run(runs[-1]['id'])[1]['run_id'] == runs[-1]['id']
+    lib.close()
+
+
+def test_cleanup_still_stops_at_a_stem_linked_somewhere_else(tmp_path):
+    import shutil
+    share = lambda old, new, role: shutil.copyfile(old / (role + '.flac'), new / (role + '.flac'))   # copies: nothing shared
+    lib, store, (old, new), runs = two_published_runs(tmp_path, share)
+    elsewhere = tmp_path / 'elsewhere.flac'
+    os.link(old / 'bass.flac', elsewhere)                  # another name for an old stem that the new version does not hold
+    result = prune(tmp_path, lib, store, runs)
+    assert result['warning'] and 'hard-linked' in result['warning']
+    assert (old / 'bass.flac').exists() and elsewhere.exists()
+    lib.close()
+
+
 def test_release_closes_files_so_they_can_be_deleted(tmp_path):
     info = stem_audio.write_flac(tmp_path / 'a.flac', tone(seconds=1))
     stem_audio.read_frames(tmp_path / 'a.flac', info, 0, 100)
