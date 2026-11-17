@@ -1,7 +1,7 @@
 /* The chart page (Press Room): sections, bars, chords with words under them, and the three modes. Ported from the mockup. */
 .chart-flow{display:block}
 .chart-notices:empty{display:none}
-.chart-notice{margin:6px 0;padding:6px 10px;border:2px dashed var(--ink);border-radius:8px;background:var(--hl);font:700 12px var(--m)}
+.chart-notice{margin:6px 0;padding:6px 10px;border:2px dashed var(--k-edge);border-radius:8px;background:var(--hl);font:700 12px var(--m)}
 .chart-sliver{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
 /* the notice is yellow in both themes, so its button keeps light paper and dark ink in both */
 .chart-sliver-join{font:800 12px var(--g);padding:4px 10px;border:2px solid #1A1C24;border-radius:8px;background:#FFFDF5;color:#1A1C24;box-shadow:2px 2px 0 #1A1C24;cursor:pointer}
@@ -16,7 +16,7 @@
 .sec-num{position:absolute;left:-58px;top:22px;width:36px;text-align:right;font:700 13px var(--m);color:var(--faint)}
 .sec.now .sec-num{color:var(--ink)}
 .sec.now .sec-num::before{content:'▶ ';font-size:10px}
-.sec-name{margin:0;font:800 15px/1 var(--g);font-stretch:85%;text-transform:uppercase;letter-spacing:.04em;padding:5px 11px 4px;border:2px solid var(--ink);border-radius:6px;background:var(--tint);box-shadow:2px 2px 0 var(--ink);transform:rotate(-1.2deg);outline:0}
+.sec-name{margin:0;font:800 15px/1 var(--g);font-stretch:85%;text-transform:uppercase;letter-spacing:.04em;padding:5px 11px 4px;border:2px solid var(--k-edge);border-radius:6px;background:var(--tint);box-shadow:2px 2px 0 var(--k-shade);transform:rotate(-1.2deg);outline:0}
 .sec[data-name="verse"] .sec-name{background:var(--a3);color:var(--onA3)}
 .sec[data-name="chorus"] .sec-name{background:var(--a1);color:var(--onA1)}
 .sec[data-name="interlude"] .sec-name,.sec[data-name="bridge"] .sec-name{background:var(--a2);color:var(--onA2)}
@@ -25,11 +25,11 @@
 /* ---------- rows and bars ---------- */
 .row{position:relative;margin:2px 0 14px}
 .bars{display:flex;flex-wrap:wrap;align-items:flex-start;row-gap:24px;padding-top:12px}
-.bar{position:relative;display:flex;gap:16px;padding:0 18px 4px 12px;border-left:3px solid var(--ink);min-height:38px}
-.bar.last{border-right:3px solid var(--ink)}
+.bar{position:relative;display:flex;gap:16px;padding:0 18px 4px 12px;border-left:3px solid var(--k-edge);min-height:38px}
+.bar.last{border-right:3px solid var(--k-edge)}
 .row:not(.has-lyrics) .bar{min-width:128px}
 .bar-no{position:absolute;top:-13px;left:6px;font:700 10px var(--m);color:var(--faint);line-height:1}
-.bar-meter{position:absolute;top:-15px;left:30px;font:800 11px var(--m);padding:0 5px;border:1.5px solid var(--ink);border-radius:5px;background:var(--hl)}
+.bar-meter{position:absolute;top:-15px;left:30px;font:800 11px var(--m);padding:0 5px;border:1.5px solid var(--k-edge);border-radius:5px;background:var(--hl)}
 .chunk{display:flex;flex-direction:column;min-width:2.3em;position:relative}
 .chord-line{display:flex;align-items:flex-start}
 .chord{font:800 25px/1 var(--g);font-stretch:86%;text-align:left;padding:3px 6px 4px;margin:0 0 5px -6px;align-self:flex-start;border-radius:6px;position:relative;color:var(--ink);background:none;border:0}
@@ -39,7 +39,7 @@
 .lyr{font:400 15.5px/23px var(--type);white-space:nowrap;outline:0;border-radius:3px;min-height:23px;display:block}
 .lyr .w{border-radius:3px;transition:background .12s}
 .lane-tag{display:inline-block;margin-right:6px;font:700 10px/16px var(--m);color:var(--faint);border:1.5px solid var(--faint);border-radius:5px;padding:0 4px;vertical-align:middle;cursor:default;user-select:none}
-.lane-tag.cur{color:var(--ink);border-color:var(--ink);background:var(--hl)}
+.lane-tag.cur{color:var(--ink);border-color:var(--k-edge);background:var(--hl)}
 .lyr.dim{opacity:.38}
 .flow-line{width:100%;display:flex;align-items:center;gap:12px;margin-top:6px;font:400 15.5px/23px var(--type);color:var(--soft)}
 .flow-text{font-style:italic}
@@ -73,8 +73,8 @@
 [data-mode="edit"] .lyr:empty::before{content:attr(data-placeholder);color:var(--faint);font-style:italic}
 [data-mode="edit"] .sec-name{cursor:text}
 [data-mode="edit"] .lane-tag{cursor:pointer}
-[data-mode="edit"] .lane-tag.target{background:var(--a1);color:var(--onA1);border-color:var(--ink)}
-.chord-input{font:800 25px/1 var(--g);font-stretch:86%;width:3.4em;min-width:2.2em;padding:2px 6px;margin:0 0 5px -6px;border:2.5px solid var(--ink);border-radius:6px;background:var(--hl);color:var(--ink);box-shadow:2px 2px 0 var(--ink);outline:0}
+[data-mode="edit"] .lane-tag.target{background:var(--a1);color:var(--onA1);border-color:var(--k-edge)}
+.chord-input{font:800 25px/1 var(--g);font-stretch:86%;width:3.4em;min-width:2.2em;padding:2px 6px;margin:0 0 5px -6px;border:2.5px solid var(--k-edge);border-radius:6px;background:var(--hl);color:var(--ink);box-shadow:2px 2px 0 var(--k-shade);outline:0}
 .add-chord{position:absolute;right:-21px;top:5px;z-index:2;width:22px;height:22px;margin:0;padding:0;background:var(--page);border:2px dashed var(--a1);border-radius:50%;color:var(--a1);font:800 16px/1 var(--g);display:grid;place-items:center;opacity:.35;min-width:0;min-height:0}
 .add-chord:hover{opacity:1;background:var(--a1);color:var(--onA1);border-style:solid}
 .add-lyrics{align-self:center;margin:12px 0 0 12px;padding:4px 10px;border:2px dashed var(--a1);border-radius:999px;font:700 11px var(--m);color:var(--a1t);background:none}
@@ -82,7 +82,7 @@
 .pass-pick{display:flex;gap:4px;margin:0 0 -4px;align-items:center}
 .pass-pick::before{content:'edit pass';font:700 10px var(--m);color:var(--faint);margin-right:2px}
 .pass-pick button{min-width:0;min-height:0;width:22px;height:20px;padding:0;border:1.5px solid var(--faint);border-radius:5px;font:700 11px var(--m);color:var(--faint);background:none}
-.pass-pick button.on{background:var(--a1);color:var(--onA1);border-color:var(--ink)}
+.pass-pick button.on{background:var(--a1);color:var(--onA1);border-color:var(--k-edge)}
 
 /* ---------- changed endings ---------- */
 .alt-endings{display:flex;flex-direction:column;gap:6px;margin:10px 0 0 14px}
@@ -110,21 +110,21 @@
 .tlane[data-slot]{border-top:2px solid var(--pc);background:color-mix(in srgb,var(--pc) 9%,transparent)}
 .tlane[data-slot]::before{content:attr(data-label);position:absolute;left:4px;top:-8px;padding:0 5px;border-radius:5px;background:var(--pc);color:var(--pt);font:700 9px/14px var(--m);letter-spacing:.06em;text-transform:uppercase;pointer-events:none;z-index:1}
 .tlane[data-slot] .wchip{box-shadow:inset 4px 0 0 var(--pc)}
-.wchip{position:absolute;z-index:2;top:4px;display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border:2px solid var(--ink);border-radius:7px;background:var(--page);font:400 14.5px/1.25 var(--type);white-space:nowrap;cursor:grab;user-select:none;touch-action:none;z-index:1}
+.wchip{position:absolute;z-index:2;top:4px;display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border:2px solid var(--k-edge);border-radius:7px;background:var(--page);font:400 14.5px/1.25 var(--type);white-space:nowrap;cursor:grab;user-select:none;touch-action:none;z-index:1}
 .wchip::before{content:'';position:absolute;left:-2px;top:-6px;width:2px;height:6px;background:var(--ink);opacity:.5}
-.wchip:hover{box-shadow:2px 2px 0 var(--ink);z-index:2}
+.wchip:hover{box-shadow:2px 2px 0 var(--k-shade);z-index:2}
 .wchip .pinb{display:none;width:15px;height:15px;border-radius:50%;place-items:center;color:var(--onA2);background:var(--a2);margin-left:-3px;cursor:pointer}
 .wchip .pinb .ic{width:10px;height:10px}
 .wchip.pinned{border-color:var(--a2);box-shadow:2px 2px 0 var(--a2)}
 .wchip.pinned .pinb{display:grid}
 .wchip.anchor{background:color-mix(in srgb,var(--hl) 40%,var(--page))}
 .wchip.lifted,.tchord.lifted{opacity:.25}
-.wchip.ghost{position:fixed;z-index:90;pointer-events:none;background:var(--hl);box-shadow:5px 5px 0 var(--ink);transform:rotate(-2deg)}
+.wchip.ghost{position:fixed;z-index:90;pointer-events:none;background:var(--hl);box-shadow:5px 5px 0 var(--k-shade);transform:rotate(-2deg)}
 .wchip.ghost::before{display:none}
 .wchip.wnow{background:var(--hl);opacity:1}
 .drop-mark{position:absolute;top:-44px;bottom:-3px;width:3px;margin-left:-1.5px;background:var(--a1);z-index:5;pointer-events:none;border-radius:2px}
-.drop-mark::after{content:attr(data-t);position:absolute;top:-19px;left:5px;white-space:nowrap;background:var(--a1);color:var(--onA1);border:2px solid var(--ink);font:700 10px var(--m);padding:1px 6px;border-radius:5px}
-.zoomseg b{display:grid;place-items:center;padding:0 8px;font:700 12px var(--m);border-right:2px solid var(--ink);min-width:42px}
+.drop-mark::after{content:attr(data-t);position:absolute;top:-19px;left:5px;white-space:nowrap;background:var(--a1);color:var(--onA1);border:2px solid var(--k-edge);font:700 10px var(--m);padding:1px 6px;border-radius:5px}
+.zoomseg b{display:grid;place-items:center;padding:0 8px;font:700 12px var(--m);border-right:2px solid var(--k-edge);min-width:42px}
 .opt-timing .secondary{height:30px;padding:0 10px}
 
 /* ---------- Edit: one line of words per pass, separate from the chords ---------- */
@@ -147,13 +147,13 @@
 
 /* ---------- Every line of bars ends with a barline; repeated progressions get repeat signs ---------- */
 .row-break{flex:0 0 100%;height:0}
-.bar.row-end{border-right:3px solid var(--ink)}
+.bar.row-end{border-right:3px solid var(--k-edge)}
 .bar.rep-start,.bar.rep-end{position:relative}
 .bar.rep-start{border-left-width:6px;padding-left:36px}
-.bar.rep-end{border-right:6px solid var(--ink);padding-right:36px}
+.bar.rep-end{border-right:6px solid var(--k-edge);padding-right:36px}
 .rep-sign{position:absolute;top:0;bottom:0;width:22px;pointer-events:none}
-.rep-sign.start{left:5px;border-left:2px solid var(--ink)}
-.rep-sign.end{right:5px;border-right:2px solid var(--ink)}
+.rep-sign.start{left:5px;border-left:2px solid var(--k-edge)}
+.rep-sign.end{right:5px;border-right:2px solid var(--k-edge)}
 .rep-dot{position:absolute;width:6.4px;height:6.4px;margin:-3.2px 0 0;border-radius:50%;background:var(--ink)}
 .rep-sign.start .rep-dot{left:9px}
 .rep-sign.end .rep-dot{right:9px}
@@ -164,7 +164,7 @@
 .bar-meter.odd{background:var(--page);border-style:dashed;font-weight:700;color:var(--ink)}
 
 /* ---------- Timing: splitting, joining and moving barlines ---------- */
-.beat-split{position:absolute;top:0;z-index:3;width:16px;height:16px;min-width:0;min-height:0;padding:0;border:1.5px solid var(--ink);border-radius:50%;background:var(--page);font:800 12px/1 var(--m);color:var(--ink);cursor:copy;opacity:0;display:grid;place-items:center}
+.beat-split{position:absolute;top:0;z-index:3;width:16px;height:16px;min-width:0;min-height:0;padding:0;border:1.5px solid var(--k-edge);border-radius:50%;background:var(--page);font:800 12px/1 var(--m);color:var(--ink);cursor:copy;opacity:0;display:grid;place-items:center}
 .tbar:hover .beat-split{opacity:.5}
 .beat-split:hover,.beat-split:focus-visible{opacity:1;background:var(--hl)}
 .bar-handle{position:absolute;left:-9px;top:0;bottom:0;z-index:4;width:18px;min-width:0;min-height:0;padding:0;border:0;background:transparent;cursor:ew-resize;touch-action:none}
@@ -173,8 +173,8 @@
 
 /* ---------- Edit: choosing how a repeat is folded ---------- */
 .repeat-fold{position:relative;margin:2px 0 0 4px;font:700 11px/1 var(--m)}
-.repeat-fold-open{min-height:0;padding:3px 8px;border:1.5px solid var(--ink);border-radius:8px;background:var(--page);font:inherit;cursor:pointer}
-.repeat-fold-options{display:flex;flex-direction:column;gap:2px;margin-top:3px;padding:4px;border:1.5px solid var(--ink);border-radius:8px;background:var(--page);width:max-content;position:relative;z-index:6}
+.repeat-fold-open{min-height:0;padding:3px 8px;border:1.5px solid var(--k-edge);border-radius:8px;background:var(--page);font:inherit;cursor:pointer}
+.repeat-fold-options{display:flex;flex-direction:column;gap:2px;margin-top:3px;padding:4px;border:1.5px solid var(--k-edge);border-radius:8px;background:var(--page);width:max-content;position:relative;z-index:6}
 .repeat-fold-options.hidden{display:none}
 .repeat-fold-option{min-height:0;padding:4px 8px;border:0;border-radius:6px;background:transparent;text-align:left;font:inherit;cursor:pointer}
 .repeat-fold-option:hover:not(:disabled){background:var(--hl)}
@@ -187,7 +187,7 @@
 /* a break in the music: an empty, quiet space where a chord would be (still clickable, so a chord can be written there) */
 .chord.rest{min-width:30px;min-height:28px;background:none}
 [data-acts~="edit"] .chord.rest{border:2px dashed var(--line);border-radius:6px}
-[data-acts~="edit"] .chord.rest:hover{border-color:var(--ink)}
+[data-acts~="edit"] .chord.rest:hover{border-color:var(--k-edge)}
 @media print{.chord.rest{border:0!important}}
 
 /* ---------- Timing: cassette bars around the desk instead of the browser's scroll bars (desk-bars.js) ---------- */
@@ -231,7 +231,7 @@
 .row.slotted.natural .bar{flex:none}
 
 /* Copy a section's lyrics and timing onto its repeat */
-.sec-copy{flex:none;white-space:nowrap;padding:3px 10px;border:2px solid var(--ink);border-radius:999px;background:var(--page);color:var(--ink);font:700 11px var(--m);cursor:pointer}
+.sec-copy{flex:none;white-space:nowrap;padding:3px 10px;border:2px solid var(--k-edge);border-radius:999px;background:var(--page);color:var(--ink);font:700 11px var(--m);cursor:pointer}
 .sec-copy:hover{background:var(--hl);color:#1A1C24}
 
 /* while a repeated part plays, its count lights up and counts down the passes left (×1!! on the last), bumping on every beat */
@@ -249,7 +249,7 @@
 .fade-note:hover{border-style:solid;background:color-mix(in srgb,var(--hl) 45%,transparent)}
 @media print{.fade-note{border-style:solid}}
 /* a chord being Shift+dragged: it stays put, dimmed, and this copy follows the pointer */
-.tchord-ghost{position:fixed;z-index:90;pointer-events:none;padding:2px 8px;border:2px solid var(--ink);border-radius:8px;background:var(--hl);color:#1A1C24;font:800 20px/1.1 var(--g);font-stretch:86%;box-shadow:5px 5px 0 var(--ink);transform:rotate(-2deg);white-space:nowrap}
+.tchord-ghost{position:fixed;z-index:90;pointer-events:none;padding:2px 8px;border:2px solid var(--k-edge);border-radius:8px;background:var(--hl);color:#1A1C24;font:800 20px/1.1 var(--g);font-stretch:86%;box-shadow:5px 5px 0 var(--k-shade);transform:rotate(-2deg);white-space:nowrap}
 /* rest symbols for a break where the band stops; Windows draws them with Segoe UI Symbol */
 .chord.rest .rest-glyph{font:400 26px/1 'Segoe UI Symbol','Noto Music','Bravura Text',serif;letter-spacing:2px;color:var(--ink)}
 /* The playhead's place in the bar: a thin line in every mode, under the chords and words, never in the way of a click or on paper */

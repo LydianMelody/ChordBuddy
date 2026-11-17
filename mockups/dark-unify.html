@@ -1,0 +1,257 @@
+<title>Dark Mode Picker</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Space+Mono:wght@400;700&display=swap">
+<style>
+/* Layout: a sticky picker (one choice at a time, its options under it), then pieces of Chord Buddy stacked or side by side.
+   Palettes are Chord Buddy's dark ones (dark.css). This page is dark on purpose: it only shows the dark look. */
+:root{color-scheme:dark;--g:'Bricolage Grotesque',system-ui,sans-serif;--m:'Space Mono',ui-monospace,monospace;
+  --black:#0B0A0E;--cream:#EEE6D7;--on:#16131A}
+html[data-t="tomato"]{--desk:#17161D;--page:#232129;--ink:#F5EFE2;--soft:#C2BCB0;--line:#F5EFE22B;--tint:#302D38;--a1:#FF7A59;--a2:#6F8BFF;--a3:#55D6A7;--hl:#FFDA61}
+html[data-t="forest"]{--desk:#121916;--page:#1D2722;--ink:#F0ECDD;--soft:#B5BFB3;--line:#F0ECDD2B;--tint:#29352F;--a1:#F89A64;--a2:#4FAE86;--a3:#ADDBA2;--hl:#F9D25E}
+html[data-t="plum"]{--desk:#17111C;--page:#231B2A;--ink:#F7EEF3;--soft:#C6B8C9;--line:#F7EEF32B;--tint:#322839;--a1:#FF7B9C;--a2:#9C7CF0;--a3:#4AD6C4;--hl:#FFD678}
+
+/* ===== the choices, as tokens ===== */
+/* 1 outlines */
+html[data-edge="black"]{--edge:var(--black)}
+html[data-edge="soft"]{--edge:color-mix(in srgb,var(--ink) 82%,var(--page))}
+html[data-edge="dim"]{--edge:color-mix(in srgb,var(--ink) 38%,var(--desk))}
+/* 2 shadows: "own" lets an item with its own color use it (--own); the rest use the theme's one color */
+html[data-shade="own"] *{--sh:var(--own,var(--a2))}
+html[data-shade="one"] *{--sh:var(--a2)}
+html[data-shade="gray"] *{--sh:color-mix(in srgb,var(--ink) 30%,var(--desk))}
+/* 3 surfaces of buttons, panels, menus */
+html[data-surf="graphite"]{--raise:color-mix(in srgb,var(--ink) 11%,var(--desk))}
+html[data-surf="paper"]{--raise:var(--page)}
+/* 4 the music on the chart */
+html[data-music="bright"]{--music:var(--ink)}
+html[data-music="soft"]{--music:color-mix(in srgb,var(--ink) 78%,var(--page))}
+/* 5 labels (cassettes, section names stay colored) */
+html[data-label="cream"]{--label:var(--cream);--label-ink:var(--on);--label-soft:#51454D}
+html[data-label="paper"]{--label:var(--page);--label-ink:var(--ink);--label-soft:var(--soft)}
+
+body{background:var(--desk);color:var(--ink);font:14px/1.45 var(--g);margin:0;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 40px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--desk)}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px dashed var(--hl);outline-offset:2px}
+
+/* ---------- picker ---------- */
+.picker{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--desk);padding:12px 0 10px;border-bottom:1px solid var(--line);display:grid;gap:8px}
+.head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.head h1{margin:0 auto 0 0;font:800 21px/1 var(--g);font-stretch:80%;text-transform:uppercase}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 4px 4px 0}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;height:28px;padding:0 10px;border:2px solid var(--edge);border-radius:999px;background:var(--raise);font:700 12px var(--g);white-space:nowrap}
+.chip small{font:400 10.5px var(--m);color:var(--soft);margin-left:4px}
+.chip[aria-selected="true"]{background:var(--ink);color:var(--desk)}
+.chip[aria-selected="true"] small{color:inherit;opacity:.7}
+.opts{display:flex;gap:8px;flex-wrap:wrap}
+.opt{min-height:28px;padding:4px 11px;border:2px solid var(--edge);border-radius:6px;background:var(--raise);box-shadow:2px 2px 0 var(--sh);font:700 12.5px var(--g);text-align:left}
+.opt[aria-pressed="true"]{background:var(--hl);color:var(--on)}
+.why{margin:0;color:var(--soft);font-size:12.5px;max-width:70ch}
+
+/* ---------- shared pieces ---------- */
+.room{display:grid;grid-template-columns:210px minmax(0,1fr);gap:18px;margin-top:16px;align-items:start}
+@media(max-width:700px){.room{grid-template-columns:minmax(0,1fr)}}
+.cap{margin:18px 0 8px;font:700 10px var(--m);letter-spacing:.08em;text-transform:uppercase;color:var(--soft)}
+.btn{display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;border:2px solid var(--edge);border-radius:6px;background:var(--raise);box-shadow:2px 2px 0 var(--sh);font:700 12.5px var(--g);transition:transform .12s,box-shadow .12s}
+.btn:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--sh)}
+.btn[aria-pressed="true"]{background:var(--hl);color:var(--on)}
+.btn.sq{width:28px;padding:0;justify-content:center}
+.btn.a1{--own:var(--a1);background:var(--a1);color:var(--on)}
+.btn.a2{--own:var(--a2);background:var(--a2);color:var(--on)}
+.btn svg{width:15px;height:15px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.panel{border:2px solid var(--edge);border-radius:10px;background:var(--raise);box-shadow:4px 4px 0 var(--sh);padding:8px}
+
+/* sidebar */
+.picker-list{display:grid;gap:4px}
+.list-item{display:flex;align-items:center;gap:7px;height:28px;padding:0 8px;border:2px solid transparent;border-radius:6px;font:700 13px var(--g)}
+.list-item.on{border-color:var(--edge);background:var(--hl);color:var(--on)}
+.list-item b{margin-left:auto;font:700 10.5px var(--m);opacity:.7}
+.lab{font:700 10px var(--m);letter-spacing:.08em;color:var(--soft);padding:6px 8px 0}
+.search{display:flex;align-items:center;gap:6px;height:28px;margin:12px 0 10px;padding:0 9px;border:2px solid var(--edge);border-radius:6px;background:var(--raise);color:var(--soft);font-size:13px}
+.search svg{width:14px;height:14px}
+/* cassettes (the Graphite spines) */
+.song-row{--own:var(--spine);display:flex;align-items:center;gap:3px;min-height:34px;padding:2px 4px 2px 0;margin:0 3px 6px 0;border:2px solid var(--black);border-radius:5px;background:color-mix(in srgb,var(--ink) 11%,var(--desk));box-shadow:2px 2px 0 var(--sh)}
+html[data-edge="soft"] .song-row,html[data-edge="dim"] .song-row{border-color:var(--edge)}
+.song-row[data-c="1"]{--spine:var(--a2)}.song-row[data-c="0"]{--spine:var(--a1)}.song-row[data-c="2"]{--spine:var(--a3)}.song-row[data-c="3"]{--spine:var(--hl)}
+.song-row.sel{transform:translate(-2px,-2px);box-shadow:4px 4px 0 var(--sh)}
+.ridge{align-self:stretch;width:14px;margin:-3px 0;background:repeating-linear-gradient(90deg,transparent 0 3px,color-mix(in srgb,var(--spine) 55%,transparent) 3px 4px);border-right:2px solid var(--black)}
+.song-main{flex:1;min-width:0;display:flex;align-items:baseline;gap:6px;padding:2px 6px;border:2px solid var(--black);border-radius:3px;background:var(--label);color:var(--label-ink);box-shadow:inset 4px 0 0 var(--spine)}
+.song-main strong{flex:1;min-width:0;font:800 14px/1.15 var(--g);font-stretch:88%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.song-main span{font:700 10.5px var(--m);opacity:.6}
+.song-row.sel .song-main{background:var(--hl);color:var(--on);box-shadow:inset 4px 0 0 var(--black)}
+.badge{writing-mode:vertical-rl;transform:rotate(180deg);width:16px;padding:2px 0;border:1.5px solid var(--spine);border-radius:5px;font:700 10px/13px var(--m);text-align:center;color:var(--spine)}
+.badge.key{background:var(--spine);color:var(--black)}
+
+/* tabs and tool rail */
+.tabs{display:flex;gap:4px;flex-wrap:wrap}
+.tab{height:28px;padding:0 12px;border:2px solid var(--edge);border-bottom-width:0;border-radius:6px 6px 0 0;background:var(--raise);font:700 12.5px var(--g)}
+.tab.on{background:var(--hl);color:var(--on)}
+.stage{display:flex;gap:10px;align-items:flex-start;border:2px solid var(--edge);border-radius:0 10px 10px 10px;padding:10px;background:var(--desk)}
+.tray{flex:none;width:58px;display:grid;gap:3px;padding:5px;border:2px solid var(--edge);border-radius:10px;background:var(--raise);box-shadow:2px 2px 0 var(--sh)}
+.tool{display:grid;justify-items:center;gap:2px;padding:5px 2px 4px;border:0;border-radius:6px;background:none;font:800 9px var(--g);letter-spacing:.07em;text-transform:uppercase}
+.tool svg{width:25px;height:25px;overflow:visible}
+.tool.on{background:var(--hl);color:var(--on);box-shadow:inset 0 0 0 2px var(--edge)}
+html[data-tools="gold"] .tool:not(.on) [data-hl]{fill:color-mix(in srgb,var(--hl) 40%,var(--page))}
+html[data-tools="gold"] .tool:not(.on) [data-pg]{fill:var(--page)}
+html[data-tools="lines"] .tool:not(.on) [data-hl],html[data-tools="lines"] .tool:not(.on) [data-pg]{fill:none}
+html[data-tools="yellow"] .tool:not(.on){--ln:var(--on)}
+html[data-tools="yellow"] .tool:not(.on) svg{stroke:var(--black)}
+html[data-tools="yellow"] .tool:not(.on) [data-ink]{fill:var(--black)}
+
+/* the chart */
+.sheet{flex:1;min-width:0;border:2px solid var(--edge);border-radius:4px;background:var(--page);box-shadow:5px 5px 0 var(--a2);overflow:hidden}
+.sheet-head{display:flex;border-bottom:2px solid var(--edge)}
+.sheet-tag{writing-mode:vertical-rl;transform:rotate(180deg);padding:8px 4px;background:var(--a1);color:var(--on);font:700 9px var(--m);letter-spacing:.12em;border-left:2px solid var(--edge)}
+.sheet-title{flex:1;min-width:0;padding:8px 12px}
+.sheet-title h2{margin:0;font:800 22px/1 var(--g);font-stretch:78%;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sheet-title p{margin:4px 0 0;font:400 10.5px var(--m);color:var(--soft)}
+.sheet-key{display:grid;place-items:center;padding:0 12px;border-left:2px solid var(--edge);font:800 13px var(--g);text-align:center}
+.sheet-key small{display:block;font:700 8.5px var(--m);color:var(--soft);letter-spacing:.1em}
+.sec{padding:10px 12px 4px}
+.sec-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.sec-name{--own:var(--sc,color-mix(in srgb,var(--ink) 62%,var(--desk)));padding:4px 10px 3px;border:2px solid var(--edge);border-radius:6px;background:var(--tint);box-shadow:2px 2px 0 var(--sh);font:800 13px/1 var(--g);font-stretch:85%;letter-spacing:.04em;text-transform:uppercase;transform:rotate(-1.2deg)}
+.sec-name[data-n="verse"]{--sc:var(--a3);background:var(--a3);color:var(--on)}
+.sec-name[data-n="chorus"]{--sc:var(--a1);background:var(--a1);color:var(--on)}
+.sec-head small{font:400 10.5px var(--m);color:var(--soft)}
+.bars{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-left:3px solid var(--music)}
+.bar{position:relative;padding:12px 6px 4px;border-right:3px solid var(--music);color:var(--music);font:800 17px var(--g);min-width:0}
+.bar i{position:absolute;top:0;left:5px;font:400 9px var(--m);color:var(--soft);font-style:normal}
+.bar.now span{background:var(--hl);color:var(--on);border-radius:3px;padding:0 3px;box-shadow:1px 1px 0 var(--black)}
+.bar.rep::after{content:":";position:absolute;right:4px;top:10px;font-weight:900}
+
+/* player */
+.player{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:10px;border:2px solid var(--edge);border-radius:10px;background:var(--raise);box-shadow:4px 4px 0 var(--sh)}
+.nowchord{--own:var(--hl);display:grid;place-items:center;width:56px;height:40px;border:2px solid var(--edge);border-radius:8px;background:var(--hl);color:var(--on);box-shadow:2px 2px 0 var(--sh);font:800 18px var(--g)}
+.play{--own:var(--a1);width:38px;height:38px;border-radius:50%;padding:0;justify-content:center;background:var(--a1);color:var(--on)}
+.round{width:30px;height:30px;border-radius:50%;padding:0;justify-content:center}
+.strip{flex:1 1 220px;min-width:0;display:flex;gap:3px;padding:4px;border:2px solid var(--edge);border-radius:8px;background:var(--desk)}
+.strip span{flex:1;min-width:0;height:22px;display:grid;place-items:center;border:1.5px solid var(--edge);border-radius:4px;font:700 9.5px var(--m);overflow:hidden;white-space:nowrap}
+.strip .v{background:var(--a3);color:var(--on)}.strip .c{background:var(--a1);color:var(--on)}.strip .b{background:var(--a2);color:var(--on)}.strip .i{background:var(--tint)}
+.clock{font:700 20px var(--m);margin-left:auto}
+
+/* menu and dialog */
+.menu{--own:var(--a1);width:220px;max-width:100%;padding:5px;border:2px solid var(--edge);border-radius:10px;background:var(--raise);box-shadow:4px 4px 0 var(--sh)}
+html[data-shade="own"] .menu{--sh:var(--a1)}
+.menu button{display:flex;width:100%;height:28px;align-items:center;padding:0 8px;border:0;border-radius:6px;background:none;font:600 13px var(--g);text-align:left}
+.menu button:hover{background:color-mix(in srgb,var(--a1) 18%,transparent)}
+.menu hr{border:0;border-top:2px dotted var(--line);margin:4px 2px}
+.dialog{max-width:330px;padding:16px;border:2px solid var(--edge);border-radius:10px;background:var(--raise);box-shadow:4px 4px 0 var(--sh)}
+html[data-shade="own"] .dialog{--sh:var(--a1)}
+.dialog h3{margin:0 0 6px;font:800 18px var(--g);font-stretch:85%}
+.dialog p{margin:0 0 12px;color:var(--soft);font-size:13px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="picker">
+  <div class="head"><h1>Dark mode picker</h1>
+    <div class="row" role="group" aria-label="Color theme" id="theme">
+      <button class="btn" type="button" id="th-tomato" data-v="tomato">Tomato</button>
+      <button class="btn" type="button" id="th-forest" data-v="forest">Forest</button>
+      <button class="btn" type="button" id="th-plum" data-v="plum">Plum</button>
+    </div>
+    <button class="btn a1" type="button" id="copy">Copy my picks</button>
+  </div>
+  <div class="chips" role="tablist" aria-label="Choices" id="chips"></div>
+  <div class="opts" id="opts" role="group"></div>
+  <p class="why" id="why"></p>
+</div>
+
+<div class="room">
+  <div>
+    <p class="cap">Sidebar</p>
+    <div class="panel picker-list">
+      <div class="list-item on">♫ All songs <b>14</b></div>
+      <div class="lab">SET LISTS</div>
+      <div class="list-item">Val's Nov Show <b>2</b></div>
+      <div class="list-item">Test <b>1</b></div>
+    </div>
+    <div class="search"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>Find a song…</div>
+    <div id="rows"></div>
+  </div>
+  <div style="min-width:0">
+    <p class="cap" style="margin-top:0">Top bar</p>
+    <div class="row">
+      <button class="btn sq" type="button" aria-label="Undo"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4L2 7l3 3M2 7h8a4 4 0 0 1 0 8H7"/></svg></button>
+      <button class="btn sq" type="button" aria-label="History"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/></svg></button>
+      <button class="btn a2" type="button">⤓ Export</button>
+      <button class="btn" type="button">◉ Visualizer</button>
+      <button class="btn sq" type="button" aria-label="Settings">⚙</button>
+      <button class="btn a1" type="button">＋ Import</button>
+    </div>
+
+    <p class="cap">Chart</p>
+    <div class="tabs"><button class="tab on" type="button">Chart</button><button class="tab" type="button">Lead sheet</button><button class="tab" type="button">Perform</button><button class="tab" type="button">MIDI</button></div>
+    <div class="stage">
+      <div class="tray" id="tray"></div>
+      <div class="sheet">
+        <div class="sheet-head"><span class="sheet-tag">CHART</span><div class="sheet-title"><h2>This Will Be the Day</h2><p>RWBY · ♩ = 188 · 3:09</p></div><div class="sheet-key"><span><small>KEY</small>D minor</span></div></div>
+        <div class="sec"><div class="sec-head"><span class="sec-name">Intro</span><small>0:00</small></div>
+          <div class="bars"><div class="bar now"><i>1</i><span>Dm</span></div><div class="bar"><i>2</i>(Dm)</div><div class="bar"><i>3</i>(Dm)</div><div class="bar"><i>4</i>(Dm)</div></div></div>
+        <div class="sec"><div class="sec-head"><span class="sec-name" data-n="verse">Verse 1</span><small>0:07</small></div>
+          <div class="bars"><div class="bar"><i>7</i>Bb</div><div class="bar"><i>8</i>(Bb)</div><div class="bar"><i>9</i>Am7</div><div class="bar rep"><i>10</i>Dm</div></div></div>
+        <div class="sec"><div class="sec-head"><span class="sec-name" data-n="chorus">Chorus</span><small>0:37</small></div>
+          <div class="bars"><div class="bar"><i>31</i>Dm</div><div class="bar"><i>32</i>(Dm)</div><div class="bar"><i>33</i>Bb</div><div class="bar"><i>34</i>C</div></div></div>
+      </div>
+    </div>
+
+    <p class="cap">Player</p>
+    <div class="player">
+      <div class="nowchord">Dm</div>
+      <div class="row"><button class="btn round" type="button" aria-label="Loop">⟲</button><button class="btn round" type="button" aria-label="Back">«</button><button class="btn play" type="button" aria-label="Play">▶</button><button class="btn round" type="button" aria-label="Forward">»</button></div>
+      <div class="strip"><span class="i">INTRO</span><span class="v">VERSE</span><span class="c">CHORUS</span><span class="b">BRIDGE</span><span class="c">CHORUS</span></div>
+      <span class="clock">0:00 / 3:09</span>
+    </div>
+
+    <p class="cap">Menu and dialog</p>
+    <div class="row" style="align-items:flex-start;gap:18px">
+      <div class="menu" role="menu"><button type="button">Settings…</button><button type="button">Learn Chord Buddy</button><hr><button type="button">Keyboard shortcuts</button></div>
+      <div class="dialog"><h3>Remove this song?</h3><p>It goes to Trash, where you can bring it back.</p><div class="row"><button class="btn" type="button">Cancel</button><button class="btn a1" type="button">Move to Trash</button></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// sample songs (Wonderland and This Will Be the Day are hers; the rest are stand-ins); c = the cassette's color slot
+const songs=[['Wonderland','5:08',167,'C♯m',1],['This Will Be the Day','3:09',188,'Dm',0,1],['Jesus Was a Cowgirl','4:13',76,'B♭',2],['Space Between','1:45',180,'D',3],['Call Me Tomorrow','4:01',98,'D♯m',0]];
+document.getElementById('rows').innerHTML=songs.map(([t,l,b,k,c,s])=>`<div class="song-row${s?' sel':''}" data-c="${c}"><span class="ridge"></span><div class="song-main"><strong>${t}</strong><span>${l}</span></div><span class="badge">${b}</span><span class="badge key">${k}</span></div>`).join('');
+// the tool rail, drawn like tool-icons.js: ink lines over highlight yellow
+const HL='data-hl fill="var(--hl)"',PG='data-pg fill="#FBF7EE"',INK='data-ink fill="currentColor" stroke="none"';
+const icons={Play:`<circle cx="24.6" cy="24.4" r="5.3" ${PG}/><path d="M23.1 21.9v5l4.3-2.5z" ${INK}/><path d="M5.8 3.6l17.6 8.7-7.2 2.3 4.7 8.4-4 2.2-4.7-8.4-5.3 5z" ${HL}/>`,
+ Edit:`<path d="M5.4 22.6l1.3-5.2L20.6 3.5a2.7 2.7 0 0 1 3.8 0l1.1 1.1a2.7 2.7 0 0 1 0 3.8L11.6 22.3z" ${HL}/><path d="M18.4 5.8l5.8 5.8"/><path d="M5.4 22.6l-.9 4 4-.9z" ${PG}/><path d="M12.5 28.2c1.8-2.2 3.1 2.2 5 0s3.1 2.2 5 0 3-1.4 4.5 0"/>`,
+ Timing:`<rect x="6.8" y="6.5" width="18.4" height="10" rx="3.2" ${HL}/><path d="M10.6 11.6h5.4M18.6 11.6h2.2" stroke-width="1.8"/><path d="M2.4 11.5l3.2-2.8v5.6zM29.6 11.5l-3.2-2.8v5.6z" ${INK}/><path d="M7 21.5v6M13.2 21.5v6M19.4 21.5v6M25.6 21.5v6" stroke-width="1.8"/>`,
+ Cue:`<path d="M4.5 5.5h23a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5H15l-5 4.5v-4.5H4.5A2.5 2.5 0 0 1 2 17V8a2.5 2.5 0 0 1 2.5-2.5z" ${HL}/><path d="M7.5 12.5h9M19 12.5h4.5" stroke-width="1.8"/><path d="M4 28.5h24" stroke-width="1.8"/>`};
+document.getElementById('tray').innerHTML=Object.entries(icons).map(([n,d],i)=>`<button class="tool${i?'':' on'}" type="button"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>${n}</button>`).join('');
+
+// the choices
+const choices=[
+ {key:'edge',name:'Outlines',opts:[['black','Near-black','Like the Graphite cassettes. Nothing glows; the shadow and the slightly lighter surface give each thing its edge.'],['soft','Soft light','What most of the app has now: the writing color, toned down a little.'],['dim','Dim','A quiet mid-tone line: visible, but well below the writing.']]},
+ {key:'shade',name:'Shadows',opts:[['own','Own color','Each thing with a color of its own casts it: cassettes, sections, Import (pink), Export, Play. Everything else, and menus and dialogs, use the theme colors.'],['one','One color','Every shadow is the theme’s second color, like most of the app now.'],['gray','Soft gray','Quiet gray shadows everywhere; color stays on the surfaces only.']]},
+ {key:'surf',name:'Surfaces',opts:[['graphite','Graphite','Buttons, panels, menus and the player sit a step lighter than the page, like the cassette shells.'],['paper','Paper','Buttons and panels are the same color as the paper, as now.']]},
+ {key:'music',name:'Music ink',opts:[['bright','Bright','Chords, barlines and repeat signs in full writing color, as now.'],['soft','Softer','The music a little softer, so the yellow “now” chord and the section colors stand out more.']]},
+ {key:'label',name:'Labels',opts:[['cream','Cream','Cassette labels are cream with dark writing (what you picked).'],['paper','Dark paper','Cassette labels in the dark paper color with light writing.']]},
+ {key:'tools',name:'Tool icons',opts:[['gold','Deep gold','Tools not in use get a deeper gold so their light lines show (now).'],['lines','Lines only','Tools not in use are light line drawings with no fill; the tool in use keeps its yellow.'],['yellow','Bright yellow','Tools not in use keep bright yellow, with dark lines like the light look.']]},
+];
+const picks={edge:'black',shade:'own',surf:'graphite',music:'bright',label:'cream',tools:'gold'};
+let current=0;const root=document.documentElement;root.dataset.t='plum';
+function apply(){for(const c of choices)root.dataset[c.key]=picks[c.key];}
+function draw(){
+  document.getElementById('chips').innerHTML=choices.map((c,i)=>`<button class="chip" type="button" role="tab" id="chip-${c.key}" aria-selected="${i===current}" data-i="${i}">${c.name}<small>${c.opts.find(o=>o[0]===picks[c.key])[1]}</small></button>`).join('');
+  const c=choices[current];
+  document.getElementById('opts').innerHTML=c.opts.map(o=>`<button class="opt" type="button" id="opt-${c.key}-${o[0]}" aria-pressed="${picks[c.key]===o[0]}" data-v="${o[0]}">${o[1]}</button>`).join('');
+  document.getElementById('why').textContent=c.opts.find(o=>o[0]===picks[c.key])[2];
+}
+document.getElementById('chips').onclick=e=>{const b=e.target.closest('.chip');if(b){current=+b.dataset.i;draw();}};
+document.getElementById('opts').onclick=e=>{const b=e.target.closest('.opt');if(b){picks[choices[current].key]=b.dataset.v;apply();draw();}};
+const themes=document.getElementById('theme');
+function markTheme(){for(const b of themes.children)b.setAttribute('aria-pressed',String(b.dataset.v===root.dataset.t));}
+themes.onclick=e=>{const b=e.target.closest('button');if(b){root.dataset.t=b.dataset.v;markTheme();}};
+document.getElementById('copy').onclick=async e=>{
+  const text=choices.map(c=>`${c.name}: ${c.opts.find(o=>o[0]===picks[c.key])[1]}`).join('\n');
+  try{await navigator.clipboard.writeText(text);e.target.textContent='Copied!';}catch{const ta=document.createElement('textarea');ta.value=text;document.body.append(ta);ta.select();e.target.textContent='Selected, copy it';}
+  setTimeout(()=>e.target.textContent='Copy my picks',1800);};
+apply();draw();markTheme();
+</script>

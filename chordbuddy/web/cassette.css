@@ -12,17 +12,17 @@
 .timeline-ruler .tick{position:absolute;top:0;white-space:nowrap}
 .timeline-tools{position:absolute;right:0;top:0;display:flex;gap:6px;padding-left:10px;background:var(--page)}
 .tl-btn,.ruler-toggle button{min-height:0;min-width:0;border:0;padding:3px 9px;background:var(--page);color:var(--ink);font:800 10px var(--m);letter-spacing:.5px;cursor:pointer}
-.tl-btn{border:2px solid var(--ink);border-radius:4px;padding:2px 8px}
+.tl-btn{border:2px solid var(--k-edge);border-radius:4px;padding:2px 8px}
 .tl-btn.on{background:var(--a2);color:var(--onA2)}
 .tl-btn:hover:not(.on),.ruler-toggle button:hover:not(.active){background:var(--hl);color:#1A1C24}
-.ruler-toggle{display:flex;border:2px solid var(--ink);border-radius:4px;overflow:hidden}
-.ruler-toggle button+button{border-left:2px solid var(--ink)}
+.ruler-toggle{display:flex;border:2px solid var(--k-edge);border-radius:4px;overflow:hidden}
+.ruler-toggle button+button{border-left:2px solid var(--k-edge)}
 .ruler-toggle button.active{background:var(--a1);color:var(--onA1)}
 
 /* ---- the bar itself ---- */
 .cassette{--cap:22px;--frame:3px;--grip:14px;--accent:4px;display:flex;min-width:0;min-height:0}
 .cassette.slim{--cap:14px;--frame:2px;--grip:10px;--accent:3px}
-.cassette-track{position:relative;flex:1;display:flex;min-width:0;min-height:0;height:30px;box-sizing:border-box;border:var(--bd) solid var(--ink);border-radius:5px;background:var(--tint);overflow:hidden;touch-action:none}
+.cassette-track{position:relative;flex:1;display:flex;min-width:0;min-height:0;height:30px;box-sizing:border-box;border:var(--bd) solid var(--k-edge);border-radius:5px;background:var(--tint);overflow:hidden;touch-action:none}
 .cassette.v .cassette-track{flex-direction:column;height:auto}
 /* along the edges of the piano roll the bar is part of the editor's frame: no border or rounding of its own, the frame draws the line */
 .cassette.slim .cassette-track{height:auto;border:0;border-radius:0;background:var(--desk)}
@@ -34,10 +34,10 @@
 /* the triangle caps: a small step each press, steady movement while held */
 .cassette-cap{position:relative;flex:none;width:var(--cap);min-width:0;min-height:0;padding:0;border:0;background:var(--page);color:var(--ink);cursor:pointer}
 .cassette.v .cassette-cap{width:auto;height:var(--cap)}
-.cassette.h .cassette-cap.less{border-right:2px solid var(--ink)}
-.cassette.h .cassette-cap.more{border-left:2px solid var(--ink)}
-.cassette.v .cassette-cap.less{border-bottom:2px solid var(--ink)}
-.cassette.v .cassette-cap.more{border-top:2px solid var(--ink)}
+.cassette.h .cassette-cap.less{border-right:2px solid var(--k-edge)}
+.cassette.h .cassette-cap.more{border-left:2px solid var(--k-edge)}
+.cassette.v .cassette-cap.less{border-bottom:2px solid var(--k-edge)}
+.cassette.v .cassette-cap.more{border-top:2px solid var(--k-edge)}
 .cassette-cap::before{content:'';position:absolute;left:50%;top:50%;width:0;height:0;border:solid transparent}
 .cassette.h .cassette-cap.less::before{border-width:5px 6px 5px 0;border-right-color:currentColor;transform:translate(-60%,-50%)}
 .cassette.h .cassette-cap.more::before{border-width:5px 0 5px 6px;border-left-color:currentColor;transform:translate(-40%,-50%)}
@@ -51,7 +51,7 @@
 .cassette-cap:disabled{cursor:default;color:color-mix(in srgb,var(--ink) 30%,transparent)}
 
 /* the window: the part in view */
-.cassette-window{position:absolute;box-sizing:border-box;border:var(--frame) solid var(--ink);border-radius:2px;display:flex;align-items:center;justify-content:space-between;overflow:hidden;cursor:grab;outline:none;touch-action:none}
+.cassette-window{position:absolute;box-sizing:border-box;border:var(--frame) solid var(--k-edge);border-radius:2px;display:flex;align-items:center;justify-content:space-between;overflow:hidden;cursor:grab;outline:none;touch-action:none}
 .cassette.h .cassette-window{top:0;bottom:0}
 .cassette.v .cassette-window{left:0;right:0;flex-direction:column}
 .cassette-window:active{cursor:grabbing}

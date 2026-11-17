@@ -14,9 +14,9 @@ dialog[open]::backdrop{animation:backdrop-in .2s ease-out}
 /* An empty page (no song open, or no songs at all in All songs) shows a blank cassette, drawn like the ones on the shelf: a paper label with
    one highlighted line waiting for a title, the window with its two reels, the strip along the bottom. Its reels turn slowly, the only
    thing here that keeps moving. Colors come from the theme alone, so it follows all three themes and the dark scheme. */
-.empty-tape{flex:none;display:flex;flex-direction:column;gap:6px;width:136px;margin-bottom:8px;padding:8px 9px 0;border:var(--bd) solid var(--ink);border-radius:12px;background:color-mix(in srgb,var(--a1) 32%,var(--page));box-shadow:4px 4px 0 var(--ink);transform:rotate(-4deg)}
-.empty-tape-label{display:block;height:24px;border:2px solid var(--ink);border-radius:5px;background:linear-gradient(var(--hl),var(--hl)) 8px 7px/52% 7px no-repeat,var(--page)}
-.empty-tape-foot{display:block;height:11px;margin:0 16px;border:2px solid var(--ink);border-bottom:0;border-radius:6px 6px 0 0;background:color-mix(in srgb,var(--ink) 8%,color-mix(in srgb,var(--a1) 32%,var(--page)))}
+.empty-tape{flex:none;display:flex;flex-direction:column;gap:6px;width:136px;margin-bottom:8px;padding:8px 9px 0;border:var(--bd) solid var(--k-edge);border-radius:12px;background:color-mix(in srgb,var(--a1) 32%,var(--page));box-shadow:4px 4px 0 var(--k-shade);transform:rotate(-4deg)}
+.empty-tape-label{display:block;height:24px;border:2px solid var(--k-edge);border-radius:5px;background:linear-gradient(var(--hl),var(--hl)) 8px 7px/52% 7px no-repeat,var(--page)}
+.empty-tape-foot{display:block;height:11px;margin:0 16px;border:2px solid var(--k-edge);border-bottom:0;border-radius:6px 6px 0 0;background:color-mix(in srgb,var(--ink) 8%,color-mix(in srgb,var(--a1) 32%,var(--page)))}
 .empty-tape .tape-window{padding:4px 9px}
 .empty-tape .reel{width:21px;height:21px;animation:reel-spin 9s linear infinite}
 
@@ -28,8 +28,8 @@ dialog[open]::backdrop{animation:backdrop-in .2s ease-out}
    in the middle of it, so it carries on instead of starting over. The pulse keeps the tape's own hard shadow (--rest) under the ring. */
 .song-row.just-added,.library-song.just-added{animation:tape-drop .55s cubic-bezier(.3,1.6,.5,1) var(--touch-age,0s)}
 @keyframes tape-drop{from{opacity:0;transform:translateY(-16px) rotate(-2.5deg)}}
-.song-row{--rest:2px 2px 0 var(--ink)}
-.song-row.selected,.library-song{--rest:4px 4px 0 var(--ink)}
+.song-row{--rest:2px 2px 0 var(--k-shade)}
+.song-row.selected,.library-song{--rest:4px 4px 0 var(--k-shade)}
 .song-row.just-ready,.library-song.just-ready{animation:tape-ready 1.2s ease-out var(--touch-age,0s)}
 @keyframes tape-ready{0%{box-shadow:var(--rest),0 0 0 0 color-mix(in srgb,var(--a2) 75%,transparent)}70%,100%{box-shadow:var(--rest),0 0 0 12px transparent}}
 
@@ -39,7 +39,7 @@ dialog[open]::backdrop{animation:backdrop-in .2s ease-out}
 @keyframes reel-once{to{transform:rotate(360deg)}}
 /* ...and a small check mark pops once and fades: in the empty corner beside a cassette's bottom strip, and over the grip of a spine in the
    sidebar, so it never covers a title or a number. It is invisible whenever it is not animating. (\2713 is the check mark character.) */
-.song-row.just-ready::after,.library-song.just-ready::after{content:'\2713';box-sizing:border-box;position:absolute;right:2px;bottom:2px;width:17px;height:17px;border:2px solid var(--ink);border-radius:50%;background:var(--a3);color:var(--onA3);font:800 10px/13px var(--m);text-align:center;opacity:0;pointer-events:none;animation:ready-check 1.5s ease-out var(--touch-age,0s)}
+.song-row.just-ready::after,.library-song.just-ready::after{content:'\2713';box-sizing:border-box;position:absolute;right:2px;bottom:2px;width:17px;height:17px;border:2px solid var(--k-edge);border-radius:50%;background:var(--a3);color:var(--onA3);font:800 10px/13px var(--m);text-align:center;opacity:0;pointer-events:none;animation:ready-check 1.5s ease-out var(--touch-age,0s)}
 .song-row.just-ready::after{right:auto;bottom:auto;left:-2px;top:50%;margin-top:-9px}
 @keyframes ready-check{0%{opacity:0;transform:scale(.3) rotate(-25deg)}20%{opacity:1;transform:scale(1.18) rotate(6deg)}32%,70%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-5px)}}
 

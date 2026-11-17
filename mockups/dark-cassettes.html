@@ -1,0 +1,179 @@
+<title>Dark Cassettes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Space+Mono:wght@400;700&display=swap">
+<style>
+/* Layout: a sticky picker bar, then the sidebar column and the cassette wall as they sit in Chord Buddy's dark look.
+   Tokens are Chord Buddy's own dark palettes (dark.css); this page is dark on purpose, since it only shows the dark look. */
+:root{color-scheme:dark;
+  --g:'Bricolage Grotesque',system-ui,sans-serif;--m:'Space Mono',ui-monospace,monospace;
+  --bd:2.5px}
+html[data-t="tomato"]{--desk:#17161D;--page:#232129;--ink:#F5EFE2;--soft:#C2BCB0;--faint:#ABA79F;--line:#F5EFE22B;--tint:#302D38;--a1:#FF7A59;--a2:#6F8BFF;--a3:#55D6A7;--hl:#FFDA61}
+html[data-t="forest"]{--desk:#121916;--page:#1D2722;--ink:#F0ECDD;--soft:#B5BFB3;--faint:#A5A79B;--line:#F0ECDD2B;--tint:#29352F;--a1:#F89A64;--a2:#4FAE86;--a3:#ADDBA2;--hl:#F9D25E}
+html[data-t="plum"]{--desk:#17111C;--page:#231B2A;--ink:#F7EEF3;--soft:#C6B8C9;--faint:#ACA4AC;--line:#F7EEF32B;--tint:#322839;--a1:#FF7B9C;--a2:#9C7CF0;--a3:#4AD6C4;--hl:#FFD678}
+/* today's dark look (after the last change): soft light outlines, every shadow in the theme's second color */
+*{--k-edge:color-mix(in srgb,var(--ink) 82%,var(--page));--k-shade:var(--a2)}
+body{background:var(--desk);color:var(--ink);font:14px/1.45 var(--g);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 32px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--desk)}
+button{font:inherit;color:inherit;cursor:pointer}
+
+/* ---------- picker ---------- */
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;padding:12px 0;background:var(--desk);border-bottom:1px solid var(--line)}
+.bar h1{margin:0 auto 0 0;font:800 22px/1 var(--g);font-stretch:80%;text-transform:uppercase;letter-spacing:.01em}
+.pick{display:flex;align-items:center;gap:8px}
+.pick>span{font:700 10px var(--m);letter-spacing:.08em;text-transform:uppercase;color:var(--soft)}
+.seg{display:flex;border:2px solid var(--k-edge);border-radius:6px;overflow:hidden;box-shadow:2px 2px 0 var(--k-shade)}
+.seg button{border:0;padding:0 11px;height:28px;background:var(--page);font:700 12.5px var(--g)}
+.seg button+button{border-left:2px solid var(--k-edge)}
+.seg button[aria-pressed="true"]{background:var(--hl);color:#1A1C24}
+.seg button:focus-visible{outline:2px dashed var(--a1);outline-offset:-4px}
+.note{max-width:62ch;margin:14px 0 18px;color:var(--soft);font-size:13.5px}
+.note b{color:var(--ink)}
+
+/* ---------- the two places cassettes live ---------- */
+.room{display:grid;grid-template-columns:200px minmax(0,1fr);gap:22px;align-items:start}
+@media(max-width:640px){.room{grid-template-columns:minmax(0,1fr)}}
+.cap{margin:0 0 8px;font:700 10px var(--m);letter-spacing:.08em;text-transform:uppercase;color:var(--soft)}
+.side{padding:10px 8px 10px 6px;border-right:2px solid var(--line)}
+@media(max-width:640px){.side{border-right:0;padding:0;max-width:260px}}
+
+/* ===== the cassettes, copied from shell.css ===== */
+.song-row{position:relative;--tape:color-mix(in srgb,var(--a1) 32%,var(--page));display:flex;align-items:center;gap:3px;min-height:34px;padding:2px 4px 2px 0;margin:0 3px 6px 0;border:2px solid var(--k-edge);border-radius:5px;background:var(--tape);box-shadow:2px 2px 0 var(--k-shade);transition:transform .12s,box-shadow .12s}
+.song-row[data-tint="1"]{--tape:color-mix(in srgb,var(--a2) 26%,var(--page))}
+.song-row[data-tint="2"]{--tape:color-mix(in srgb,var(--a3) 32%,var(--page))}
+.song-row[data-tint="3"]{--tape:color-mix(in srgb,var(--hl) 45%,var(--page))}
+.song-row[data-tint="4"]{--tape:var(--tint)}
+.song-row:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--k-shade)}
+.song-row.selected{transform:translate(-2px,-2px);box-shadow:4px 4px 0 var(--k-shade)}
+.drag-handle{align-self:stretch;width:14px;margin:-3px 0;background:repeating-linear-gradient(90deg,transparent 0 3px,color-mix(in srgb,var(--ink) 22%,transparent) 3px 4px);border-right:2px solid color-mix(in srgb,var(--ink) 35%,transparent)}
+.song-main{flex:1;min-width:0;display:flex;align-items:baseline;column-gap:6px;text-align:left;padding:2px 6px;border:2px solid var(--k-edge);border-radius:3px;background:var(--page);color:var(--ink)}
+.song-main strong{flex:1 1 0;min-width:0;font:800 14px/1.15 var(--g);font-stretch:88%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.song-len{flex:none;font:700 10.5px var(--m);opacity:.6}
+.song-row.selected .song-main{background:var(--hl);color:#1A1C24}
+.song-facts{display:inline-flex;gap:2px;align-items:center}
+.fact-badge{display:inline-block;writing-mode:vertical-rl;transform:rotate(180deg);text-orientation:sideways;width:16px;padding:2px 0;border:1.5px solid currentColor;border-radius:5px;font:700 10px/13px var(--m);letter-spacing:-.04em;text-align:center;opacity:.8;color:var(--ink)}
+.fact-badge.key{background:var(--ink);color:var(--page);border-color:var(--k-edge);opacity:.85;font-size:10.5px}
+
+.wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(184px,1fr));gap:18px 16px;padding:4px 8px 10px 4px}
+.tape{--tape:color-mix(in srgb,var(--a1) 32%,var(--page));position:relative;display:flex;flex-direction:column;gap:5px;padding:7px 8px 0;border:var(--bd) solid var(--k-edge);border-radius:11px;background:var(--tape);color:var(--ink);box-shadow:4px 4px 0 var(--k-shade);transition:transform .12s,box-shadow .12s;min-width:0}
+.tape[data-tint="1"]{--tape:color-mix(in srgb,var(--a2) 26%,var(--page))}
+.tape[data-tint="2"]{--tape:color-mix(in srgb,var(--a3) 32%,var(--page))}
+.tape[data-tint="3"]{--tape:color-mix(in srgb,var(--hl) 45%,var(--page))}
+.tape[data-tint="4"]{--tape:var(--tint)}
+.tape:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--k-shade)}
+.tape.selected{outline:3px solid var(--hl);outline-offset:3px}
+.tape-label{display:flex;flex-direction:column;gap:1px;min-width:0;padding:4px 8px 3px;border:2px solid var(--k-edge);border-radius:5px;background:var(--page);text-align:left;color:var(--ink);
+  background-image:repeating-linear-gradient(transparent 0 15px,color-mix(in srgb,var(--ink) 10%,transparent) 15px 16px)}
+.tape-label strong{font:800 14.5px/1.15 var(--g);font-stretch:88%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tape-label small{font:400 10.5px/1.3 var(--m);color:var(--soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tape-window{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:4px 7px;border:2px solid var(--k-edge);border-radius:999px;background:var(--page)}
+.tape-window .fact-badge{writing-mode:horizontal-tb;transform:none;width:auto;padding:0 5px;font-size:10.5px;line-height:14px}
+.reel{flex:none;width:17px;height:17px;border:2px solid var(--k-edge);border-radius:50%;background:conic-gradient(var(--ink) 0 10%,transparent 0 33.3%,var(--ink) 0 43.3%,transparent 0 66.6%,var(--ink) 0 76.6%,transparent 0);box-shadow:inset 0 0 0 3px var(--page)}
+.tape[data-status="busy"] .reel{animation:spin 1.6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.tape-foot{display:flex;align-items:center;gap:5px;min-width:0;margin:0 14px;padding:3px 6px;border:2px solid var(--k-edge);border-bottom:0;border-radius:6px 6px 0 0;background:color-mix(in srgb,var(--ink) 8%,var(--tape))}
+.tape-side{font:800 10px var(--m);opacity:.6}
+.tags{display:flex;gap:3px;min-width:0;flex:1;overflow:hidden}
+.tag{padding:0 6px;border:1.5px solid var(--k-edge);border-radius:999px;font:700 9.5px/14px var(--m);background:var(--page);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.len{margin-left:auto;font:700 11px var(--m);flex:none}
+
+/* ===== Graphite (after Astra's cassette): the proposed dark look =====
+   Each cassette is a graphite shell with near-black outlines, so it never glows white against the dark page. Its own color
+   (the same one it has in light mode) moves to a cream label's top band and to its hard shadow, which is what lifts it off the page.
+   The label is cream with dark writing, the window dark with light reels. Reels turn while the mouse is over a cassette. */
+html[data-look="graphite"] :is(.song-row,.tape){
+  --spine:var(--a1);
+  --shell:color-mix(in srgb,var(--ink) 11%,var(--desk));
+  --cream:#EEE6D7;--dark:#0B0A0E;
+  --k-edge:var(--dark);--k-shade:var(--spine);
+  background:var(--shell);border-color:var(--dark)}
+html[data-look="graphite"] :is(.song-row,.tape)[data-tint="1"]{--spine:var(--a2)}
+html[data-look="graphite"] :is(.song-row,.tape)[data-tint="2"]{--spine:var(--a3)}
+html[data-look="graphite"] :is(.song-row,.tape)[data-tint="3"]{--spine:var(--hl)}
+html[data-look="graphite"] :is(.song-row,.tape)[data-tint="4"]{--spine:color-mix(in srgb,var(--ink) 62%,var(--desk))}
+html[data-look="graphite"] :is(.song-row,.tape) *{--k-edge:var(--dark)}
+/* the spine in the sidebar */
+html[data-look="graphite"] .drag-handle{background:repeating-linear-gradient(90deg,transparent 0 3px,color-mix(in srgb,var(--spine) 55%,transparent) 3px 4px);border-right-color:var(--dark)}
+html[data-look="graphite"] .song-main{background:var(--cream);color:#16131A;box-shadow:inset 4px 0 0 var(--spine)}
+html[data-look="graphite"] .song-row .fact-badge{color:var(--spine);opacity:1}
+html[data-look="graphite"] .song-row .fact-badge.key{background:var(--spine);color:var(--dark);border-color:var(--spine)}
+html[data-look="graphite"] .song-row.selected .song-main{background:var(--hl);box-shadow:inset 4px 0 0 var(--dark)}
+/* the cassette on the wall */
+html[data-look="graphite"] .tape-label{color:#16131A;padding-top:3px;
+  background:linear-gradient(var(--spine) 0 21px,var(--dark) 21px 23px,var(--cream) 23px)}
+html[data-look="graphite"] .tape-label strong{color:#0B0A0E}
+html[data-look="graphite"] .tape-label small{color:#51454D;margin-top:2px}
+html[data-look="graphite"] .tape-window{background:#121116;--ink:#E8DFD2;--page:#121116}
+html[data-look="graphite"] .tape-window .fact-badge{color:#E8DFD2}
+html[data-look="graphite"] .tape-window .fact-badge.key{background:var(--spine);color:var(--dark);border-color:var(--spine)}
+html[data-look="graphite"] .tape:hover .reel{animation:spin 2.8s linear infinite}
+html[data-look="graphite"] .tape:hover .reel+.song-facts+.reel{animation-duration:3.5s}
+html[data-look="graphite"] .tape-foot{background:color-mix(in srgb,var(--ink) 18%,var(--desk))}
+html[data-look="graphite"] .tape-side{color:var(--spine);opacity:1}
+html[data-look="graphite"] .tag{background:var(--cream);color:#16131A}
+html[data-look="graphite"] .tape.selected{outline-color:var(--hl)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="bar">
+  <h1>Dark cassettes</h1>
+  <div class="pick"><span>Look</span>
+    <div class="seg" id="look" role="group" aria-label="Cassette look">
+      <button type="button" id="look-today" data-v="today" aria-pressed="false">Today</button>
+      <button type="button" id="look-graphite" data-v="graphite" aria-pressed="true">Graphite</button>
+    </div></div>
+  <div class="pick"><span>Theme</span>
+    <div class="seg" id="theme" role="group" aria-label="Color theme">
+      <button type="button" id="t-tomato" data-v="tomato" aria-pressed="false">Tomato</button>
+      <button type="button" id="t-forest" data-v="forest" aria-pressed="false">Forest</button>
+      <button type="button" id="t-plum" data-v="plum" aria-pressed="true">Plum</button>
+    </div></div>
+</div>
+
+<p class="note" id="note"></p>
+
+<div class="room">
+  <section class="side" aria-label="Sidebar song list">
+    <p class="cap">Sidebar</p>
+    <div id="rows"></div>
+  </section>
+  <section aria-label="All songs wall">
+    <p class="cap">All songs</p>
+    <div class="wall" id="wall"></div>
+  </section>
+</div>
+
+<script>
+// sample songs (made up, apart from Wonderland); tint is the same 0–4 color slot the app gives each song
+const songs=[
+  {t:'Wonderland',a:'Kalandra',len:'5:08',bpm:167,key:'C♯m',tint:1,sel:true,lists:['Val\'s Nov Show']},
+  {t:'Paper Lanterns',a:'Sample artist',len:'3:12',bpm:121,key:'E',tint:4},
+  {t:'Tek It Slow',a:'Sample artist',len:'3:13',bpm:140,key:'F♯m',tint:0,lists:['Test']},
+  {t:'Space Between',a:'Sample artist',len:'1:45',bpm:180,key:'D',tint:3,busy:true},
+  {t:'Jesus Was a Cowgirl',a:'Sample artist',len:'4:13',bpm:76,key:'B♭',tint:2},
+  {t:'Real Love Song',a:'Sample artist',len:'5:05',bpm:130,key:'C♯m',tint:3},
+  {t:'Call Me Tomorrow',a:'Sample artist',len:'4:01',bpm:98,key:'D♯m',tint:0},
+  {t:'When the Tide Turns',a:'Sample artist',len:'3:52',bpm:120,key:'Em',tint:1},
+];
+const rows=document.getElementById('rows'),wall=document.getElementById('wall');
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+for(const s of songs){
+  rows.insertAdjacentHTML('beforeend',`<div class="song-row${s.sel?' selected':''}" data-tint="${s.tint}"><span class="drag-handle"></span><button class="song-main" type="button"><strong>${esc(s.t)}</strong><span class="song-len">${s.len}</span></button><span class="song-facts"><span class="fact-badge">${s.bpm}</span><span class="fact-badge key">${s.key}</span></span></div>`);
+  wall.insertAdjacentHTML('beforeend',`<div class="tape${s.sel?' selected':''}" data-tint="${s.tint}"${s.busy?' data-status="busy"':''}><button class="tape-label" type="button"><strong>${esc(s.t)}</strong><small>${esc(s.a)}</small></button><div class="tape-window"><i class="reel"></i><span class="song-facts"><span class="fact-badge">${s.bpm}</span><span class="fact-badge key">${s.key}</span></span><i class="reel"></i></div><div class="tape-foot"><b class="tape-side">A</b><span class="tags">${(s.lists||[]).map(l=>`<span class="tag">${esc(l)}</span>`).join('')}</span><span class="len">${s.len}</span></div></div>`);
+}
+const notes={
+  today:'<b>Today:</b> what the app does now. Light outlines on every part, and every cassette casts the same theme-colored shadow.',
+  graphite:'<b>Graphite:</b> after Astra’s cassette. Dark shells with near-black outlines, cream labels with dark writing, and each cassette’s own color on its label band and its shadow. Reels turn while the mouse is over a cassette (they stay still if Windows is set to reduce motion). The open song keeps its yellow label.'
+};
+function pick(group,attr){
+  const g=document.getElementById(group);
+  g.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+    for(const x of g.children)x.setAttribute('aria-pressed',String(x===b));
+    document.documentElement.dataset[attr]=b.dataset.v;
+    if(attr==='look')document.getElementById('note').innerHTML=notes[b.dataset.v];});
+}
+document.documentElement.dataset.t='plum';document.documentElement.dataset.look='graphite';
+document.getElementById('note').innerHTML=notes.graphite;
+pick('look','look');pick('theme','t');
+</script>

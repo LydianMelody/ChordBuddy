@@ -13,19 +13,19 @@
 /* the editor grid:   corner | ruler | ·      the notes area takes all the room that is left, the keys and ruler never change size,
                       keys   | notes | pitch  and the two scroll bars sit right against the notes area, the same thickness each   */
 .roll-grid{flex:1;min-width:0;min-height:200px;display:grid;grid-template-columns:var(--keys) minmax(0,1fr) var(--bar);grid-template-rows:var(--ruler) minmax(0,1fr) var(--bar);
-  border:var(--bd) solid var(--ink);border-radius:8px;overflow:hidden;background:var(--page)}
+  border:var(--bd) solid var(--k-edge);border-radius:8px;overflow:hidden;background:var(--page)}
 .roll-grid.grabbing,.roll-grid.grabbing *{cursor:grabbing!important}
-.roll-corner{border-right:2px solid var(--ink);border-bottom:2px solid var(--ink);background:var(--page)}
-.roll-ruler-cell{position:relative;min-width:0;border-bottom:2px solid var(--ink);overflow:hidden;cursor:pointer}
-.roll-keys-cell{position:relative;min-height:0;border-right:2px solid var(--ink);overflow:hidden}
+.roll-corner{border-right:2px solid var(--k-edge);border-bottom:2px solid var(--k-edge);background:var(--page)}
+.roll-ruler-cell{position:relative;min-width:0;border-bottom:2px solid var(--k-edge);overflow:hidden;cursor:pointer}
+.roll-keys-cell{position:relative;min-height:0;border-right:2px solid var(--k-edge);overflow:hidden}
 .roll-body-cell{position:relative;min-width:0;min-height:0;overflow:hidden;cursor:crosshair}
 .roll-ruler,.roll-keys,.roll-body{position:absolute;left:0;top:0;display:block}
 .roll-gap{background:var(--desk)}
-.roll-gap.top{border-bottom:2px solid var(--ink);border-left:2px solid var(--ink)}
-.roll-gap.left{border-top:2px solid var(--ink);border-right:2px solid var(--ink)}
-.roll-gap.right{border-top:2px solid var(--ink);border-left:2px solid var(--ink)}
-.roll-hbar{border-top:2px solid var(--ink)}
-.roll-vbar{border-left:2px solid var(--ink)}
+.roll-gap.top{border-bottom:2px solid var(--k-edge);border-left:2px solid var(--k-edge)}
+.roll-gap.left{border-top:2px solid var(--k-edge);border-right:2px solid var(--k-edge)}
+.roll-gap.right{border-top:2px solid var(--k-edge);border-left:2px solid var(--k-edge)}
+.roll-hbar{border-top:2px solid var(--k-edge)}
+.roll-vbar{border-left:2px solid var(--k-edge)}
 
 /* what is drawn: strokes are fixed in pixels at every zoom (the drawing is never scaled, only re-drawn) */
 .roll-row.black{fill:var(--tint)}
@@ -39,17 +39,17 @@
 .roll-key-label{font:700 10px var(--m);fill:var(--ink)}
 .roll-time{font:700 11px var(--m);fill:var(--ink)}
 .roll-tick{stroke:var(--ink);stroke-width:1.5}
-.roll-note{fill:var(--tc);stroke:var(--ink);stroke-width:1.5}
+.roll-note{fill:var(--tc);stroke:var(--k-edge);stroke-width:1.5}
 .roll-note.flat{stroke:none;shape-rendering:crispEdges}
 .roll-note.sounding{fill:var(--hl)}
 .roll-head{stroke:var(--ink);stroke-width:2;pointer-events:none}
-.roll-marker{fill:var(--a1);stroke:var(--ink);stroke-width:1.5;pointer-events:none}
+.roll-marker{fill:var(--a1);stroke:var(--k-edge);stroke-width:1.5;pointer-events:none}
 
 /* the bar of view controls above the roll */
 .roll-controls{justify-content:space-between}
 .roll-tracks{display:flex;flex-wrap:wrap;gap:6px}
-.roll-track{display:inline-flex;align-items:center;gap:6px;min-height:0;padding:4px 10px;border:2px solid var(--ink);border-radius:999px;background:var(--page);color:var(--ink);font:800 12px/1 var(--m);cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
-.roll-track .roll-swatch{width:12px;height:12px;border:2px solid var(--ink);border-radius:50%;background:var(--tc)}
+.roll-track{display:inline-flex;align-items:center;gap:6px;min-height:0;padding:4px 10px;border:2px solid var(--k-edge);border-radius:999px;background:var(--page);color:var(--ink);font:800 12px/1 var(--m);cursor:pointer;box-shadow:2px 2px 0 var(--k-shade)}
+.roll-track .roll-swatch{width:12px;height:12px;border:2px solid var(--k-edge);border-radius:50%;background:var(--tc)}
 .roll-track[aria-pressed="false"]{box-shadow:none;background:none}
 .roll-track[aria-pressed="false"] .roll-swatch{background:none}
 .roll-track[aria-pressed="false"] span{text-decoration:line-through}

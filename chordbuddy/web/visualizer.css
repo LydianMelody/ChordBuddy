@@ -6,12 +6,12 @@
 /* the controls: scenes, lyrics, calm (and full screen or close); they fade when the mouse rests */
 /* a slim column at the top left, clear of the chord (top centre) and the lyrics (bottom), in the app's own look like the mixer */
 .visualizer-toolbar{position:absolute;top:12px;left:12px;z-index:2;display:flex;flex-direction:column;gap:4px;align-items:stretch;padding:6px;
-  border-radius:var(--panel-radius,14px);background:var(--page);border:var(--bd) solid var(--ink);box-shadow:var(--sh) var(--sh) 0 var(--ink);color:var(--ink);transition:opacity .4s}
+  border-radius:var(--panel-radius,14px);background:var(--page);border:var(--bd) solid var(--k-edge);box-shadow:var(--sh) var(--sh) 0 var(--k-shade);color:var(--ink);transition:opacity .4s}
 .visualizer-toolbar.idle{opacity:0;pointer-events:none}
 .visualizer-toolbar button,.visualizer-scenes button{padding:5px 12px;border:2px solid transparent;border-radius:999px;background:transparent;color:var(--ink);font:700 12px var(--g);cursor:pointer;text-align:left}
-.visualizer-toolbar button:hover{border-color:var(--ink)}
+.visualizer-toolbar button:hover{border-color:var(--k-edge)}
 .visualizer-toolbar button[aria-pressed="true"]{background:var(--ink);color:var(--page)}
-.visualizer-scenes{display:flex;flex-direction:column;gap:2px;padding-bottom:6px;margin-bottom:2px;border-bottom:2px solid var(--ink)}
+.visualizer-scenes{display:flex;flex-direction:column;gap:2px;padding-bottom:6px;margin-bottom:2px;border-bottom:2px solid var(--k-edge)}
 /* the main page's full-screen view */
 .visualizer-overlay{position:fixed;inset:0;z-index:1000;background:#0d0e14}
 /* the mixer: the main window's mixer rack (mixer-rack.css) floating over the scene wherever it was dragged (by its title bar);
@@ -22,7 +22,7 @@
 .visualizer-mixer .rack{flex:none;width:100%;max-height:none;font:15px/1.4 var(--g);color:var(--ink);border-radius:var(--panel-radius,16px)}
 .visualizer-mixer .rack-head{cursor:grab;touch-action:none;user-select:none}
 .visualizer-mixer.dragging .rack-head,.visualizer-toolbar.dragging .visualizer-grip{cursor:grabbing}
-.visualizer-mixer.dragging .rack,.visualizer-toolbar.dragging{box-shadow:calc(var(--sh) + 3px) calc(var(--sh) + 3px) 0 var(--ink);transition:none}
+.visualizer-mixer.dragging .rack,.visualizer-toolbar.dragging{box-shadow:calc(var(--sh) + 3px) calc(var(--sh) + 3px) 0 var(--k-shade);transition:none}
 @media (prefers-reduced-motion:reduce){.visualizer-mixer{transition:none}}
 /* the picker's grip: drag it to move the controls (the ridges of a cassette's hinge, as on the set list spines) */
 .visualizer-grip{height:10px;margin:-2px 4px 4px;border-radius:4px;cursor:grab;touch-action:none;
@@ -38,7 +38,7 @@
 /* Pin: the look now showing comes back whenever this song opens. Pinned, it is the highlighter yellow of the open song elsewhere,
    and the pinned look carries a small yellow dot in the list */
 .visualizer-toolbar .visualizer-pin[hidden]{display:none}
-.visualizer-toolbar .visualizer-pin[aria-pressed="true"]{background:var(--hl);color:#1A1C24;border-color:var(--ink)}
+.visualizer-toolbar .visualizer-pin[aria-pressed="true"]{background:var(--hl);color:#1A1C24;border-color:var(--k-edge)}
 /* ---- a visualization's skin (visual-skin.js): the same panels and controls, restyled to match the scene ----
    Only while skinned, so the app's own look is untouched; each property falls back to today's look when the skin leaves it out. */
 :is(.visualizer-toolbar,.visualizer-mixer).skinned :is(.visualizer-pin[aria-pressed="true"],.rack .solo[aria-pressed="true"],.stem.soloed .solo){color:var(--on-hl,#1A1C24)}

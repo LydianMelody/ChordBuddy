@@ -1,0 +1,145 @@
+/* UI KIT: one set of sizes for outlines, shadows, corners and spacing, picked by Melody in mockups/press-room-tune-up.html
+   (Fine 2px outline, Small shadows 1·2·4, Crisp corners 4·6·10, Compact 28px controls, yellow-sticker selected look, a small lift
+   under the mouse, Lively motion that stops when Windows asks for less; the dark look is Midnight print, in dark.css). Loaded last so it
+   wins over the older per-file values. Nothing here changes what any control does; it only changes how big, round, outlined, shadowed
+   and lively things are.
+
+   Left exactly as they were, on purpose: the chord chart (.desk), the cassettes (song rows, the library shelf, the empty tape) and the
+   player bar with its scrubber (.player). They keep the older outline and shadow sizes below.
+
+   Outline and shadow colors are their own tokens, so the dark look can color them differently from the writing. */
+:root{
+  --k-bd:2px; --k-bd-fine:1.5px;
+  --k-sh-press:1px; --k-sh:2px; --k-sh-lift:4px;
+  --k-r-s:4px; --k-r-m:6px; --k-r-l:10px;
+  --k-h:28px; --k-px:10px; --k-py:5px; --k-row-px:8px; --k-pad:12px; --k-gap:6px;
+  /* outline and shadow colors (--k-edge, --k-shade, --k-shade-pop) are set in press-room.base.css and dark.css */
+  --k-sel-bg:var(--hl); --k-sel-fg:#1A1C24;
+  --k-spring:cubic-bezier(.34,1.56,.64,1);
+  /* the older shared sizes, now the kit's */
+  --bd:var(--k-bd); --sh:var(--k-sh);
+}
+@supports (transition-timing-function:linear(0,1)){
+  :root{--k-spring:linear(0,.35 9%,.8 18%,1.06 28%,1.12 34%,1.08 42%,.99 55%,.98 64%,1 80%,1)}
+}
+/* the parts left alone keep their old sizes */
+:is(.desk,.player,.song-row,.tape,.cassette,.cassette-view,.empty-tape){--bd:2.5px;--sh:4px}
+
+/* ---------- Buttons: every standalone button is 28px tall with a 2px shadow; it lifts under the mouse and sinks when pressed ---------- */
+:is(.btn,.primary,.secondary,.hist button,.side .fold,.fold-open,.fold-open-right,.side .label button,.choice-actions :is(.btn,.secondary,.primary)):not(:is(.desk,.player) *){
+  height:auto;min-height:var(--k-h);padding:var(--k-py) var(--k-px);border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-m);
+  font-size:13px;line-height:1.2;box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);
+  transition:transform .28s var(--k-spring),box-shadow .28s var(--k-spring),background-color .12s}
+/* the class is repeated to outweigh the shared button rule above, which counts as specific as its most specific member */
+.btn.btn.btn:not(:is(.desk,.player) *){gap:6px;height:var(--k-h);padding-block:0}
+.btn.btn.btn.sq:not(:is(.desk,.player) *){padding:0}
+.btn:not(:is(.desk,.player) *) :is(.ic,[data-icon]){width:16px;height:16px;display:grid;place-items:center;line-height:0}
+.btn:not(:is(.desk,.player) *) [data-icon] svg{width:16px;height:16px}
+/* square icon buttons */
+:is(.btn.sq,.hist button,.side .fold,.fold-open,.fold-open-right,.side .label button):not(:is(.desk,.player) *){width:var(--k-h);height:var(--k-h);min-height:0;padding:0;justify-content:center}
+:is(.btn,.primary,.secondary,.hist button,.side .fold,.fold-open,.fold-open-right,.side .label button):not(:is(.desk,.player) *):not(:disabled):hover{
+  transform:translate(-1px,-1px);box-shadow:calc(var(--k-sh) + 1px) calc(var(--k-sh) + 1px) 0 var(--k-shade)}
+:is(.btn,.primary,.secondary,.hist button,.side .fold,.fold-open,.fold-open-right,.side .label button):not(:is(.desk,.player) *):not(:disabled):active{
+  transform:translate(var(--k-sh),var(--k-sh));box-shadow:0 0 0 var(--k-shade);transition-duration:.08s}
+/* a menu's own button (Settings, Visualizer) stays pressed in while its menu is open */
+details[open]>summary.btn:not(:is(.desk,.player) *){transform:translate(var(--k-sh-press),var(--k-sh-press));box-shadow:var(--k-sh-press) var(--k-sh-press) 0 var(--k-shade)}
+
+/* ---------- Choices in a row (Chart / Lead sheet / MIDI and the like) ---------- */
+.seg:not(:is(.desk,.player) *){min-height:var(--k-h);border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-m);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
+.seg:not(:is(.desk,.player) *) button{padding:2px var(--k-row-px);line-height:1.2;border-right:var(--k-bd) solid var(--k-edge)}
+.seg:not(:is(.desk,.player) *) button:last-child{border-right:0}
+.seg:not(:is(.desk,.player) *) button.on{background:var(--k-sel-bg);color:var(--k-sel-fg)}
+.tab{min-height:var(--k-h);padding:2px var(--k-px);border:var(--k-bd) solid transparent;border-radius:var(--k-r-m);line-height:1.2}
+.tab.active{background:var(--k-sel-bg);color:var(--k-sel-fg);border-color:var(--k-edge);box-shadow:var(--k-sh-press) var(--k-sh-press) 0 var(--k-shade)}
+.chip{border-width:var(--k-bd)}
+
+/* ---------- Tick boxes: one size smaller than a control, crisp corners ---------- */
+input[type=checkbox]{width:20px;height:20px;min-width:20px;min-height:20px;border-width:var(--k-bd);border-radius:var(--k-r-s)}
+input[type=checkbox]:focus,input[type=checkbox]:focus-visible{box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
+
+/* ---------- Sidebar around the cassettes: list picker, set lists, search ---------- */
+.list-picker{border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-l);padding:4px;box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
+/* rows and fields: a 28px box, the writing centered in it; a long set list name may still wrap to a second line */
+.side .setlist-item,.list-picker .setlist-item{min-height:var(--k-h);padding:0 var(--k-row-px);line-height:1.2;border:var(--k-bd) solid transparent;border-radius:var(--k-r-m)}
+.side .setlist-item:not(.selected):hover{border-color:var(--k-edge)}
+.side .setlist-item.selected{background:var(--k-sel-bg);color:var(--k-sel-fg);border-color:var(--k-edge);box-shadow:var(--k-sh-press) var(--k-sh-press) 0 var(--k-shade)}
+.side .search{height:var(--k-h);padding:0 var(--k-px);line-height:1.2;border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-m)}
+.side .search:focus-within{box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
+.side .inline-form input{min-height:var(--k-h);padding:var(--k-py) var(--k-px);border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-m)}
+.side .count{border-width:var(--k-bd)}
+
+/* ---------- Menus (Settings, Visualizer, History and the rest) ---------- */
+.more-pop{gap:2px;padding:var(--k-gap);border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-l);box-shadow:var(--k-sh-lift) var(--k-sh-lift) 0 var(--k-shade-pop)}
+.more-pop .text-button{display:flex;align-items:center;gap:8px;min-height:var(--k-h);padding:2px var(--k-row-px);line-height:1.2;border:var(--k-bd) solid transparent;border-radius:var(--k-r-m);color:var(--ink);transition:transform .2s var(--k-spring)}
+.history-pop .text-button{align-items:baseline;padding-top:6px;padding-bottom:6px}
+.more-pop .text-button:not(:disabled):hover{border-color:var(--k-edge);background:var(--page);color:var(--ink);transform:translateX(2px)}
+.more-pop .text-button.danger,.more-pop .text-button.danger:hover{color:var(--a1t,var(--a1))}
+.more-pop .more-label{margin:6px var(--k-row-px) 2px}
+.more-pop .more-sep{margin:var(--k-gap) 0;border-top:var(--k-bd) dotted var(--faint)}
+.themes{padding:4px;gap:5px;border-width:var(--k-bd)}
+.themes button{border-width:var(--k-bd)}
+.themes button.on{outline:var(--k-bd) solid var(--ink);outline-offset:2px}
+
+/* ---------- Messages and panels ---------- */
+.alert{padding:var(--k-py) 40px var(--k-py) var(--k-pad);min-height:calc(var(--k-h) + 6px);border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-l);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);line-height:1.45}
+.alert-close{top:50%;transform:translateY(-50%);width:24px;height:24px;border-radius:var(--k-r-s)}
+.history-note{padding:4px 4px 4px var(--k-pad);border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-l);box-shadow:var(--k-sh-lift) var(--k-sh-lift) 0 var(--k-shade-pop)}
+:is(.box,.job-panel,.models-panel,.lock-banner){border-width:var(--k-bd);border-color:var(--k-edge);border-radius:var(--k-r-l);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
+.job-panel,.models-panel{padding:var(--k-pad) calc(var(--k-pad) + 4px)}
+.info-pop{border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-l);box-shadow:var(--k-sh-lift) var(--k-sh-lift) 0 var(--k-shade-pop)}
+
+/* ---------- Dialogs ---------- */
+/* every dialog gets the outline, corners and lifted shadow; only the two common kinds get the padding, so special dialogs keep their layout */
+dialog{border-width:var(--k-bd);border-color:var(--k-edge);border-radius:var(--k-r-l);box-shadow:var(--k-sh-lift) var(--k-sh-lift) 0 var(--k-shade-pop)}
+.choice-dialog,.settings-dialog{padding:calc(var(--k-pad) + 6px);border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-l);box-shadow:var(--k-sh-lift) var(--k-sh-lift) 0 var(--k-shade-pop)}
+.choice-actions{gap:var(--k-gap) calc(var(--k-gap) + 2px);margin-top:calc(var(--k-pad) + 4px)}
+.settings-dialog button{margin:0}
+.settings-dialog .previous-runs>div{border-top:var(--k-bd-fine) solid color-mix(in srgb,var(--ink) 18%,transparent)}
+.settings-dialog .previous-runs button{min-height:var(--k-h);padding:var(--k-py) var(--k-px);border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-m);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade)}
+.attribution-stems li{border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-m);padding:var(--k-py) var(--k-px) calc(var(--k-py) + 2px)}
+.timing-dialog input[type=number]{min-height:var(--k-h);padding:var(--k-py) var(--k-px);border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-m)}
+
+/* ---------- Tooltips: the ink sticker keeps its colored shadow ---------- */
+.tip{border-width:var(--k-bd);border-radius:var(--k-r-l);box-shadow:var(--k-sh-lift) var(--k-sh-lift) 0 var(--a1)}
+.tip-head kbd{border-radius:var(--k-r-s)}
+
+/* ---------- Tool rails (Chart, Lead sheet, MIDI): the chosen tool is the yellow sticker ---------- */
+.tool-tray{border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-l);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);padding:4px}
+.tool-btn{border-radius:var(--k-r-m)}
+.tool-btn.on{background:var(--k-sel-bg);color:var(--k-sel-fg);box-shadow:inset 0 0 0 var(--k-bd) var(--k-edge)}
+.tool-btn.on kbd{color:inherit}
+
+/* ---------- Motion (Lively, from mockups/press-room-tune-up.html): springy, quick, and only on what you just did ---------- */
+/* a tick box fills with its color and the tick pops in on a spring (it shrinks away when unticked); pressing pushes it into its shadow */
+input[type=checkbox]{transition:background-color .15s,transform .2s var(--k-spring),box-shadow .2s var(--k-spring)}
+input[type=checkbox]::after{content:'';position:absolute;left:50%;top:50%;width:10px;height:5px;border:solid var(--onA1,#fff);border-width:0 0 3px 3px;
+  transform:translate(-50%,-50%) translateY(-2px) rotate(-45deg) scale(0);transition:transform .3s var(--k-spring)}
+input[type=checkbox]:checked::after{transform:translate(-50%,-50%) translateY(-2px) rotate(-45deg) scale(1)}
+input[type=checkbox]:not(:disabled):active{transform:translate(var(--k-sh-press),var(--k-sh-press));box-shadow:var(--k-sh-press) var(--k-sh-press) 0 var(--k-shade);transition-duration:.08s}
+/* choices in a row, toggles, tabs and tool rails fade to their new color; pressing one squeezes it a little and it springs back when you
+   let go (a press, not an animation on the chosen one, so a view that redraws itself never makes them bounce on their own) */
+:is(.seg,.presets,.mi-seg,.pf-shows,.pass-pick,.ruler-toggle,.pf-count,.tool-controls) button,.tab,.document-tab,.tl-btn,.setlist-item{
+  transition:background-color .2s,color .2s,border-color .2s,transform .35s var(--k-spring)}
+.tool-btn{transition:background-color .2s,color .2s}
+.tool-tile{transition:transform .35s var(--k-spring)}
+:is(.seg,.presets,.mi-seg,.pf-shows,.pass-pick,.ruler-toggle,.pf-count,.tool-controls) button:not(:disabled):active,.tab:active,.document-tab:active,.tl-btn:active,.setlist-item:active{transform:scale(.92);transition-duration:.08s}
+.tool-btn:active .tool-tile{transform:scale(.8) rotate(-6deg);transition-duration:.08s}
+/* menus and info bubbles spring open from their button; dialogs settle in on a spring */
+details[open]>.more-pop,.info-pop:not(.hidden){animation:k-menu .24s var(--k-spring);transform-origin:top right}
+@keyframes k-menu{from{opacity:0;transform:translateY(-6px) scale(.94)}}
+dialog[open]{animation:k-dialog .32s var(--k-spring)}
+@keyframes k-dialog{from{opacity:0;transform:translateY(12px) scale(.94)}}
+/* a message pops in: the floating note (Undo, Saved) with a little tilt, a message across the page with a springy drop */
+.history-note:not(.hidden):not([hidden]){animation:k-note .45s var(--k-spring)}
+@keyframes k-note{from{opacity:0;transform:translateX(-50%) translateY(10px) scale(.7) rotate(4deg)}}
+.alert:not(.hidden),.lock-banner:not(.hidden){animation:k-drop .4s var(--k-spring)}
+@keyframes k-drop{from{opacity:0;transform:translateY(-10px)}}
+
+/* Respect the computer's reduce-motion setting (shell.css already shortens every animation; this removes the lift and pops outright) */
+@media (prefers-reduced-motion:reduce){
+  :is(.btn,.primary,.secondary,.hist button,.side .fold,.fold-open,.fold-open-right,.side .label button,.more-pop .text-button){transition:none}
+  :is(.btn,.primary,.secondary,.hist button,.side .fold,.fold-open,.fold-open-right,.side .label button,.more-pop .text-button):hover{transform:none}
+  input[type=checkbox],input[type=checkbox]::after,:is(.seg,.presets,.mi-seg,.pf-shows,.pass-pick,.ruler-toggle,.pf-count,.tool-controls) button,.tab,.document-tab,.tool-btn,.tool-tile,.tl-btn,.setlist-item{transition:none}
+  input[type=checkbox]:active,:is(.seg,.presets,.mi-seg,.pf-shows,.pass-pick,.ruler-toggle,.pf-count,.tool-controls) button:active,.tab:active,.document-tab:active,.tl-btn:active,.setlist-item:active,.tool-btn:active .tool-tile{transform:none}
+  details[open]>.more-pop,.info-pop,dialog[open],.history-note,.alert,.lock-banner{animation:none!important}
+}

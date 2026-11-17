@@ -1,17 +1,70 @@
-/* The dark look. Each ink-colour theme keeps its own accents; paper, desk and ink swap places. Chosen with the sun/moon button
-   (or the computer's own setting until you choose). Printing is always the light paper look (see shell.js). */
-[data-theme="tomato"][data-scheme="dark"]{--desk:#16171C;--page:#21232A;--ink:#F3EEE1;--soft:#BDB8AC;--faint:#AAA7A1;--line:#F3EEE12B;--tint:#2F323B;
-  --a1:#FF6A45;--a2:#5E80FA;--a3:#3FCB9B;--hl:#FFD84A;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A;--a1t:var(--a1)}
-[data-theme="forest"][data-scheme="dark"]{--desk:#131915;--page:#1D2621;--ink:#EEEADB;--soft:#AFB8AE;--faint:#A5A59A;--line:#EEEADB2B;--tint:#29352F;
-  --a1:#F28A4E;--a2:#3D9170;--a3:#9DCC93;--hl:#F6C744;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A;--a1t:var(--a1)}
-[data-theme="plum"][data-scheme="dark"]{--desk:#16121A;--page:#221C28;--ink:#F3ECF0;--soft:#BCB0C0;--faint:#AAA3AA;--line:#F3ECF02B;--tint:#32293A;
-  --a1:#F05A7E;--a2:#8D68E2;--a3:#33C4B3;--hl:#FFCF5C;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A;--a1t:var(--a1)}
+/* The dark look: "Midnight print" from mockups/press-room-tune-up.html (the page's own dark look, which Melody chose after seeing the
+   app). One set of rules for every screen:
+   - Night-colored paper (--page) that is lighter than the room (--desk), so panels, menus, dialogs, buttons, the player and the
+     chart's paper all sit on top of it.
+   - Outlines and hard shadows are near-black, like ink on dark card stock, so a shadow reads as depth instead of a glow.
+   - Accents are lifted and softened to suit the dark. The music on the chart stays in bright writing color.
+   - Cassette labels are cream with dark writing (mockups/dark-cassettes.html). Tools not in use in a tool rail are line drawings
+     with no fill (mockups/dark-unify.html).
+   Chosen with the sun/moon button (or the computer's own setting until you choose). Printing is always the light paper look
+   (see shell.js). */
+[data-theme="tomato"][data-scheme="dark"]{--desk:#1C1B21;--page:#302E37;--paper:var(--page);--ink:#F5EFE2;--soft:#C7C1B4;--faint:#ABA79F;--line:#F5EFE22B;--tint:#3D3B45;
+  --a1:#FF7A59;--a2:#869EFF;--a3:#55D6A7;--hl:#FFDA61;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A;--a1t:var(--a1)}
+[data-theme="forest"][data-scheme="dark"]{--desk:#161E1A;--page:#27352E;--paper:var(--page);--ink:#F0ECDD;--soft:#B9C3B7;--faint:#A5A79B;--line:#F0ECDD2B;--tint:#33433A;
+  --a1:#F89A64;--a2:#68C29C;--a3:#ADDBA2;--hl:#F9D25E;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A;--a1t:var(--a1)}
+[data-theme="plum"][data-scheme="dark"]{--desk:#1C1521;--page:#31273A;--paper:var(--page);--ink:#F7EEF3;--soft:#CBBDCE;--faint:#ACA4AC;--line:#F7EEF32B;--tint:#3F3349;
+  --a1:#FF7B9C;--a2:#AE93F4;--a3:#4AD6C4;--hl:#FFD678;--onA1:#14151A;--onA2:#14151A;--onA3:#14151A;--a1t:var(--a1)}
+
+/* Outline and shadow colors (light: both are the ink; see press-room.base.css). Set on every element, so a part that changes its own
+   --ink or accents (a visualizer skin) still gets the same outlines and shadows. */
+[data-scheme="dark"] *{--k-edge:#07060A;--k-shade:#07060A;--k-shade-pop:#07060A}
+
+/* the paper the music is written on: the chart (with its title strip), the lead sheet and the MIDI piano roll (the same paper as
+   everything else in Midnight print; one token, so it can be told apart later) */
+[data-scheme="dark"] :is(#chart-editor .page,.jhead,.key-box,button.meter-box,#abc-editor,#midi-editor,.lead-notation,.roll-grid,.roll-corner){background:var(--paper)}
+/* the music itself stays in bright writing color: barlines, repeat signs and the time signature's line */
+[data-scheme="dark"] :is(#chart-editor .page,.page,#abc-editor,#midi-editor){box-shadow:7px 7px 0 var(--k-shade)}
+[data-scheme="dark"] :is(.bar,.rep-sign){--k-edge:var(--ink)}
+[data-scheme="dark"] .meter-box hr{border-top-color:var(--ink)}
+
+/* Cassettes: a shell in the surface color, near-black outlines, a cream label with dark writing, and the song's own color
+   (the same slot it has in light mode) on the label's band, the spine's ridges and its badges. The window is dark with light reels.
+   Covers the sidebar spines (also the Perform set), the All songs wall and the empty tape. Colors only: sizes stay as they are. */
+[data-scheme="dark"] :is(.song-row,.tape,.empty-tape){--spine:var(--a1);--cream:#EEE6D7;--tape-ink:#16131A;--tape-dark:#07060A;--tape:var(--page);background:var(--page)}
+[data-scheme="dark"] :is(.song-row,.tape)[data-tint]{--tape:var(--page)}
+[data-scheme="dark"] :is(.song-row,.tape)[data-tint="1"]{--spine:var(--a2)}
+[data-scheme="dark"] :is(.song-row,.tape)[data-tint="2"]{--spine:var(--a3)}
+[data-scheme="dark"] :is(.song-row,.tape)[data-tint="3"]{--spine:var(--hl)}
+[data-scheme="dark"] :is(.song-row,.tape)[data-tint="4"]{--spine:color-mix(in srgb,var(--ink) 62%,var(--desk))}
+/* the spine in a song list */
+[data-scheme="dark"] .song-row .drag-handle{background:repeating-linear-gradient(90deg,transparent 0 3px,color-mix(in srgb,var(--spine) 55%,transparent) 3px 4px);border-right-color:var(--tape-dark)}
+[data-scheme="dark"] .song-row .song-main{background:var(--cream);color:var(--tape-ink);box-shadow:inset 4px 0 0 var(--spine)}
+[data-scheme="dark"] .song-row .song-main :is(.song-len,small){color:var(--tape-ink)}
+[data-scheme="dark"] .song-row .song-main small{color:#51454D}
+[data-scheme="dark"] .song-row.selected .song-main{background:var(--hl);box-shadow:inset 4px 0 0 var(--tape-dark)}
+[data-scheme="dark"] .song-row>.song-facts .fact-badge{color:var(--spine);opacity:1}
+[data-scheme="dark"] .song-row>.song-facts .fact-badge.key{background:var(--spine);color:var(--tape-dark);border-color:var(--spine)}
+/* the cassette on the All songs wall, and the empty one */
+[data-scheme="dark"] .tape-label{color:var(--tape-ink);padding-top:3px;background:linear-gradient(var(--spine) 0 21px,var(--tape-dark) 21px 23px,var(--cream) 23px)}
+[data-scheme="dark"] .tape-label strong{color:var(--tape-dark)}
+[data-scheme="dark"] .tape-label small{color:#51454D;margin-top:2px}
+[data-scheme="dark"] :is(.tape,.empty-tape) .tape-window{--ink:#E8DFD2;--page:#121116;background:#121116;color:#E8DFD2}
+[data-scheme="dark"] .tape-window .fact-badge.key{background:var(--spine);color:var(--tape-dark);border-color:var(--spine)}
+[data-scheme="dark"] .tape-foot{background:color-mix(in srgb,var(--ink) 18%,var(--desk))}
+[data-scheme="dark"] .tape-side{color:var(--spine);opacity:1}
+[data-scheme="dark"] .library-tag{background:var(--cream);color:var(--tape-ink)}
+[data-scheme="dark"] .empty-tape-label{background:linear-gradient(var(--hl),var(--hl)) 8px 7px/52% 7px no-repeat,var(--cream)}
+[data-scheme="dark"] .empty-tape-foot{background:color-mix(in srgb,var(--ink) 18%,var(--desk))}
+
+/* tool rails: tools not in use are light line drawings with no fill (light lines on bright yellow were hard to read); the tool in
+   use keeps its yellow sticker and its drawing's yellow */
+[data-scheme="dark"] .tool-btn:not(.on) .tool-ic :is([fill="var(--hl)"],[fill="#FBF7EE"]){fill:none}
 
 [data-scheme="dark"]{color-scheme:dark}
 [data-scheme="dark"] ::selection{background:color-mix(in srgb,var(--a1) 55%,transparent);color:var(--ink)}
 
 /* things that had a fixed paper colour */
-[data-scheme="dark"] .settings-dialog{background:var(--page);color:var(--ink);border-color:var(--ink)}
+[data-scheme="dark"] .settings-dialog{background:var(--page);color:var(--ink);border-color:var(--k-edge)}
 [data-scheme="dark"] .settings-dialog::backdrop,[data-scheme="dark"] dialog::backdrop{background:#000a}
 
 [data-scheme="dark"] .lead-run.editing{background:var(--page)}
@@ -19,7 +72,7 @@
 /* the lead sheet is drawn in the ink colour, so it follows the scheme by itself */
 
 /* the chart's tool art and tooltips use the ink as their paper, so they flip with it */
-[data-scheme="dark"] .tip{box-shadow:4px 4px 0 var(--a1)}
+[data-scheme="dark"] .tip{box-shadow:4px 4px 0 var(--k-shade)}
 
 
 /* highlight-yellow surfaces keep dark writing in the dark look (the ink there is light) */
@@ -29,7 +82,7 @@
 [data-scheme="dark"] .cut-half .snip .tool-ic{color:#1A1C24}
 
 /* older panels that painted themselves with fixed light colours (song search, MIDI editor, chord strip, drop overlay) */
-[data-scheme="dark"] #song-search{background:var(--page);color:var(--ink);border-color:var(--ink)}
+[data-scheme="dark"] #song-search{background:var(--page);color:var(--ink);border-color:var(--k-edge)}
 [data-scheme="dark"] .timeline{background:var(--desk)}
 
 
@@ -41,13 +94,13 @@
 [data-scheme="dark"] .progress-track{background:var(--tint)}
 [data-scheme="dark"] :is(.lock-banner,.alert) :is(button,.secondary){background:#FBF7EE;color:#1A1C24;border-color:#1A1C24}
 [data-scheme="dark"] .lock-banner .secondary:hover{background:var(--a1);color:#fff}
-[data-scheme="dark"] .lead-notation{background:var(--page)}
 
 
 /* dialogs (settings, models, attribution) */
 [data-scheme="dark"] .settings-dialog small,[data-scheme="dark"] .attribution-details dt,[data-scheme="dark"] .attribution-dialog>p:last-child{color:var(--soft)}
 [data-scheme="dark"] .previous-runs>div,[data-scheme="dark"] .attribution-details{border-color:var(--line)}
 
+[data-scheme="dark"] .attribution-credit{border-top-color:var(--faint)}
 [data-scheme="dark"] .settings-error{color:var(--a1)}
 [data-scheme="dark"] .attribution-details a{color:var(--hl)}
 
