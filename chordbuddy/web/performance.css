@@ -267,3 +267,5 @@ input.pf-tick{margin-top:8px}
 .pf-stage.large .pf-up-list{font-size:18px}
 .pf-stage.large .pf-clock b{font-size:22px}
 @media (max-width:900px){.pf-prepare{grid-template-columns:minmax(0,1fr)}}
+/* the board is written on the same ruled paper as the chart and the lead sheet: the lines scroll with the bars and show between rows */
+.pf-scroll{background-image:repeating-linear-gradient(0deg,transparent 0 31px,var(--line) 31px 32px);background-attachment:local}
