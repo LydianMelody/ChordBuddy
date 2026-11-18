@@ -23,7 +23,7 @@
 .tool-tile{display:grid;place-items:center;width:34px;height:30px;color:inherit;transition:transform .12s}
 .tool-ic{width:27px;height:27px;overflow:visible}
 .tool-btn:hover{background:color-mix(in srgb,var(--a1) 14%,transparent)}
-.tool-btn:hover .tool-tile{transform:translateY(-1px) rotate(-3deg)}
+.tool-btn:hover .tool-tile{transform:translateY(-2px) rotate(-6deg) scale(1.06)}
 .tool-btn:focus-visible{outline:2.5px dashed var(--a2);outline-offset:1px}
 .tool-btn:active .tool-tile{transform:translateY(1px)}
 .tool-btn.on{background:var(--a1);color:var(--onA1)}
@@ -261,7 +261,6 @@ button.meter-box:hover hr{border-top-color:#1A1C24}
 #workspace[data-kind="chart"] .tool-options>.opt-timing{order:3}
 #workspace[data-kind="chart"] .tool-note{order:4}
 /* with everything on that one line, the chart sits closer to the top */
-#app:has(#workspace[data-kind="chart"]:not(.hidden)) .top{padding-bottom:2px}
 /* no space under the tabs: they stand right on the toolbar's line, their bottom edges on top of it, so there is one line, not two */
 #workspace[data-kind="chart"] .toolbar{padding-bottom:0}
 #workspace[data-kind="chart"] #desk{padding-top:2px}
