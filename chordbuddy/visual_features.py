@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 import numpy as np
 from .separation_contract import SAMPLE_RATE, TRACKS
+from .stem_audio import read_all
 
 VERSION = 1
 FPS = 100                                   # frames per second of song time: one every 10 ms
@@ -24,9 +25,8 @@ _locks_guard = threading.Lock()
 
 
 def _mono(path, info):
-    """The stem as mono float32, read straight from its float WAV."""
-    data = np.fromfile(path, dtype='<f4', count=info['frames'] * 2, offset=info['data_offset'])
-    return data.reshape(-1, 2).mean(axis=1, dtype=np.float32)
+    """The stem as mono float32, from its float WAV or FLAC (stem_audio.py)."""
+    return np.asarray(read_all(path, info)).mean(axis=1, dtype=np.float32)
 
 
 def _to_byte(db):

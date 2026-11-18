@@ -1,6 +1,8 @@
 """Per-song retirement of superseded generated stems after valid publication.
 
-Only seven named stem WAVs and the generated guitar intermediate (already gone after newer splits) are removed.
+Only the seven named stem files (float WAV, or FLAC for newer splits) and the generated guitar intermediate (already gone after newer
+splits) are removed. A hard-linked stem is refused, unless every one of its names is inside this song's own separation folder
+(Replace a Stem shares unchanged stems between runs that way): then only the old run's name goes.
 Source MP3, decoded original WAV, manifests, logs, caches and all history remain.
 Interrupted purges resume only after another successful, validated publication.
 """
@@ -14,6 +16,7 @@ from .recycle import checked_path, checked_tree
 from .analysis_store import AnalysisStore
 from .playback_ready import PlaybackReadiness, ACTIVE
 from .separation_contract import STEMS, TRACKS, file_hash
+from .stem_audio import release
 
 _LOCKS = {}
 _LOCKS_GUARD = threading.Lock()
@@ -75,14 +78,35 @@ def _assets(root, row, source_hash, project):
         raise ValueError('Invalid obsolete stem manifest')
     assets = [a for a in manifest['assets'] if a['role'] in STEMS]
     assets.append(manifest['intermediate'])
-    names = [r + '.wav' for r in STEMS] + ['guitar.wav']
-    if [a['relative_path'] for a in assets] != names:
+    names = [a['relative_path'] for a in assets]
+    if len(names) != len(STEMS) + 1 or names[-1] != 'guitar.wav' or any(name not in (r + '.wav', r + '.flac') for name, r in zip(names, STEMS)):
         raise ValueError('Unexpected generated stem filename')
     return [{'name':a['relative_path'], 'sha256':a['file_sha256']} for a in assets], file_hash(manifest_path)
 
 
+def _identity(path):
+    info = path.stat()
+    return info.st_dev, info.st_ino
+
+
+def _names_in_song(root, project):
+    """How many names each file has inside this song's separation folder (every run of it), by identity. Replace a Stem shares unchanged
+    stems between runs as hard links. When all of a stem's names are in here, removing an old run's name never touches a file anything else
+    uses: the replacement run's names stay, and a file only old runs held is as superseded as any other old stem."""
+    names = {}
+    for run in root.parent.iterdir():
+        if run.is_dir():
+            checked_tree(run, project)
+            for path in run.iterdir():
+                if path.is_file():
+                    key = _identity(path)
+                    names[key] = names.get(key, 0) + 1
+    return names
+
+
 def _unlink(path):
-    path.unlink()  # Exact validated generated WAV only; never a directory tree.
+    release(path.parent)  # Windows will not delete a stem the player still has open.
+    path.unlink()  # Exact validated generated stem only; never a directory tree.
 
 
 def _purge_reserved(project, separation, row, replacement, source_hash):
@@ -128,9 +152,10 @@ def _purge_reserved(project, separation, row, replacement, source_hash):
         if not active or active['active_id'] != replacement or row['id'] == replacement:
             raise ValueError('Active separation changed; cleanup stopped')
         if path.exists():
-            if path.stat().st_nlink != 1 or file_hash(path) != asset['sha256']:
+            links = path.stat().st_nlink
+            if (links != 1 and _names_in_song(root, project).get(_identity(path), 0) != links) or file_hash(path) != asset['sha256']:
                 raise ValueError('Generated stem changed or is hard-linked; cleanup stopped')
-            size = path.stat().st_size
+            size = path.stat().st_size if links == 1 else 0     # a shared file's audio stays under its other names
             _unlink(path)
             removed_bytes += size
         if asset['name'] not in entry['removed']:

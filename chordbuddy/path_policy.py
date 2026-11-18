@@ -1,16 +1,19 @@
 """Bounded paths for the pinned portable workers; no legacy-folder migration."""
 from contextlib import contextmanager
 from pathlib import Path
+import shutil
 import uuid
 import os
+from .recycle import checked_tree
 
 MAX_PATH_UNITS = 240
 COLLISION_ATTEMPTS = 32
 # LIBROSA_CACHE_DIR is deliberately NOT set: each job gets a fresh scratch folder, so librosa's disk cache could never be reused,
 # and reserving room for its deepest file (joblib/librosa/filters/mel/<hash>/metadata.json.thread-<id>-pid-<pid>) alone
 # cost about 48 characters of the install-folder budget.
+# The GPU cache is not among them: it is shared by every job, in .models/cuda-cache (worker_environment).
 CACHE_DIRS = {'HF_HOME':'h', 'TORCH_HOME':'t', 'XDG_CACHE_HOME':'x',
-              'CUDA_CACHE_PATH':'d', 'NUMBA_CACHE_DIR':'n', 'MPLCONFIGDIR':'m',
+              'NUMBA_CACHE_DIR':'n', 'MPLCONFIGDIR':'m',
               'TORCHINDUCTOR_CACHE_DIR':'i', 'TRITON_CACHE_DIR':'r'}
 
 class PathBudgetError(ValueError):
@@ -34,7 +37,6 @@ def worker_paths(work):
     return [work/'manifest.json', work/'source.mp3', work/'original.wav',
             work/'guitar-stage.json', work/'proposal.json', work/'request.json',
             work/'c'/('tmp'+'x'*32)/('x'*32),
-            work/'c/d'/'f'/'f'/('a'*64),
             work/'c/m'/'fontlist-v999.json']
 
 def song_paths(library_root,folder):
@@ -63,6 +65,7 @@ def validate_project(project):
         project/'.models/modules/transformers_modules/m-a-p/SheetSage2'/('a'*40)/'configuration_sheetsage2.py',
         project/'.models/tmp'/('tmp'+'a'*32)/('a'*32+'.py'),
         project/'.models/hf/hub/.locks/models--m-a-p--MERT-v2-FullSong'/('a'*64+'.lock'),
+        project/'.models/cuda-cache'/'f'/'f'/('a'*64),
     ])
 
 def new_id(length):
@@ -88,7 +91,7 @@ def reserve_directory(parent,length,used=lambda ident:False):
     raise ValueError('Could not allocate a unique song/run ID after 32 attempts. Retry the operation.')
 
 def worker_environment(project,work):
-    """Short per-job caches, outside the immutable hashed inference recipe."""
+    """Short per-job caches, outside the immutable hashed inference recipe. Use job_environment, which also removes them."""
     project=Path(project).resolve();work=Path(work).resolve()
     if not work.is_relative_to(project):raise ValueError('Separation must stay inside the project')
     validate_paths(worker_paths(work))
@@ -104,3 +107,22 @@ def worker_environment(project,work):
     env['CUDA_CACHE_PATH']=str(shared);env['CUDA_CACHE_MAXSIZE']=str(2*1024**3)
     env.update(PYTHONDONTWRITEBYTECODE='1',PYTHONNOUSERSITE='1',HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1',HF_HUB_DISABLE_TELEMETRY='1',DO_NOT_TRACK='1',TORCH_FORCE_WEIGHTS_ONLY_LOAD='1')
     return env
+
+def drop_job_cache(project,work):
+    """Remove a finished job's c folder: its temporary files and the cache folders the tools were given. Nothing reads it
+    afterwards; the models are read from .models and the GPU cache is shared there too. False, and the folder is left as it is,
+    if it holds a link or junction or cannot be removed (a file still open, say)."""
+    cache=Path(work)/'c'
+    if not cache.exists():return True
+    try:
+        checked_tree(cache,Path(project).resolve())
+        shutil.rmtree(cache)
+    except (OSError,ValueError):return False
+    return True
+
+@contextmanager
+def job_environment(project,work):
+    """worker_environment for one worker process; its c folder goes when the block ends, after the process has exited."""
+    env=worker_environment(project,work)
+    try:yield env
+    finally:drop_job_cache(project,work)

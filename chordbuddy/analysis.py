@@ -10,7 +10,7 @@ from .separation_contract import file_hash
 from .engine import Engine,MODEL_REVISION,MODEL_ID,BASE_MODEL_ID
 from .separation import Cancelled
 from .owned_process import OwnedProcess
-from .path_policy import worker_environment as environment, validate_project
+from .path_policy import job_environment, validate_project
 from .confidence import confidence_defaults
 
 TERMINAL={'completed','partial','failed','cancelled','interrupted'}
@@ -134,7 +134,7 @@ class AnalysisCoordinator:
                 root=self.library.create_analysis_directory(request['song_id'])
                 (root/'request.json').write_text(json.dumps(request,allow_nan=False),encoding='utf-8')
                 argv=[str(self.project/'runtime/python.exe'),'-B','-m','chordbuddy.rhythm_worker','--project',str(self.project),'--request',str(root/'request.json'),'--output',str(root/'proposal.json')]
-                with OwnedProcess(argv,cwd=self.project,env=environment(self.project,root)) as proc:
+                with job_environment(self.project,root) as env,OwnedProcess(argv,cwd=self.project,env=env) as proc:
                     with self.lock:
                         self.process=proc
                         if self.cancelled.is_set():proc.cancel()

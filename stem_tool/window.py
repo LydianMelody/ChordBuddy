@@ -167,8 +167,14 @@ def run(library, project):
     except Exception as exc:
         tell(f'Your Chord Buddy library could not be opened.\n\n{exc}', warning=False)
         return 1
+    try:
+        tidied = space.tidy_all()                    # older versions left by earlier replacements; each song checks itself, nothing is raised
+    except Exception as exc:
+        tidied = {'': str(exc)}
     import webview
     controller = Controller(space)
+    for warning in tidied.values():
+        controller.say(f'Older stems were kept for one song: {warning}')
     bridge = Bridge(controller)
     server, address = static_server(Path(project) / 'chordbuddy' / 'web')
     bridge._window = webview.create_window(TITLE, url=address, js_api=bridge, width=1180, height=820, min_size=(560, 520))

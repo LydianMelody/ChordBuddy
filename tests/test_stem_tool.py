@@ -11,12 +11,20 @@ from chordbuddy.playback_ready import PlaybackReadiness
 from chordbuddy.separation_checks import validate_mix
 from chordbuddy.separation_contract import STEMS, TRACKS, file_hash
 from chordbuddy.separation_store import SeparationStore
+from chordbuddy import stem_audio
 from stem_tool import engine
 from stem_tool.engine import RATE, StemError, Workspace
 
 SECONDS = 24
 FRAMES = SECONDS * RATE
 SONG = 'a1b2c3d4e5f6'
+
+
+def as_stored(audio):
+    """`audio` as a replaced stem keeps it: 24-bit FLAC, so rounded to the nearest 24-bit step (and nothing more)."""
+    audio = np.asarray(audio, dtype=np.float32)
+    scale = stem_audio.scale_for(float(np.abs(audio).max()))
+    return ((stem_audio._quantize(audio, scale) >> 8).astype(np.float64) / stem_audio.FULL * scale).astype(np.float32)
 
 
 def phrases(seed=1, seconds=SECONDS):
@@ -203,16 +211,20 @@ def test_replacing_makes_a_new_version_the_app_accepts_and_leaves_the_old_one_al
     assert manifest['run_id'] == result['run_id']
     now = {a['role']: a['file_sha256'] for a in manifest['assets']}
     assert now['vocals'] != before['vocals'] and all(now[r] == before[r] for r in TRACKS if r != 'vocals'), 'only the vocals changed'
-    assert np.array_equal(space.stem(SONG, 'vocals'), new_vocals)
+    assert np.array_equal(np.asarray(space.stem(SONG, 'vocals')), as_stored(new_vocals)), 'the new vocals, kept as 24-bit FLAC'
+    assert (root / 'vocals.flac').is_file() and not (root / 'vocals.wav').exists()
     assert manifest['replaced']['vocals']['file'] == 'his-take.wav' and manifest['recipe_sha256'] == 'recipe'
     assert not (root / 'guitar.wav').exists()
     # the app's own readers: the stems validate, and the song is playable from the NEW run
     state = playable(space)
     assert state['ready'] and state['active']['run_id'] == result['run_id']
     assert space.store.get_song_state(SONG)['availability'] == 'ready'
-    # the old version is untouched, checksums and all
-    assert {a['role']: file_hash(old_root / a['relative_path']) for a in old_manifest['assets']} == before
-    assert space.store.get_published_run(old_run)[1]['run_id'] == old_run
+    # the old version is tidied away as the app does after a new split: its stems go, its recording and manifest stay
+    assert not result['cleanup']['warning'] and [p['id'] for p in result['cleanup']['purged']] == [old_run]
+    assert not any((old_root / (r + '.wav')).exists() for r in STEMS) and (old_root / 'original.wav').exists()
+    assert space.store._run(old_run)['status'] == 'purged'
+    assert {a['role']: file_hash(root / a['relative_path']) for a in manifest['assets'] if a['role'] != 'vocals'} == {r: before[r] for r in TRACKS if r != 'vocals'}
+    assert file_hash(root / 'vocals.before-replacement.wav') == before['vocals'], 'the song’s own vocals live on in the new version'
 
 
 def test_the_song_can_never_clip_whatever_is_put_in(song):
@@ -224,9 +236,22 @@ def test_the_song_can_never_clip_whatever_is_put_in(song):
     assert float(total.max()) * manifest['common_gain'] <= .95 + 1e-6
 
 
+def test_a_replacement_louder_than_full_scale_keeps_its_peaks(song):
+    space, old_run, stems = song
+    loud = engine.place(voice(phrases(), 520, .25), FRAMES, 0)
+    loud = loud / float(np.abs(loud).max()) * np.float32(1.5)
+    space.replace(SONG, 'vocals', loud)
+    root, manifest = space.active(SONG)
+    vocals = next(a for a in manifest['assets'] if a['role'] == 'vocals')
+    assert vocals['relative_path'] == 'vocals.flac' and vocals['scale'] == 2.0, 'stored at half level, and the manifest knows it'
+    saved = np.asarray(space.stem(SONG, 'vocals'))
+    assert np.array_equal(saved, as_stored(loud)) and float(np.abs(saved).max()) > 1.49
+
+
 def test_the_original_can_be_put_back_exactly(song):
     space, old_run, stems = song
     original = file_hash(space.active(SONG)[0] / 'vocals.wav')
+    own_gain = space.active(SONG)[1]['common_gain']
     assert space.backup(SONG, 'vocals') is None
     space.replace(SONG, 'vocals', engine.place(voice(phrases(), 520, .25), FRAMES, 0))
     space.replace(SONG, 'vocals', engine.place(voice(phrases(), 610, .2), FRAMES, 0))      # replaced twice: the backup is still the song's own
@@ -234,12 +259,69 @@ def test_the_original_can_be_put_back_exactly(song):
     result = space.restore(SONG, 'vocals')
     root, manifest = space.active(SONG)
     assert np.array_equal(space.stem(SONG, 'vocals'), stems['vocals'])
+    assert file_hash(root / 'vocals.wav') == original and not (root / 'vocals.flac').exists(), 'the very file, not a re-encoded copy'
     assert 'vocals' not in (manifest.get('replaced') or {}) and space.backup(SONG, 'vocals') is None
     assert playable(space)['active']['run_id'] == result['run_id']
-    assert abs(manifest['common_gain'] - space.store.get_published_run(old_run)[1]['common_gain']) < 1e-9
+    assert abs(manifest['common_gain'] - own_gain) < 1e-9
     with pytest.raises(StemError):
         space.restore(SONG, 'vocals')
-    assert file_hash(space.store.get_published_run(old_run)[0] / 'vocals.wav') == original
+    assert only_the_current_version_holds_stems(space)
+
+
+def only_the_current_version_holds_stems(space):
+    """No older version of the song keeps a stem, a replaced stem's copy or an earlier try; each keeps its recording and manifest."""
+    root, _ = space.active(SONG)
+    older = [p for p in (space.library.root / SONG / 'separation').iterdir() if p != root]
+    assert older
+    for folder in older:
+        assert sorted(p.name for p in folder.iterdir() if p.suffix in ('.wav', '.flac')) == ['original.wav'], folder.name
+        assert (folder / 'manifest.json').is_file()
+    return True
+
+
+def test_replacing_again_and_again_leaves_nothing_behind(song):
+    space, _, stems = song
+    for hz in (520, 610, 700):
+        result = space.replace(SONG, 'vocals', engine.place(voice(phrases(), hz, .2), FRAMES, 0))
+        assert not result['cleanup']['warning']
+    space.replace(SONG, 'bass', tone(80, .1))
+    assert only_the_current_version_holds_stems(space)
+    root, manifest = space.active(SONG)
+    assert sorted(manifest['replaced']) == ['bass', 'vocals']
+    assert sorted(p.name for p in root.glob('*.before-replacement.*')) == ['bass.before-replacement.wav', 'vocals.before-replacement.wav']
+    space.restore(SONG, 'vocals')
+    space.restore(SONG, 'bass')
+    assert np.array_equal(space.stem(SONG, 'vocals'), stems['vocals']) and np.array_equal(space.stem(SONG, 'bass'), stems['bass'])
+    assert playable(space)['ready'] and only_the_current_version_holds_stems(space)
+
+
+def test_versions_left_by_the_tool_before_it_tidied_are_cleaned_when_it_opens(song, monkeypatch):
+    space, _, stems = song
+    monkeypatch.setattr(Workspace, 'tidy', lambda self, song_id: {'warning': None})     # how the tool behaved before
+    for hz in (520, 610):
+        space.replace(SONG, 'vocals', engine.place(voice(phrases(), hz, .2), FRAMES, 0))
+    space.replace(SONG, 'bass', tone(80, .1))
+    space.replace(SONG, 'drums', tone(800, .05))           # the bass try is now shared by two older versions, and the current one
+    space.replace(SONG, 'bass', tone(90, .1))              # ...until this: now only the two older versions hold it
+    current = space.active(SONG)[0]
+    tries = [p for p in (space.library.root / SONG / 'separation').glob('*/*.flac') if p.parent != current and '.before-' not in p.name]
+    assert any(p.stat().st_nlink > 1 for p in tries), 'an earlier try held by more than one older version'
+    monkeypatch.undo()
+    assert space.tidy_all() == {}
+    assert not any(p.exists() for p in tries) and only_the_current_version_holds_stems(space)
+    for role in ('vocals', 'bass', 'drums'):
+        space.restore(SONG, role)
+        assert np.array_equal(space.stem(SONG, role), stems[role])
+    assert space.tidy_all() == {}, 'nothing left to do, and doing it again is harmless'
+
+
+def test_tidying_keeps_everything_while_the_new_version_is_not_playable(song, monkeypatch):
+    space, old_run, _ = song
+    monkeypatch.setattr(Workspace, '_repoint_analysis', lambda *a: None)      # the analysis still names the old version
+    result = space.replace(SONG, 'vocals', engine.place(voice(phrases(), 520, .25), FRAMES, 0))
+    assert result['cleanup']['purged'] == []
+    old_root = space.store.get_published_run(old_run)[0]
+    assert all((old_root / (r + '.wav')).exists() for r in STEMS) and space.store._run(old_run)['status'] == 'completed'
 
 
 def test_a_failure_part_way_leaves_the_song_as_it_was(song, monkeypatch):
@@ -539,6 +621,6 @@ def test_the_window_uses_the_eased_stem_for_previews_and_for_the_saved_result(in
     assert abs(float(np.abs(heard).max()) - float(np.abs(c.plan['stem'][2 * RATE:22 * RATE]).max()) * c.plan['common_gain']) < 1e-3, 'what is previewed is the checked stem'
     c.replace()
     saved = space.stem(SONG, 'vocals')
-    assert np.array_equal(np.asarray(saved), c.plan['stem']), 'and that is exactly what is saved'
+    assert np.array_equal(np.asarray(saved), as_stored(c.plan['stem'])), 'and that is exactly what is saved (as 24-bit FLAC)'
     root, manifest = space.active(SONG)
     assert abs(manifest['common_gain'] - c.plan['common_gain']) < 1e-6

@@ -1,10 +1,9 @@
 """Prepare one explicitly timed canonical recording without changing source bytes."""
-import shutil
 from pathlib import Path
 from .separation_audio import index_wav
-from .separation_contract import file_hash
+from .separation_contract import file_hash,snapshot_source
 from .owned_process import OwnedProcess
-from .path_policy import worker_environment as environment
+from .path_policy import job_environment
 from .path_policy import validate_paths,worker_paths
 
 def prepare_source(project,source,output,check_cancel,*,reserved=False):
@@ -15,11 +14,10 @@ def prepare_source(project,source,output,check_cancel,*,reserved=False):
     if reserved:
         if not output.is_dir() or any(output.iterdir()):raise ValueError("Reserved analysis folder must be empty")
     else:output.mkdir(parents=True,exist_ok=False)
-    source_hash=file_hash(source);snapshot=output/'source.mp3';shutil.copyfile(source,snapshot)
-    if file_hash(snapshot)!=source_hash:raise ValueError('Source changed while copying')
+    snapshot=output/'source.mp3';source_hash=snapshot_source(source,snapshot)
     check_cancel();wav=output/'original.wav';ffmpeg=project/'tools/ffmpeg.exe'
     argv=[str(ffmpeg),'-nostdin','-v','error','-n','-i',str(snapshot),'-ar','44100','-ac','2','-c:a','pcm_f32le',str(wav)]
-    with OwnedProcess(argv,cwd=project,env=environment(project,output)) as proc:
+    with job_environment(project,output) as env,OwnedProcess(argv,cwd=project,env=env) as proc:
         # FFmpeg is a short decode; cancellation waits for owned child exit.
         for line in proc.stdout:check_cancel()
         code=proc.wait()

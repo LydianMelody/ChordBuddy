@@ -18,10 +18,11 @@ from .documents import DocumentStore, RevisionConflict
 from .engine import Engine, ACTIVE_STATUSES
 from .transcription_models import TranscriptionModels
 from .library import Library
+from .library_tidy import tidy_library
 from .separation_store import SeparationStore
 from .separation import SeparationManager
 from .inference_jobs import InferenceGate
-from .separation_audio import wire_chunk,read_frames
+from .stem_audio import wire_chunk,read_frames
 from .separation_checks import waveform_peaks
 from .mix_export import parse_levels,encode_mix,export_stems
 from . import visual_features
@@ -77,6 +78,9 @@ class Application:
         self.separation=SeparationManager(project_dir,self.separation_store,self.inference_gate)
         self.analysis=AnalysisCoordinator(project_dir,self.library,self.documents,self.engine,self.separation,None,self.inference_gate)
         self.analysis.recover_interrupted()
+        # Before any job can start: remove finished jobs' leftover caches and turn copies of a song's recording into links.
+        try:self.library_tidy=tidy_library(project_dir,self.library)
+        except Exception as exc:self.library_tidy={'warning':'Library not tidied: '+str(exc)}
         self.playback=PlaybackReadiness(self.analysis.store,self.separation_store)
         self.rhythm=RhythmService(self)
         self.analysis.rhythm_service=self.rhythm
