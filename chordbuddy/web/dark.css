@@ -21,7 +21,9 @@
 
 /* the paper the music is written on: the chart (with its title strip), the lead sheet and the MIDI piano roll (the same paper as
    everything else in Midnight print; one token, so it can be told apart later) */
-[data-scheme="dark"] :is(#chart-editor .page,.jhead,.key-box,button.meter-box,#abc-editor,#midi-editor,.lead-notation,.roll-grid,.roll-corner){background:var(--paper)}
+[data-scheme="dark"] :is(.jhead,.key-box,button.meter-box,#abc-editor,#midi-editor,.lead-notation,.roll-grid,.roll-corner){background:var(--paper)}
+/* the chart's page only changes its color, so it keeps its ruled lines and margin line (the whole background would wipe them) */
+[data-scheme="dark"] #chart-editor .page{background-color:var(--paper)}
 /* the music itself stays in bright writing color: barlines, repeat signs and the time signature's line */
 [data-scheme="dark"] :is(#chart-editor .page,.page,#abc-editor,#midi-editor){box-shadow:7px 7px 0 var(--k-shade)}
 [data-scheme="dark"] :is(.bar,.rep-sign){--k-edge:var(--ink)}
