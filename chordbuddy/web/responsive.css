@@ -16,7 +16,9 @@
 .side{padding:clamp(10px,1.6vh,18px) var(--side-pad) clamp(8px,1.2vh,14px)}
 .brand{margin-bottom:clamp(4px,1vh,14px)}
 .main{padding:0 var(--gutter)}
-.top{padding:clamp(6px,1.2vh,14px) 0 clamp(4px,.8vh,10px)}
+.top{--top-pad:clamp(5px,.8vh,9px);padding:var(--top-pad) 0 calc(var(--top-pad) + var(--k-sh))}
+/* the row sits in the middle between the window's edge and what's below (the mixer, the chart): the space under it also holds the
+   buttons' shadow, so it gets the shadow's width more */
 .work{gap:var(--gap);padding-bottom:clamp(6px,1vh,12px)}
 .player{margin:0 calc(-1 * var(--gutter));padding:clamp(6px,1vh,10px) var(--gutter) clamp(6px,1.1vh,12px)}
 

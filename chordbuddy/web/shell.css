@@ -188,6 +188,7 @@ button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,s
 #song-title:hover{border-color:var(--line)}
 #song-title:focus{border-color:var(--k-edge);background:var(--page)}
 .chips{margin-top:2px}
+.chips:empty{margin-top:0}   /* empty, it would still push the top row 2px off center */
 .top-right{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 8px;flex:1 1 auto;min-width:0}
 .top .actions{margin-left:0;flex:none;flex-wrap:wrap;justify-content:flex-end}
 .top .btn em{font-style:normal}
