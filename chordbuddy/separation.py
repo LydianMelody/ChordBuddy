@@ -5,10 +5,10 @@ import shutil
 import threading
 import time
 from pathlib import Path
-from .separation_contract import ACTIVE,STEMS,file_hash,recipe_digest
+from .separation_contract import ACTIVE,STEMS,file_hash,recipe_digest,snapshot_source
 from .stem_audio import compress_assets,drop_wavs
 from .separation_recipe import build_recipe,model_root,separation_home,MODELS
-from .path_policy import worker_environment as environment, validate_project
+from .path_policy import job_environment, validate_project
 from .separation_checks import validate_mix
 from .owned_process import OwnedProcess
 
@@ -105,7 +105,7 @@ class SeparationManager:
     def _process(self,argv,run,stage):
         self.check_cancel();root=self.store.safe_path(run['folder']);last=0
         self.store.update_progress(run['id'],stage)
-        with OwnedProcess(argv,cwd=self.project,env=environment(self.project,root)) as proc:
+        with job_environment(self.project,root) as env,OwnedProcess(argv,cwd=self.project,env=env) as proc:
             with self.lock:
                 self.process=proc
                 if self.cancelled.is_set():proc.cancel()
@@ -121,10 +121,8 @@ class SeparationManager:
                 with self.lock:self.process=None
     def _pipeline(self,run):
         self.check_cancel();root=self.store.safe_path(run['folder']);source=self.store.library.source_path(run['song_id'])
-        source_hash=file_hash(source)
         # The source is immutable through the app; snapshot/hash detects external changes.
-        snapshot=root/'source.mp3';shutil.copyfile(source,snapshot)
-        if file_hash(snapshot)!=source_hash:raise ValueError('Source changed while copying')
+        snapshot=root/'source.mp3';source_hash=snapshot_source(source,snapshot)
         previous=self.store.get_song_state(run['song_id'])
         if not run['rerun'] and previous['active'] and previous['active']['recipe_sha256']==run['recipe_sha256'] and self.store._run(previous['active']['run_id'])['source_sha256']==source_hash:
             self.store.fail_run(run['id'],'cancelled','Existing validated separation is already available')
@@ -139,6 +137,7 @@ class SeparationManager:
             except OSError:shutil.copyfile(prepared,root/'original.wav')
         else:
             self._process([str(self.project/'tools/ffmpeg.exe'),'-nostdin','-v','error','-n','-i',str(snapshot),'-ar','44100','-ac','2','-c:a','pcm_f32le',str(root/'original.wav')],run,'preparing')
+            if file_hash(snapshot)!=source_hash:raise ValueError('Source changed during preparation')
             link_identical(root/'original.wav',sorted((self.store.library.folder(run['song_id'])/'analysis').glob('*/original.wav')))
         for stage,status in [('base','separating'),('guitar','refining')]:
             self._process([str(separation_home(self.project)/'runtime/python.exe'),'-B',str(self.project/'chordbuddy/separation_worker.py'),'--project',str(self.project),'--run',str(root),'--stage',stage,'--device',run['device']],run,status)
