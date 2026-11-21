@@ -319,7 +319,7 @@ function createView(container){
     }
     if(frozen()){
       controls.append(button('Open again','Save and open it in the other program again',()=>openExternal().catch(error=>say(error?.message||String(error))),'link'),
-        button('Follow the chord chart again','Throw away the frozen copy and show the chart\u2019s chords and words again',()=>options.onUnfreeze?.(),'link'));
+        button('Follow the chord chart again','Throw away the frozen copy and show the chart\u2019s chords and lyrics again',()=>options.onUnfreeze?.(),'link'));
     }
     host.replaceChildren(...(controls.children.length?[controls]:[]));
     // the line under the page
@@ -575,7 +575,7 @@ function createView(container){
         const measures=effectiveMeasures(options.chart.music,options.chart.content.layout),times=scoreNoteTimes(analysis,measures),placed=placeLyricsOnNotes(options.chart.content,measures,times.notes);
         lyricState={measures,times,placed};synced=new Map([...placed.byNote].map(([index,words])=>[index,lyricForNote(words)]));
         const stray=placed.unplaced.reduce((n,u)=>n+u.words,0);
-        if(!times.exact)notices.push({warn:true,text:'The score and the chord chart do not have the same number of bars, so words may sit on the wrong notes.'});
+        if(!times.exact)notices.push({warn:true,text:'The score and the chord chart do not have the same number of bars, so lyrics may sit on the wrong notes.'});
         if(stray)notices.push({warn:true,text:`${stray} word${stray===1?' is':'s are'} in a stretch with no melody notes.`});
       }
       const pads=new Map();                                     // extra spaces after a word, so crowded notes spread out

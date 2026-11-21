@@ -6,9 +6,9 @@ export const TOOLS={
   play:{label:'Play',key:'V',title:'Play from a click',
     body:'Click any chord, word, bar number or section name to play from there. Hold Ctrl to edit for one click instead.'},
   edit:{label:'Edit',key:'E',title:'Edit the chart',
-    body:'Click a chord row to retype its chords, under it to type the words, or a section name to rename it. The strip above a line starts a new section there; a barline joins two bars. Hold Ctrl to play from a click instead.'},
-  timing:{label:'Timing',key:'T',title:'Line words and chords up in time',
-    body:'Draws the chart true to time, so you can drag words and chords onto the beat and fold repeats. A click still plays from there. Holding Shift shows this until you let go.'},
+    body:'Click a chord row to retype its chords, under it to type the lyrics, or a section name to rename it. The strip above a line starts a new section there; a barline joins two bars. Hold Ctrl to play from a click instead.'},
+  timing:{label:'Timing',key:'T',title:'Line lyrics and chords up in time',
+    body:'Draws the chart true to time, so you can drag lyrics and chords onto the beat and fold repeats. A click still plays from there. Holding Shift shows this until you let go.'},
   cue:{label:'Cue',key:'Q',title:'Write a cue',
     body:'Click a chord to put a short note above it for that moment, like “pick scratch”, “count-in” or “feedback”. The chord stays as it is. Click a cue to retype it; empty it to remove it.'},
 };

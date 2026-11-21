@@ -111,7 +111,7 @@ test('only existing lines can be replaced', () => {
 test('a new line goes at the end and reports its index', () => {
   assert.deepEqual(appendLine(doc('',[]),'s','first').line,0);
   const r=appendLine(doc('first',[]),'s','  second ');assert.equal(r.line,1);assert.equal(r.candidate.sections[0].lyrics,'first\nsecond');
-  assert.throws(()=>appendLine(doc('a',[]),'s','   '),/Type some words/);
+  assert.throws(()=>appendLine(doc('a',[]),'s','   '),/Type some lyrics/);
 });
 
 test('removing a line renumbers the lines, pins and chord bindings after it', () => {

@@ -2,6 +2,7 @@
 import copy
 import math
 from .compact_layout import reconcile_compact_layout
+from .chart import pickup_start
 
 def remap_timing(content,old_music,new_music,correspondence,policy,baseline=None):
     value=copy.deepcopy(content);layout=value.get('layout')
@@ -39,7 +40,7 @@ def remap_timing(content,old_music,new_music,correspondence,policy,baseline=None
                 bar=old_ids[word['measure_id']];points=bar['beats']+[bar['end']];index=math.floor(word['beat'])
                 time=points[index]+(word['beat']-index)*(points[index+1]-points[index])
                 target=next((m for m in new if m['start']<=time<m['end']),None)
-                if target is None or not section['start']-1e-7<=time<section['end']-1e-7:raise ValueError('Lyric anchor would cross its section boundary')
+                if target is None or not pickup_start(new,section)-1e-7<=time<section['end']-1e-7:raise ValueError('Lyric anchor would cross its section boundary')
                 points=target['beats']+[target['end']];index=next(i for i in range(len(points)-1) if time<points[i+1])
                 word.update(measure_id=target['id'],beat=index+(time-points[index])/(points[index+1]-points[index]))
             ids=[line['start_measure'],line['end_measure']]+[w['measure_id'] for w in line['words']]
@@ -97,7 +98,7 @@ def remap_layout(content, old_music, new_music):
             points=source['beats']+[source['end']]
             time=points[index]+(word['beat']-index)*(points[index+1]-points[index])
             target=containing(time)
-            if not section['start']-1e-7<=time<section['end']-1e-7:
+            if not pickup_start(new,section)-1e-7<=time<section['end']-1e-7:
                 raise ValueError('A placed lyric would cross its section boundary. Adjust that section boundary before changing tempo.')
             points=target['beats']+[target['end']]
             index=next(i for i in range(len(points)-1) if time<points[i+1])

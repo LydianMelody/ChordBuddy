@@ -57,3 +57,55 @@ def song_sound_start(song_folder):
         if value is not None:
             return value
     return None
+
+
+END_LIMIT = 60.0                 # only the last minute is searched; a song that is quiet for longer than that is left alone
+
+
+def sound_end(path):
+    """Seconds into the recording at `path` where it last falls to silence (a fade-out or ring-out ends here), or None when that cannot be
+    told. The model keeps its beat grid and its last chord going to the very end of the file; this is where the sound really stops."""
+    try:
+        stat = Path(path).stat()
+    except OSError:
+        return None
+    return _sound_end(str(path), stat.st_size, stat.st_mtime_ns)
+
+
+@lru_cache(maxsize=64)
+def _sound_end(path, size, mtime):
+    try:
+        info = index_wav(path)
+    except (OSError, ValueError):
+        return None
+    floor = (10 ** (THRESHOLD_DB / 20)) ** 2 * WINDOW * 2
+    total = info['frames']
+    stop = max(0, total - int(END_LIMIT * SAMPLE_RATE))
+    try:
+        block_end = total
+        while block_end > stop:
+            block_start = max(stop, block_end - SAMPLE_RATE)
+            values = read_frames(path, info, block_start, block_end - block_start)
+            for at in range((len(values) // 2 - WINDOW) // 1, -1, -WINDOW):
+                window = values[at * 2:(at + WINDOW) * 2]
+                if len(window) < WINDOW * 2:
+                    continue
+                if sum(x * x for x in window) > floor:
+                    return round((block_start + at + WINDOW) / SAMPLE_RATE, 3) if all(math.isfinite(x) for x in window) else None
+            block_end = block_start
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def song_sound_end(song_folder):
+    """The sound end of a song's newest prepared recording."""
+    try:
+        recordings = sorted(Path(song_folder).glob('analysis/*/original.wav'), key=lambda p: p.stat().st_mtime_ns, reverse=True)
+    except OSError:
+        return None
+    for path in recordings:
+        value = sound_end(path)
+        if value is not None:
+            return value
+    return None

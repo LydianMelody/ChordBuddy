@@ -12,8 +12,8 @@ export const SHORTCUTS=[
   ],after:'Drag the loop handles on the waveform for any range: they win over R and L, and either key then ends the loop.'},
   {title:'Chord chart',note:'The tools are also in the rail to the left of the chart.',rows:[
     [['V'],'Play tool: click any chord, word, bar number or section name to play from there'],
-    [['E'],'Edit tool: click to retype chords or words, rename a section, or split and join sections and bars'],
-    [['T'],'Timing tool: the chart drawn true to time, to drag words and chords onto the beat and fold repeats'],
+    [['E'],'Edit tool: click to retype chords or lyrics, rename a section, or split and join sections and bars'],
+    [['T'],'Timing tool: the chart drawn true to time, to drag lyrics and chords onto the beat and fold repeats'],
     [['Q'],'Cue tool: click a chord to write a short note above it for that moment, like “pick scratch” or “count-in”. The chord stays as it is.'],
     [['Esc'],'Back to the Play tool (or stop folding a repeat)'],
     [['Hold Ctrl'],'Swap Play and Edit while it is held: a quick edit while playing, or a quick jump while editing'],
@@ -31,7 +31,7 @@ export const SHORTCUTS=[
     [['Esc'],'Drop this row’s changes'],
   ],after:'Click away to save the row.'},
   {title:'Lead sheet',rows:[
-    [['V','C','W','B'],'Select, Chords, Lyrics (W for words) or Breaks tool'],
+    [['V','C','W','B'],'Select, Chords, Lyrics (press W) or Breaks tool'],
     [['←','/','→'],'Previous or next note'],
     [['↑','/','↓'],'Raise or lower the note (with Shift: an octave)'],
     [['Delete','/','0'],'Make it a rest'],

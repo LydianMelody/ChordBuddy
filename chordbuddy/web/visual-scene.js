@@ -104,7 +104,7 @@ function lyricLines(content,measures,onsets){
  */
 export function buildScene({content={},music={},midi={},user=[],extras=[],features:raw=null,title='',key=null,lyricGuess=false}={}){
   const measures=music?.measures?.length?effectiveMeasures(music,content.layout||{}):[];
-  const shown=chartPresentation(content,measures,music?.sound_start);
+  const shown=chartPresentation(content,measures,music?.sound_start,music?.sound_end);
   const chords=(content.chords||[]).filter(c=>shown.visible(c)&&Number.isFinite(c.start)&&c.end>c.start)
     .map(c=>({start:c.start,end:c.end,label:placeholder(c.label)?null:spellChord(String(c.label))})).sort((a,b)=>a.start-b.start)
     // a chord held over a barline is stored once per bar: one chord to a visual, so "next" is always a change

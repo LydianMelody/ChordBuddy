@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {autoSnap,ZOOM_LEVELS,DEFAULT_ZOOM,stepZoom,beatPx,isFixed,dragLimits,allowedTime,nearestAllowed,previewTimes,releasedTimes,barWidths,barTargets,nearestTarget,beatToX,SNAPS} from '../chordbuddy/web/timing-geometry.js';
+import {autoSnap,ZOOM_LEVELS,DEFAULT_ZOOM,stepZoom,beatPx,isFixed,dragLimits,allowedTime,nearestAllowed,previewTimes,releasedTimes,barWidths,barTargets,nearestTarget,beatToX,SNAPS,layoutRowBars,xOfKnots,beatOfKnots,COMPRESS} from '../chordbuddy/web/timing-geometry.js';
 
 const bar=(id,start)=>({id,number:+id.slice(1)+1,start,end:start+2,beats:[0,.5,1,1.5].map(b=>start+b),meter:[4,4],quarter_positions:[0,1,2,3,4]});
 
@@ -123,6 +123,20 @@ test('a bar with no musical grid still offers beat subdivisions', () => {
   const targets=barTargets(m,{snap:'quarter'});assert.equal(targets.length,4);assert.equal(barTargets(m,{snap:'eighth'}).length,8);
 });
 
+test('a 6/8 bar whose beat labels have gaps is divided by its own beats, over the whole bar', () => {
+  // six eighth-note beats, labeled 0, 1, 2 and then nothing (what the backend gives for some 6/8 songs)
+  const m={id:'m0',number:1,start:0,end:3,beats:[0,.5,1,1.5,2,2.5],meter:[6,8],quarter_positions:[0,1,2,null,null,null,3]};
+  const eighth=barTargets(m,{snap:'eighth'});
+  assert.deepEqual(eighth.map(t=>t.beat),[0,1,2,3,4,5]);                       // one drop point per eighth note, to the end of the bar
+  assert.deepEqual(barTargets(m,{snap:'sixteenth'}).map(t=>t.beat),[0,.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5]);
+  assert.ok(Math.abs(eighth[4].seconds-2)<1e-9);
+});
+
+test('a melody note start is a drop point even between grid lines', () => {
+  const m=bar('m0',0),targets=barTargets(m,{snap:'quarter',onsets:[.3]});        // a note a little after beat 1 (beat index 0.6)
+  assert.ok(targets.some(t=>Math.abs(t.beat-.6)<1e-9&&t.kinds.includes('onset')));
+});
+
 test('a pointer position snaps to the nearest target', () => {
   const m=bar('m0',0),targets=barTargets(m,{snap:'eighth'});
   // a 256 px wide bar: beat 0 at x=0, beat 0.5 at x=32, beat 1 at x=64
@@ -175,4 +189,28 @@ test('words that already fit share one row', () => {
 
 test('with the magnet on, the snap grid follows the zoom: finer as you zoom in, never closer than 20px', () => {
   assert.deepEqual([.75,1,1.5,2,3,4,6].map(autoSnap),['quarter','quarter','eighth','eighth','sixteenth','sixteenth','thirty-second']);
+});
+
+test('compressed layout: a crowded spot no longer stretches the whole bar, and no word touches the next', () => {
+  const bars=[{id:'a',beats:4},{id:'b',beats:4}],perBeat=64;
+  // bar a: one word at the start, then three quick words at the very end (the pickup); bar b starts with a word
+  const words=[{barId:'a',beat:0,width:90},{barId:'a',beat:3.4,width:50},{barId:'a',beat:3.6,width:50},{barId:'a',beat:3.8,width:50},{barId:'b',beat:0,width:90}];
+  const old=barWidths(bars,[words],perBeat,{gap:8}).get('a');
+  const laid=layoutRowBars(bars,[words],perBeat,{gap:8}),a=laid.get('a');
+  assert.ok(a.width<old*.6,`bar is ${a.width}px, was ${old}px`);                       // much narrower than before
+  assert.ok(a.width>=4*perBeat);                                                       // never narrower than a normal bar
+  const x=beat=>xOfKnots(a.knots,beat);
+  assert.ok(x(3.6)-x(3.4)>=50+8-1e-6&&x(3.8)-x(3.6)>=50+8-1e-6);                      // the quick words have room
+  assert.ok(a.width-x(3.8)>=50+8-1e-6);                                                // and so does the last one before the barline
+  assert.ok(x(3.4)-x(0)>=90+8-1e-6);
+  // the empty stretch before them is squeezed: less than a normal beat's width per beat
+  assert.ok((x(3.4)-x(0))/3.4<perBeat);
+});
+
+test('compressed layout: a bar whose words fit keeps its normal width, spread evenly, and beats map both ways', () => {
+  const bars=[{id:'a',beats:4}],laid=layoutRowBars(bars,[[{barId:'a',beat:0,width:40},{barId:'a',beat:2,width:40}]],64,{gap:8}).get('a');
+  assert.equal(laid.width,256);
+  assert.equal(xOfKnots(laid.knots,2),128);
+  for(const beat of [0,.5,1.25,2,3.9])assert.ok(Math.abs(beatOfKnots(laid.knots,xOfKnots(laid.knots,beat))-beat)<1e-9);
+  assert.equal(COMPRESS<1,true);
 });

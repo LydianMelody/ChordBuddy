@@ -118,18 +118,90 @@ export function barWidthsAtZoom(bars,lanes,zoom,options){
 export function barTargets(measure,{snap=DEFAULT_SNAP,onsets=[],pins=[]}={}){
   const result=buildPlacementTargets([measure],{snap,anchors:pins.map(p=>({measure_id:measure.id,beat:p})),onsets});
   let targets=result.targets.map(t=>({beat:t.address.beat,seconds:t.seconds,kinds:t.kinds,position:t.position}));
-  if(!targets.length){
-    // no musical grid for this bar: fall back to subdividing its beats
-    const step=SNAP_QUARTERS[snap]||.5,n=measure.beats?.length||0;
-    for(let b=0;b<n-1e-9;b+=step){try{targets.push({beat:b,seconds:secondsAtAddress([measure],{measure_id:measure.id,beat:b}),kinds:['grid'],position:null});}catch{/* no timing for this beat */}}
+  // The musical grid is only trusted when every beat of the bar has a quarter-note label. With gaps (a 6/8 bar whose beats are
+  // eighths came out labeled 0, 1, 2, then nothing) its lines land in the wrong places and cover only part of the bar, so the bar
+  // is divided evenly by its own beats instead; saved pins, chord onsets and melody notes still count.
+  const q=measure.quarter_positions,n=measure.beats?.length||0;
+  const complete=Array.isArray(q)&&q.length===n+1&&q.every((v,i)=>Number.isFinite(v)&&(!i||v>q[i-1]));
+  if(!complete)targets=targets.filter(t=>t.kinds.some(k=>k!=='grid'));
+  if(!targets.length||!complete){
+    // beats can be eighths (6/8) or quarters: one beat is 4/meter[1] quarter notes long
+    const beatQuarters=measure.meter?.[1]>0?4/measure.meter[1]:1,step=(SNAP_QUARTERS[snap]||.5)/beatQuarters;
+    for(let b=0;b<n-1e-9;b+=step){
+      let seconds;try{seconds=secondsAtAddress([measure],{measure_id:measure.id,beat:b});}catch{continue;}   // no timing for this beat
+      const near=targets.find(t=>Math.abs(t.seconds-seconds)<1e-6);
+      if(near){if(!near.kinds.includes('grid'))near.kinds.push('grid');continue;}
+      targets.push({beat:b,seconds,kinds:['grid'],position:null});
+    }
   }
   return targets.sort((a,b)=>a.beat-b.beat);
 }
 // The target nearest to a position inside a bar (x pixels from the bar's left edge, bar `width` wide).
-export function nearestTarget(targets,x,width,beats){
+export function nearestTarget(targets,x,width,beats,beatOf=null){
   if(!targets.length)return null;
-  const beat=Math.max(0,Math.min(beats,x/width*beats));
+  const beat=Math.max(0,Math.min(beats,beatOf?beatOf(x):x/width*beats));
   let best=targets[0];for(const t of targets)if(Math.abs(t.beat-beat)<Math.abs(best.beat-beat))best=t;
   return best;
 }
 export const beatToX=(beat,width,beats)=>beat/beats*width;
+
+// ---- compressed row layout ----
+// A bar is not scaled evenly any more: the stretches between words (and chords) shrink to COMPRESS of a normal beat, and a stretch grows
+// only as far as the word before it needs. A bar whose words all fit keeps its normal width, spread evenly, as before; a bar with one
+// crowded spot no longer stretches all of itself to make room there. Each bar is a list of knots (beat -> pixels from the bar's left edge)
+// with straight lines between them.
+export const COMPRESS=.3;
+export function layoutRowBars(bars,lanes,perBeat,{gap=8,compress=COMPRESS}={}){
+  const index=new Map(bars.map((b,i)=>[b.id,i])),beatsOf=bars.map(b=>Math.max(1,b.beats||4)),near=1e-6;
+  const knotBeats=bars.map((b,i)=>new Set([0,beatsOf[i]]));
+  const items=lanes.map(lane=>lane.filter(it=>index.has(it.barId)).map(it=>({...it,at:index.get(it.barId),beat:Math.max(0,Math.min(beatsOf[index.get(it.barId)],it.beat))}))
+    .sort((a,b)=>a.at-b.at||a.beat-b.beat));
+  for(const lane of items)for(const it of lane)knotBeats[it.at].add(it.beat);
+  // every bar: its sorted beats (ones closer than `near` merged) and the width of the stretch from each to the next
+  const knots=knotBeats.map(set=>{const out=[];for(const v of [...set].sort((a,b)=>a-b))if(!out.length||v-out.at(-1)>near)out.push(v);return out;});
+  const segs=knots.map(list=>list.slice(1).map((v,k)=>({d:v-list[k],w:(v-list[k])*perBeat*compress})));
+  const knotOf=(at,beat)=>{let best=0;knots[at].forEach((v,k)=>{if(Math.abs(v-beat)<Math.abs(knots[at][best]-beat))best=k;});return best;};
+  // the stretches lying between two points of the row
+  const between=(a,b)=>{
+    const out=[],ka=knotOf(a.at,a.beat),kb=knotOf(b.at,b.beat);
+    if(a.at===b.at){for(let k=ka;k<kb;k++)out.push(segs[a.at][k]);return out;}
+    for(let k=ka;k<segs[a.at].length;k++)out.push(segs[a.at][k]);
+    for(let k=0;k<kb;k++)out.push(segs[b.at][k]);
+    return out;
+  };
+  const widen=(list,need)=>{
+    const have=list.reduce((sum,s)=>sum+s.w,0);if(have>=need-1e-9||!list.length)return;
+    const weight=list.reduce((sum,s)=>sum+Math.max(s.d,1e-3),0);
+    for(const s of list)s.w+=(need-have)*Math.max(s.d,1e-3)/weight;
+  };
+  for(const lane of items){
+    for(let k=0;k<lane.length;k++){
+      const a=lane[k],b=lane[k+1],need=a.width+gap;
+      if(b&&b.at-a.at<=1){if(b.at!==a.at||b.beat-a.beat>near)widen(between(a,b),need);continue;}
+      // the last word of a lane (or the last before a gap of bars): keep it inside its bar unless it sits right at the barline
+      if(beatsOf[a.at]-a.beat>=.5)widen(between(a,{at:a.at,beat:beatsOf[a.at]}),need);
+    }
+  }
+  // a bar is never narrower than its normal width: what is left over is shared evenly between its stretches
+  const result=new Map();
+  bars.forEach((b,i)=>{
+    const total=segs[i].reduce((sum,s)=>sum+s.w,0),slack=Math.max(0,beatsOf[i]*perBeat-total);
+    let x=0;const out=[{beat:0,x:0}];
+    segs[i].forEach((s,k)=>{x+=s.w+slack*s.d/beatsOf[i];out.push({beat:knots[i][k+1],x});});
+    result.set(b.id,{width:x,knots:out});
+  });
+  return result;
+}
+// Pixels from the bar's left edge for a beat, and the beat at a pixel position, along a bar's knots.
+export function xOfKnots(knots,beat){
+  if(!knots?.length)return 0;
+  if(beat<=knots[0].beat)return knots[0].x;
+  for(let i=1;i<knots.length;i++)if(beat<=knots[i].beat){const a=knots[i-1],b=knots[i];return a.x+(beat-a.beat)/(b.beat-a.beat)*(b.x-a.x);}
+  return knots.at(-1).x;
+}
+export function beatOfKnots(knots,x){
+  if(!knots?.length)return 0;
+  if(x<=knots[0].x)return knots[0].beat;
+  for(let i=1;i<knots.length;i++)if(x<=knots[i].x){const a=knots[i-1],b=knots[i];return b.x>a.x?a.beat+(x-a.x)/(b.x-a.x)*(b.beat-a.beat):a.beat;}
+  return knots.at(-1).beat;
+}

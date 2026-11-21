@@ -7,7 +7,7 @@ const HL='fill="var(--hl)"',INK='fill="currentColor" stroke="none"';
 export const LEAD_GROUPS=[['select','chords','lyrics','breaks']];
 export const LEAD_NAMES=LEAD_GROUPS.flat();
 export const LEAD_DEFAULT='select';
-export const LEAD_FOR_KEY={V:'select',C:'chords',W:'lyrics',B:'breaks'};   // W for words: L loops 4 bars everywhere
+export const LEAD_FOR_KEY={V:'select',C:'chords',W:'lyrics',B:'breaks'};   // W for lyrics: L loops 4 bars everywhere
 // Not a tool: a button at the foot of the tray that takes the score out of Chord Buddy.
 export const EXTERNAL={
   label:'Editor',title:'Open in another editor',
@@ -22,8 +22,8 @@ Object.assign(TOOLS,{
     body:'Click a chord symbol to retype it. A changed chord is changed in the chord chart too.',
     hint:'Click a chord symbol above the staff to retype it.'},
   lyrics:{label:'Lyrics',key:'W',mode:'lead',title:'Type lyrics',
-    body:'Click under a staff and type the words, or drag a word onto a note to pin it there. The words belong to the chord chart as well, so both views stay in step.',
-    hint:'Click under a staff and type the words. Drag a word onto a note to pin it.'},
+    body:'Click under a staff and type the lyrics, or drag a word onto a note to pin it there. The lyrics belong to the chord chart as well, so both views stay in step.',
+    hint:'Click under a staff and type the lyrics. Drag a word onto a note to pin it.'},
   breaks:{label:'Lines',key:'B',mode:'lead',title:'Choose the line breaks',
     body:'Click the end of a bar to start a new line there, or click a marked break to take it away. The bar counter sets how many bars fit on a line.',
     hint:'Click the end of a bar to start a new line there. Click a marked break to remove it.'},

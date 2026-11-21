@@ -24,6 +24,17 @@ export function effectiveMeasures(music,layout={}) {
   return measures;
 }
 export function sectionMeasures(measures,section){return measures.filter(m=>m.end>section.start+1e-6&&m.start<section.end-1e-6);}
+// The earliest time a lyric of this section may be placed: the start of the bar before the section, so a pickup (words sung just before
+// the section's first bar) can sit where it is really sung. Never more than that one bar. (chordbuddy/chart.py pickup_start says the same.)
+export function pickupStart(measures,section){
+  const own=sectionMeasures(measures,section),at=own.length?measures.findIndex(m=>m.id===own[0].id):-1;
+  return at>0?Math.min(section.start,measures[at-1].start):section.start;
+}
+// The bar a pickup would sit in: the one just before the section's first bar, or null when there is none.
+export function pickupMeasure(measures,section){
+  const own=sectionMeasures(measures,section),at=own.length?measures.findIndex(m=>m.id===own[0].id):-1;
+  return at>0&&measures[at-1].start>=pickupStart(measures,section)-1e-7?measures[at-1]:null;
+}
 export function groupMeasures(measures,section,layout={}){
   const count=[2,3,4,8].includes(layout.bars_per_line)?layout.bars_per_line:4;
   const groups=[];let row=[];
@@ -82,16 +93,16 @@ export function appendLyricLine(content,sectionId,text,measureId,beat,measures){
   target.lyrics=target.lyrics?`${target.lyrics}\n${value}`:value;
   return placeWord(next,sectionId,lineIndex,lyricTokens(value)[0].offset,measureId,beat,measures);
 }
-export function anchorInside(measure,beat,section){
+export function anchorInside(measure,beat,section,earliest=section?.start){
   if(!measure||!section||!Number.isFinite(beat)||beat<0||beat>=measure.beats.length)return false;
   const index=Math.floor(beat),points=[...measure.beats,measure.end],time=points[index]+(beat-index)*(points[index+1]-points[index]);
-  return time>=section.start-1e-7&&time<section.end-1e-7;
+  return time>=earliest-1e-7&&time<section.end-1e-7;
 }
 export function placeWord(content,sectionId,lineIndex,offset,measureId,beat,measures){
   const next=structuredClone(content),section=next.sections.find(s=>s.id===sectionId);
   const line=section?.lyrics.split('\n')[lineIndex],measure=measures.find(m=>m.id===measureId);
   if(typeof line!=='string'||!lyricTokens(line).some(t=>t.offset===offset))throw new Error('Choose the start of a lyric chunk.');
-  if(!anchorInside(measure,beat,section))throw new Error('Place the phrase on a beat inside its section.');
+  if(!anchorInside(measure,beat,section,pickupStart(measures,section)))throw new Error('Place the phrase on a beat inside its section, or in the bar just before it (a pickup).');
   next.layout={...defaultLayout(),...next.layout};
   let placement=next.layout.lines.find(p=>p.section_id===sectionId&&p.line===lineIndex);
   if(!placement){placement={section_id:sectionId,line:lineIndex,start_measure:measureId,end_measure:measureId,words:[]};next.layout.lines.push(placement);}
@@ -102,16 +113,20 @@ export function placeWord(content,sectionId,lineIndex,offset,measureId,beat,meas
   if(positions.some((p,i)=>i&&p<=positions[i-1]))throw new Error('Place this phrase after its preceding words and before its following words.');
   const indices=placement.words.map(w=>measures.findIndex(m=>m.id===w.measure_id));
   const startIndex=measures.findIndex(m=>m.id===placement.start_measure),endIndex=measures.findIndex(m=>m.id===placement.end_measure);
-  placement.start_measure=measures[Math.min(startIndex<0?Infinity:startIndex,...indices)].id;
+  // the line starts at its earliest word's bar, but never keeps a pickup bar once no word is in it any more
+  const home=sectionMeasures(measures,section)[0],homeIndex=home?measures.findIndex(m=>m.id===home.id):-1;
+  let first=Math.min(startIndex<0?Infinity:startIndex,...indices);
+  if(homeIndex>=0&&first<homeIndex&&Math.min(...indices)>=homeIndex)first=homeIndex;
+  placement.start_measure=measures[first].id;
   placement.end_measure=measures[Math.max(endIndex,...indices)].id;
   return next;
 }
 export function validatePlacements(content,music){
   const measures=effectiveMeasures(music,content.layout);
   for(const p of content.layout?.lines||[]){
-    const section=content.sections.find(s=>s.id===p.section_id),own=section?sectionMeasures(measures,section):[];
+    const section=content.sections.find(s=>s.id===p.section_id),pickup=section?pickupMeasure(measures,section):null,own=section?[...(pickup?[pickup]:[]),...sectionMeasures(measures,section)]:[];
     const start=own.findIndex(m=>m.id===p.start_measure),end=own.findIndex(m=>m.id===p.end_measure);
-    if(start<0||end<start||p.words.some(w=>{const index=own.findIndex(m=>m.id===w.measure_id);return index<start||index>end||!anchorInside(own[index],w.beat,section);}))
+    if(start<0||end<start||p.words.some(w=>{const index=own.findIndex(m=>m.id===w.measure_id);return index<start||index>end||!anchorInside(own[index],w.beat,section,pickup?pickup.start:section.start);}))
       throw new Error('This barline would move a placed lyric outside its section or beat range. Unplace the affected lyric line before correcting the barline.');
   }
   return measures;

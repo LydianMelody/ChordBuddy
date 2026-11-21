@@ -143,3 +143,15 @@ test('phrases of four are counted from the first bar with music, so an intro of 
   const first=m.sections[0].groups.find(g=>g.bars.length);
   assert.deepEqual(first.bars.map(b=>b.number),[1,2,3,4]);         // not 1,2,3 and then a lonely 4
 });
+
+test('a chord held over the silence after the sound ends is not charted bar after bar', () => {
+  const f=JSON.parse(readFileSync(new URL('./fixtures/compact-chart.json',import.meta.url)));
+  const shown=model=>model.projection.occurrences.filter(o=>model.presentation.visible(o)).length;
+  const all=buildChartModel(f.content,f.music);
+  // the sound stops 1 s into the bar that runs 26 to 28: that bar stays, and the bars after it (28 to 32) go
+  const cut=buildChartModel(f.content,{...f.music,sound_end:27});
+  assert.equal(cut.presentation.end,28);assert.equal(all.presentation.end,32);
+  assert.ok(shown(cut)<shown(all));
+  assert.ok(cut.projection.occurrences.filter(o=>o.start>=28-1e-6).every(o=>!cut.presentation.visible(o)));
+  for(const sound_end of [null,undefined,0,500])assert.equal(shown(buildChartModel(f.content,{...f.music,sound_end})),shown(all),String(sound_end));
+});

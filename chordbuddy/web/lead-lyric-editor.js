@@ -72,7 +72,7 @@ export function planRunEdits(ctx,runs,startIndex,raw,anchorNote=null){
   const lines=String(raw).split(/\n+/).map(t=>t.replace(/\s+/g,' ').trim()),filled=lines.filter(Boolean);
   const multiple=filled.length>1,texts=multiple?filled:[filled[0]??''];
   const targets=runs.slice(startIndex);
-  if(texts.length>targets.length)throw Error(`That is ${texts.length} lines of words but only ${targets.length} lyric line${targets.length===1?'':'s'} from here to the end. Trim the text or paste fewer lines.`);
+  if(texts.length>targets.length)throw Error(`That is ${texts.length} lines of lyrics but only ${targets.length} lyric line${targets.length===1?'':'s'} from here to the end. Trim the text or paste fewer lines.`);
   let content=ctx.content,lost=0,changed=false,label='Edit lyrics';
   for(let k=texts.length-1;k>=0;k--){
     const run=targets[k];
@@ -96,7 +96,7 @@ export function mountLyricEditors(host,{systems,byNote,ctx,onCommit,onError,focu
     const node=document.createElement('span');node.className='lead-run'+(run.empty?' empty':'');
     node.style.left=pct(left,box.width);node.style.width=pct(right-left,box.width);node.style.top=pct(top,box.height);node.style.minHeight=pct(height,box.height);
     node.contentEditable='plaintext-only';node.spellcheck=false;
-    node.dataset.placeholder='Click and type the words';node.setAttribute('aria-label',run.empty?'Type the lyrics for this line of music':'Lyrics for this line of music');
+    node.dataset.placeholder='Click and type the lyrics';node.setAttribute('aria-label',run.empty?'Type the lyrics for this line of music':'Lyrics for this line of music');
     node.textContent=run.empty?'':joinWords(run.words);
     let anchor=null,done=false;
     node.onmousedown=event=>{

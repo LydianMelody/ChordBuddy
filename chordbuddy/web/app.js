@@ -124,7 +124,7 @@ const practiceView=mountChartPage($('chart-sections'),{
  onSeek:seconds=>transport.seek(seconds),onCommit:commitPracticeEdit,onBarEdit:editBars,onError:showChartError,onReload:reloadPracticeChart,canEdit:()=>!currentRecord()?.practiceConflict&&!currentRecord()?.saving,
  onViewportChange:updatePracticeViewport,onRhythm:()=>rhythmButton.click(),onTimingSettings:()=>$('song-timing').click(),
  onDraftChange:info=>{const r=currentRecord();if(r&&!info.failed&&!info.saving)r.practiceSaveError=null;renderDocument();},
- onModeChange:()=>syncModeUi(),onToolChange:()=>syncModeUi(),onScopeChange:()=>syncModeUi(),onTimingChange:()=>syncModeUi(),
+ onModeChange:()=>syncModeUi(),onToolChange:()=>syncModeUi(),onScopeChange:()=>syncModeUi(),onTimingChange:()=>syncModeUi(),onWordViewChange:()=>syncModeUi(),
  isActive:()=>currentRecord()?.doc.kind==='chart'&&!$('chart-editor').classList.contains('hidden'),onZoomWheel:event=>zoomChartAt(event.deltaY<0?1.15:1/1.15,event.clientX),
  dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),
  planNotes:()=>{const p=performanceApp.planNotes();return p&&p.songId===model.song?p.notes:[];},
@@ -156,6 +156,7 @@ function syncModeUi(){
  workspace.dataset.mode=mode;workspace.dataset.tool=practiceView.getTool();workspace.dataset.kind=currentRecord()?.doc.kind||'';
  workspace.dataset.repeats=practiceView.hasRepeats?.()?'1':'';           // "Apply to this pass / all matching" matters only with repeats
  for(const button of document.querySelectorAll('#scope button'))button.classList.toggle('on',button.dataset.scope===practiceView.getScope());
+ for(const button of document.querySelectorAll('#word-view button'))button.classList.toggle('on',button.dataset.view===(mode==='timing'?'true':practiceView.getWordView()));
  const folding=practiceView.isFolding();$('fold-repeat').classList.toggle('on',folding);$('fold-repeat').setAttribute('aria-pressed',String(folding));
  const snapping=practiceView.isSnapping();$('snap-toggle').classList.toggle('on',snapping);$('snap-toggle').setAttribute('aria-pressed',String(snapping));
  deskBars.show(mode==='timing'&&workspace.dataset.kind==='chart');deskBars.refresh();
@@ -173,6 +174,7 @@ function closeInfo(){$('key-pop').classList.add('hidden');$('info-pop').classLis
 document.addEventListener('click',event=>{if(!event.target.closest?.('#info-pop,#key-pop'))closeInfo();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape')closeInfo();});
 for(const button of document.querySelectorAll('#scope button'))button.onclick=()=>practiceView.setScope(button.dataset.scope);
+for(const button of document.querySelectorAll('#word-view button'))button.onclick=()=>{practiceView.setWordView(button.dataset.view);prefs.set('cb-words',practiceView.getWordView());};
 document.addEventListener('keydown',event=>{
  if(event.ctrlKey||event.metaKey||event.altKey||event.defaultPrevented)return;
  const target=event.target;if(target&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)))return;
@@ -823,7 +825,7 @@ const TAB_KINDS=[['chart','Chart'],['abc','Lead sheet'],['midi','MIDI']];
 const shownDocs=detail=>detail.documents.filter(doc=>TAB_KINDS.some(([kind])=>kind===doc.kind)).sort((a,b)=>(b.kept?1:0)-(a.kept?1:0));
 // What each view is for (the tab tooltips), instead of the file behind it
 const TAB_TIPS={chart:'The chord chart: chords, sections and lyrics as you play them, with every repeat. Click to play from anywhere, or edit it.',
- abc:'The lead sheet: the melody in notation, with the chart’s chords and words. Export it as a PDF, or open it in MuseScore.',
+ abc:'The lead sheet: the melody in notation, with the chart’s chords and lyrics. Export it as a PDF, or open it in MuseScore.',
  midi:'The MIDI: every part as notes on a piano roll, to play along with, or to open in a program made for editing MIDI.'};
 function renderTabs(){
   const tabs=$('document-tabs');tabs.replaceChildren();
@@ -979,7 +981,7 @@ function renderChart(){
  if(!practiceViewport)practiceViewport={start:0,end:content.duration,follow:true};      // the whole song, fully zoomed out
  const onsets=model.melody?.song===model.song?model.melody.onsets:null,hasMelody=!!onsets?.length;
  $('suggest').disabled=!hasMelody;$('suggest').checked=hasMelody&&prefs.get('cb-suggest','1')!=='0';
- $('suggest-wrap').classList.toggle('off',!hasMelody);$('suggest-wrap').title=hasMelody?'Shows the sung melody faintly behind the bars, and places words you have not pinned on its notes as a first guess. Drag a word to pin it.':'No vocal melody was found for this song.';
+ $('suggest-wrap').classList.toggle('off',!hasMelody);$('suggest-wrap').title=hasMelody?'Shows the sung melody faintly behind the bars, and places lyrics you have not pinned on its notes as a first guess. Drag a word to pin it.':'No vocal melody was found for this song.';
  practiceView.showTools();
  setKeySpelling(songKey().label);practiceView.update({key:songKey().label,documentId:r.doc.id,revision:r.doc.revision,songId:model.song,content,music,transport:transport.getSnapshot(),viewport:practiceViewport,onsets,waveform:model.waveform?.song===model.song?model.waveform:null,suggest:$('suggest').checked,melody:$('suggest').checked&&model.melody?.song===model.song?model.melody.notes:null});
  updatePracticePlayer();
@@ -1129,7 +1131,7 @@ transport.countIn=seconds=>{
   monitorOut.countIn({song,until:Math.round(count.target*44100),clicks:count.clicks.map((c,i)=>({k:`p${Date.now()}:${i}`,at:startAt+(c.at-seconds)/speed,accent:c.accent}))});
   return {startAt};
 };
-async function boot(){try{await prefs.connect(values=>api('/api/prefs',values),()=>api('/api/prefs'));practiceView.setSnapping(prefs.get('cb-snap','1')!=='0');restoreSoundWindow();await refreshState();const last=prefs.get('cb-last-song',''),song=model.state.songs.find(s=>s.id===last)||model.state.songs[0];if(song)await selectSong(song.id);else showAllSongs();}catch(error){showError(error);$('engine-status').textContent='Could not connect to the local app';}}
+async function boot(){try{await prefs.connect(values=>api('/api/prefs',values),()=>api('/api/prefs'));practiceView.setSnapping(prefs.get('cb-snap','1')!=='0');practiceView.setWordView(prefs.get('cb-words','line')==='true'?'true':'line');restoreSoundWindow();await refreshState();const last=prefs.get('cb-last-song',''),song=model.state.songs.find(s=>s.id===last)||model.state.songs[0];if(song)await selectSong(song.id);else showAllSongs();}catch(error){showError(error);$('engine-status').textContent='Could not connect to the local app';}}
 // One poll, then the wait until the next: about a second while a job runs, 2.5 s for a while after a change, 10 s once all is quiet.
 // A poll that fails counts as a change, so the page keeps trying at the steady pace until the app answers again.
 async function pollState(){

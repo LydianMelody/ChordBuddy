@@ -55,3 +55,29 @@ def test_the_chart_document_says_where_the_sound_starts(tmp_path, mp3_bytes):
     stage.mkdir(parents=True, exist_ok=True)
     write_wav(stage / 'original.wav', 0.33, 0.5)
     assert chart_document(store, song['id'])['music']['sound_start'] == 0.33
+
+
+def write_tail_wav(path, seconds_sound, seconds_silent, level=0.1):
+    frames = array.array('f')
+    for i in range(int(seconds_sound * RATE)):
+        value = level * math.sin(2 * math.pi * 440 * i / RATE)
+        frames.extend((value, value))
+    for i in range(int(seconds_silent * RATE)):
+        frames.extend((0.0, 0.0))
+    data = frames.tobytes()
+    header = b'RIFF' + struct.pack('<I', 36 + len(data)) + b'WAVE'
+    header += b'fmt ' + struct.pack('<IHHIIHH', 16, 3, 2, RATE, RATE * 8, 8, 32)
+    path.write_bytes(header + b'data' + struct.pack('<I', len(data)) + data)
+    return path
+
+
+def test_the_last_moment_of_sound_is_found(tmp_path):
+    from chordbuddy.sound_start import sound_end, song_sound_end
+    assert abs(sound_end(write_tail_wav(tmp_path / 'a.wav', 1.5, 2.5)) - 1.5) < 0.02     # silence after the music, past the last second read
+    assert abs(sound_end(write_tail_wav(tmp_path / 'b.wav', 1.0, 0.0)) - 1.0) < 0.02     # sound to the very end of the file
+    assert sound_end(write_tail_wav(tmp_path / 'c.wav', 0.0, 1.0)) is None
+    assert sound_end(tmp_path / 'missing.wav') is None
+    stage = tmp_path / 'analysis' / 'abc'
+    stage.mkdir(parents=True)
+    write_tail_wav(stage / 'original.wav', 0.5, 0.5)
+    assert abs(song_sound_end(tmp_path) - 0.5) < 0.02

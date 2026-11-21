@@ -25,8 +25,8 @@
 /backups/
 /old/
 
-# --- Private working notes for Melody and for AI assistants: every Markdown file in mockups/ stays on this computer ---
-/mockups/*.md
+# --- Private working notes for Melody and for AI assistants: ---
+/mockups/
 
 # --- Generated files ---
 __pycache__/

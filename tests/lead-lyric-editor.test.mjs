@@ -55,7 +55,7 @@ test('several pasted lines flow into the runs that follow, and too many lines is
   const result=planRunEdits(ctx,runs,1,'Racing past the moon\nand into the chorus');
   assert.equal(lineAfter(result).length,2);
   assert.equal(result.content.sections.find(s=>s.id===chorus.id).lyrics,'and into the chorus');
-  assert.throws(()=>planRunEdits(ctx,runs,1,'one\ntwo\nthree'),/3 lines of words but only 2/);
+  assert.throws(()=>planRunEdits(ctx,runs,1,'one\ntwo\nthree'),/3 lines of lyrics but only 2/);
   assert.equal(ctx.content.sections.find(s=>s.id===chorus.id).lyrics,'');
 });
 

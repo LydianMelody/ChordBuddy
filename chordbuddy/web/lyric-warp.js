@@ -98,7 +98,7 @@ export function replaceLineText(content,sectionId,lineIndex,newText){
 export function appendLine(content,sectionId,text){
   const next=structuredClone(content),section=next.sections?.find(s=>s.id===sectionId);
   if(!section)throw Error('Choose an existing section.');
-  const value=flat(text).trim();if(!value)throw Error('Type some words first.');
+  const value=flat(text).trim();if(!value)throw Error('Type some lyrics first.');
   const line=section.lyrics?String(section.lyrics).split('\n').length:0;
   section.lyrics=section.lyrics?section.lyrics+'\n'+value:value;
   return {candidate:next,line};

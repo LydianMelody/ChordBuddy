@@ -209,6 +209,14 @@ def validate_cues(cues,duration):
     return sorted(clean,key=lambda cue:cue['start'])
 
 
+def pickup_start(measures,section):
+    """Earliest time a lyric of this section may be placed: the start of the bar before the section, so a pickup (words sung
+    just before the section's first bar) can sit where it is really sung. Never earlier than that one bar."""
+    inside=[i for i,m in enumerate(measures) if m['end']>section['start']+1e-6 and m['start']<section['end']-1e-6]
+    if not inside or inside[0]==0: return section['start']
+    return min(section['start'],measures[inside[0]-1]['start'])
+
+
 def validate_layout(layout,sections,music,chords=None):
     if not isinstance(layout,dict): raise ValueError('Invalid chart layout')
     if type(layout.get('bars_per_line')) is not int or layout['bars_per_line'] not in (2,3,4,8): raise ValueError('Invalid bars per line')
@@ -239,7 +247,8 @@ def validate_layout(layout,sections,music,chords=None):
         assigned.add((section['id'],line))
         first,last=item.get('start_measure'),item.get('end_measure')
         if not isinstance(first,str) or not isinstance(last,str) or first not in indices or last not in indices or indices[first]>indices[last]: raise ValueError('Invalid lyric measure range')
-        if any(not (measures[indices[mid]]['end']>section['start']+1e-6 and measures[indices[mid]]['start']<section['end']-1e-6) for mid in (first,last)): raise ValueError('Lyric measures must belong to their section')
+        earliest=pickup_start(measures,section)
+        if any(not (measures[indices[mid]]['end']>earliest+1e-6 and measures[indices[mid]]['start']<section['end']-1e-6) for mid in (first,last)): raise ValueError('Lyric measures must belong to their section')
         words=item.get('words',[])
         if not isinstance(words,list): raise ValueError('Invalid word placements')
         offsets=set(); positions=[]
@@ -249,7 +258,7 @@ def validate_layout(layout,sections,music,chords=None):
             if type(offset) is not int or not 0<=offset<len(text[line]) or offset in offsets or not isinstance(mid,str) or mid not in indices or not indices[first]<=indices[mid]<=indices[last] or not finite_time(beat) or not 0<=beat<len(measures[indices[mid]]['beats']): raise ValueError('Invalid word anchor')
             bar=measures[indices[mid]]; points=bar['beats']+[bar['end']]; index=int(beat)
             anchor_time=points[index]+(beat-index)*(points[index+1]-points[index])
-            if not section['start']-1e-7<=anchor_time<section['end']-1e-7: raise ValueError('A lyric anchor must be inside its section')
+            if not earliest-1e-7<=anchor_time<section['end']-1e-7: raise ValueError('A lyric anchor must be inside its section, or in the bar just before it (a pickup)')
             offsets.add(offset)
             positions.append((offset,indices[mid],beat))
         ordered=sorted(positions)

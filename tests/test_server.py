@@ -320,3 +320,11 @@ def test_page_may_compile_webassembly_but_never_eval(service):
         assert response.headers['Content-Type'].split(';')[0] in ('text/javascript','application/javascript')
     script=next(part.split()[1:] for part in policy.split(';') if part.split()[0]=='script-src')
     assert script==["'self'","'wasm-unsafe-eval'"]
+
+
+def test_three_js_is_served_from_the_app_itself_as_a_script(service):
+    # three.js (3D visualizations) is bundled: the page loads it from this server, under the same policy, never from the internet
+    for name in ('three.module.js','three.core.js'):
+        with request(service,'/vendor/three/'+name) as response:
+            assert response.headers['Content-Type'].split(';')[0] in ('text/javascript','application/javascript')
+            assert "script-src 'self' 'wasm-unsafe-eval'" in response.headers['Content-Security-Policy']

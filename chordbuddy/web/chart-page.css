@@ -95,8 +95,10 @@
 [data-mode="timing"] .trow{overflow-x:auto;padding-top:16px;padding-bottom:4px}
 .trow .bars{row-gap:26px;padding-top:6px}
 .tbar{display:block;position:relative;padding:0;min-height:0;gap:0;flex:none;
-  background-image:repeating-linear-gradient(90deg,color-mix(in srgb,var(--a2) 50%,transparent) 0 1.5px,transparent 1.5px var(--bp,64px)),repeating-linear-gradient(90deg,color-mix(in srgb,var(--a2) 20%,transparent) 0 1px,transparent 1px var(--sp,32px));
-  background-position:0 18px;background-size:100% calc(100% - 18px);background-repeat:no-repeat;background-color:color-mix(in srgb,var(--a2) 4%,transparent)}
+  background-color:color-mix(in srgb,var(--a2) 4%,transparent)}
+.tgrid{position:absolute;left:0;right:0;top:18px;bottom:0;pointer-events:none}
+.tgrid i{position:absolute;top:0;bottom:0;width:1px;background:color-mix(in srgb,var(--a2) 20%,transparent)}
+.tgrid i.tg-beat{width:1.5px;background:color-mix(in srgb,var(--a2) 50%,transparent)}
 .tno{position:absolute;top:1px;left:5px;font:700 10px var(--m);color:var(--a2);white-space:nowrap}
 .tchords{position:relative;height:40px;margin-top:18px}
 .tchord{position:absolute;top:0;min-width:0;display:flex;flex-direction:row;align-items:flex-start}
@@ -122,6 +124,7 @@
 .wchip.ghost{position:fixed;z-index:90;pointer-events:none;background:var(--hl);box-shadow:5px 5px 0 var(--k-shade);transform:rotate(-2deg)}
 .wchip.ghost::before{display:none}
 .wchip.wnow{background:var(--hl);opacity:1}
+.drop-mark.in-bar{top:0;bottom:0}
 .drop-mark{position:absolute;top:-44px;bottom:-3px;width:3px;margin-left:-1.5px;background:var(--a1);z-index:5;pointer-events:none;border-radius:2px}
 .drop-mark::after{content:attr(data-t);position:absolute;top:-19px;left:5px;white-space:nowrap;background:var(--a1);color:var(--onA1);border:2px solid var(--k-edge);font:700 10px var(--m);padding:1px 6px;border-radius:5px}
 .zoomseg b{display:grid;place-items:center;padding:0 8px;font:700 12px var(--m);border-right:2px solid var(--k-edge);min-width:42px}
@@ -186,6 +189,7 @@
 
 /* a break in the music: an empty, quiet space where a chord would be (still clickable, so a chord can be written there) */
 .chord.rest{min-width:30px;min-height:28px;background:none}
+.chord.held{min-width:30px;min-height:32px;background:none}   /* as tall as a chord with a name, so the words under it line up */
 [data-acts~="edit"] .chord.rest{border:2px dashed var(--line);border-radius:6px}
 [data-acts~="edit"] .chord.rest:hover{border-color:var(--k-edge)}
 @media print{.chord.rest{border:0!important}}

@@ -17,7 +17,7 @@ from .midi import read_midi, validate_midi, write_midi, split_tracks
 from .chords import chord_label
 from .chart import seed_chart,validate_chart
 from .music import read_music
-from .sound_start import song_sound_start
+from .sound_start import song_sound_start, song_sound_end
 from .timing_layout import remap_layout
 from .library import validate_song_metadata
 from .timing_store import TimingStore
@@ -167,7 +167,7 @@ class DocumentStore:
         if row['kind']=='chart':
             result['timing_binding']=self.timing.binding(document_id,row['cursor'])
             result['user_modified']=result['user_modified'] or result['timing_binding']!=self.timing.binding(document_id,0)
-        if row['kind'] in ('chart','abc'): result['music']=dict(self._music(row),sound_start=self._sound_start(row))
+        if row['kind'] in ('chart','abc'): result['music']=dict(self._music(row),sound_start=self._sound_start(row),sound_end=self._sound_end(row))
         # Derive export status from the authoritative content, so a reload cannot
         # forget a committed edit whose optional file export failed. No DB migration.
         try:
@@ -183,6 +183,11 @@ class DocumentStore:
     def _sound_start(self,row):
         # where the recording first makes a sound: the chart shows a bar wholly in the silence before it as silence (chart-presentation.js)
         try:return song_sound_start(self.library.folder(row['song_id']))
+        except (OSError,ValueError,KeyError):return None
+
+    def _sound_end(self,row):
+        # where the recording's sound really stops: the chart leaves out bars that begin after it (chart-presentation.js)
+        try:return song_sound_end(self.library.folder(row['song_id']))
         except (OSError,ValueError,KeyError):return None
 
     def _music(self,row,timing=None):

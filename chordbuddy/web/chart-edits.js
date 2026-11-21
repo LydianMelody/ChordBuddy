@@ -67,7 +67,7 @@ function slotText({content,music,model,group,lane,laneIndex,chunk,fragment,ancho
     const measures=effectiveMeasures(music,candidate.layout),address=anchorAddress||(model?chordOnset(model,group,chunk,lane.passNumber):null);
     if(token&&address){
       try{candidate=placeWord(candidate,section.id,line,token.offset,address.measure_id,address.beat,measures);}
-      catch(error){return {candidate:null,conflicts:[{message:'“'+token.text+'” would land out of order with a word you pinned by hand. Move that pin first, or type the words under the right chord.'}],label,lost};}
+      catch(error){return {candidate:null,conflicts:[{message:'“'+token.text+'” would land out of order with a word you pinned by hand. Move that pin first, or type the lyrics under the right chord.'}],label,lost};}
     }
   }
   return {candidate,conflicts:[],label,lost};
@@ -79,7 +79,7 @@ function slotText({content,music,model,group,lane,laneIndex,chunk,fragment,ancho
 function laneText({content,music,model,group,lane,passNumber,anchorKey,text}){
   const chunks=group.bars.flatMap(b=>b.chunks),tokens=lane?.tokens||[];
   const chunk=chunks.find(c=>c.key===(anchorKey??tokens[0]?.chunkKey))||chunks[0];
-  if(!chunk)throw Error('This row has no chords to start the words under.');
+  if(!chunk)throw Error('This row has no chords to start the lyrics under.');
   return slotText({content,music,model,group,lane:lane||{line:null,passNumber,tokens:[],text:''},laneIndex:0,chunk,fragment:tokens,text});
 }
 
@@ -94,7 +94,7 @@ function fragmentText({content,music,sectionId,line,fragment=[],text,anchorAddre
 
 // A lyric line that was never placed on the chart: give it this row's bars so its words spread across the row.
 function placeOnRow({content,group,pass,lane}){
-  if(!pass?.measureIds?.length)throw Error('This row has no measured bars to place the words on.');
+  if(!pass?.measureIds?.length)throw Error('This row has no measured bars to place the lyrics on.');
   const next=structuredClone(content);
   next.layout={...defaultLayout(),...next.layout};
   next.layout.lines=(next.layout.lines||[]).filter(p=>!(p.section_id===group.sectionId&&p.line===lane.line));

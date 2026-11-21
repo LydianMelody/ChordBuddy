@@ -43,14 +43,14 @@ const SHIFT_DELAY=150;    // holding Shift shows Timing after this long, so Shif
 
 // What each place on the chart does, for its tooltip (shown only while the chart does that: see zone()).
 const ZONES={
-  chords:{title:'Type the chords',art:'write',tip:'Type this row’s chords like words: A to G with # or b (Em7, F#m, Bb/D). Unchanged chords keep their timing; a new one splits the chord before it.'},
-  words:{title:'Type the words',art:'write',tip:'Type this row’s lyrics. Words spread out between the ones you have pinned in time.'},
+  chords:{title:'Type the chords',art:'write',tip:'Type this row’s chords the way you type lyrics: A to G with # or b (Em7, F#m, Bb/D). Unchanged chords keep their timing; a new one splits the chord before it.'},
+  words:{title:'Type the lyrics',art:'write',tip:'Type this row’s lyrics. The other words spread out between the ones you have pinned in time.'},
   name:{title:'Rename the section',art:'write',tip:'Type a new name for this section.'},
   split:{title:'Split the section',art:'cut',tip:'Start a new section at this bar. Nothing is lost, and joining puts them back together.'},
   join:{title:'Join sections',art:'glue',tip:'Glue this section onto the one above it.'},
   barline:{title:'Join two bars',art:'barlines',tip:'Remove this barline, so the bars on either side become one.'},
   beat:{title:'Split the bar',art:'barlines',tip:'Start a new bar on this beat.'},
-  word:{title:'Move in time',art:'words',tip:'Drag the word onto a beat to pin it there. Words between pins spread out on their own.'},
+  word:{title:'Move in time',art:'words',tip:'Drag the word onto a beat to pin it there. The other words between pins spread out on their own.'},
   chord:{title:'Move in time',art:'words',tip:'Drag the chord to start on another beat. The chord before it holds on until then.'},
   fold:{title:'Fold a repeat',art:'repeat',tip:'Click the first and last bar of a part that repeats, then choose how it folds: 2 bars ×4, 4 bars ×2, or written out.'},
   regroup:{title:'Regroup the repeat',art:'repeat',tip:'Choose how this repeating part is grouped, or write it out in full.'},
@@ -91,7 +91,7 @@ export function alignChords(before,after){
 export function mountChartPage(root,handlers={}){
   const fixing={a:null,b:null};                      // the bars picked to fold a repeat (Fold a repeat, or Shift+click on bar numbers)
   let fixSel={ids:new Set()},foldGroup=null;
-  let data=null,model=null,key=null,mode='nav',scope='occurrence',snapping=true,zoom=DEFAULT_ZOOM,draft=null,saving=false,last=null;
+  let data=null,model=null,key=null,mode='nav',scope='occurrence',wordView='line',snapping=true,zoom=DEFAULT_ZOOM,draft=null,saving=false,last=null;
   let editing=null;                                  // the one row being typed into: {groupId, kind:'chords'|'words', focus}
   // Timing: the pass whose words are being placed ({groupId, pass}, set by clicking a word). Its melody is drawn strongest, whatever the
   // playhead is playing, so a word is always lined up against its own notes. It stays until another word is clicked or Timing is left.
@@ -194,9 +194,11 @@ export function mountChartPage(root,handlers={}){
     return {glyphs:glyphs.join(''),name:'Rest: '+names.join(' + ')+(names.length>1?' rests':' rest')};
   }
   // no chord (a break in the music) is simply a gap
-  function chordLabel(chunk){if(isNoChordLabel(chunk.label))return '';const shown=spellChord(chunk.label);return chunk.continued?'('+shown+')':shown;}
+  // a chord that is still held from the bar before is left blank, like a written chart; a silence shows the rest symbol
+  function chordLabel(chunk){if(isNoChordLabel(chunk.label)||chunk.continued)return '';return spellChord(chunk.label);}
   function renderChord(g,bar,chunk){
-    const holder=el('span','chord-line'),b=el('button','chord'+(isNoChordLabel(chunk.label)?' rest':''),chordLabel(chunk));b.type='button';b.dataset.chunk=chunk.key;
+    const holder=el('span','chord-line'),b=el('button','chord'+(isNoChordLabel(chunk.label)?' rest':chunk.continued?' held':''),chordLabel(chunk));b.type='button';b.dataset.chunk=chunk.key;
+    if(chunk.continued&&!isNoChordLabel(chunk.label)){const held='Still holding '+spellChord(chunk.label);b.title=held;b.setAttribute('aria-label',held);}
     if(isNoChordLabel(chunk.label)){const r=restSymbols(chunk,bar);if(r){b.append(el('span','rest-glyph',r.glyphs));b.setAttribute('aria-label',r.name);b.title=r.name;}}
     zone(b,'chords','edit');
     b.onclick=e=>{if(isCue(e))startCue(g,chunk);else if(isEdit(e))startChords(g,chunk);else seekChunk(g,chunk);};
@@ -204,14 +206,34 @@ export function mountChartPage(root,handlers={}){
     if(chunk.repeat>1){const r=el('span','repeat','(×'+chunk.repeat+')');r.title='Played '+chunk.repeat+' times';holder.append(r);refs.repeats.push({node:r,chunk,group:g,text:r.textContent});}
     refs.chords.push({node:b,chunk,group:g});return holder;
   }
-  function renderLaneSlot(g,bar,chunk,lane,laneIndex,first){
-    const tokens=chunk.lanes[laneIndex]||[],holder=el('span','lane'),slot=zone(el('span','lyr'),'words','edit');slot.dataset.lane=String(laneIndex);slot.dataset.pass=String(lane.passNumber);
+  // Lyric lines whose words in a chunk follow one another in time share one line of text (the words in the order they are sung); only lines that
+  // really overlap in time (another pass, say) get a line each. So a pickup of the next line, or a line sung right after another, sits on the same
+  // baseline instead of dropping to a line of its own. A line with nothing in the chunk draws nothing, unless nothing else is there.
+  function laneSlots(g,chunk){
+    const skip=new Set(),extra=new Map();
+    if(g.passCount>1)return {skip,extra};
+    let host=-1,tokens=[],last=-Infinity;
+    const close=()=>{if(host>=0&&tokens.length)extra.set(host,tokens);};
+    g.lanes.forEach((lane,i)=>{
+      if(lane.flow)return;
+      const mine=chunk.lanes[i]||[];
+      if(host<0){host=i;tokens=[...mine];last=mine.at(-1)?.displaySeconds??-Infinity;return;}
+      if(!mine.length){skip.add(i);return;}
+      if(!tokens.length||mine[0].displaySeconds>=last-1e-6){tokens=tokens.concat(mine);last=mine.at(-1).displaySeconds;skip.add(i);return;}
+      if(mine.at(-1).displaySeconds<=tokens[0].displaySeconds+1e-6){tokens=mine.concat(tokens);skip.add(i);return;}    // sung before the others
+      close();host=i;tokens=[...mine];last=mine.at(-1).displaySeconds;     // overlaps: a line of its own
+    });
+    close();
+    return {skip,extra};
+  }
+  function renderLaneSlot(g,bar,chunk,lane,laneIndex,first,merged=null){
+    const tokens=merged||chunk.lanes[laneIndex]||[],holder=el('span','lane'),slot=zone(el('span','lyr'),'words','edit');slot.dataset.lane=String(laneIndex);slot.dataset.pass=String(lane.passNumber);
     if(first&&g.passCount>1){
       const tag=el('span','lane-tag',String(lane.passNumber));tag.title='Pass '+lane.passNumber;
       tag.onclick=e=>{e?.stopPropagation?.();seekPass[g.id]=lane.passNumber;};
       refs.lanes.push({tag,group:g,lane});holder.append(tag);
     }
-    slot.onclick=e=>{if(isEdit(e)){e.stopPropagation?.();startWords(g,lane.passNumber);}};
+    if(!lane.pickup)slot.onclick=e=>{if(isEdit(e)){e.stopPropagation?.();startWords(g,lane.passNumber);}};   // a pickup here belongs to another section's line
     holder.append(slot);refs.slots.push({node:slot,group:g,lane});
     tokens.forEach((t,i)=>{
       const w=el('span','w',t.text+(i<tokens.length-1&&!t.text.endsWith('-')?' ':''));
@@ -226,7 +248,7 @@ export function mountChartPage(root,handlers={}){
     node.append(renderCueLane(g,chunk));
     const chord=renderChord(g,bar,chunk);node.append(chord);
     if(edit?.kind==='chords')chord.classList.add('held');                 // while the row's chords are typed, its line lies over them
-    if(edit?.kind!=='words')g.lanes.forEach((lane,i)=>node.append(renderLaneSlot(g,bar,chunk,lane,i,bar===g.bars[0]&&chunk===bar.chunks[0])));
+    if(edit?.kind!=='words'){const plan=laneSlots(g,chunk);g.lanes.forEach((lane,i)=>{if(!plan.skip.has(i))node.append(renderLaneSlot(g,bar,chunk,lane,i,bar===g.bars[0]&&chunk===bar.chunks[0],plan.extra.get(i)||null));});}
     refs.chunks.push(cell);return node;
   }
   // The Edit tool's places on a bar: the strip above it starts a new section there, its barline joins it to the bar before, a beat splits it.
@@ -258,7 +280,7 @@ export function mountChartPage(root,handlers={}){
     else if(bar.meterChange&&bar.meter)n.append(el('span','bar-meter',bar.meter.join('/')));
     if(!edit)barZones(n,g,bar);
     for(const chunk of bar.chunks)n.append(renderChunk(g,bar,chunk,edit));
-    if(!bar.chunks.length&&edit?.kind!=='words')for(const [i,lane] of g.lanes.entries())n.append(renderLaneSlot(g,bar,{key:null,slotId:null,lanes:{}},lane,i,false));
+    if(!bar.chunks.length&&edit?.kind!=='words')for(const [i,lane] of g.lanes.entries())if(!lane.pickup)n.append(renderLaneSlot(g,bar,{key:null,slotId:null,lanes:{}},lane,i,false));
     return n;
   }
   // A repeat sign is drawn from plain shapes (a rule and two dots), not gradients: gradients turn into grey blocks in a PDF.
@@ -289,9 +311,9 @@ export function mountChartPage(root,handlers={}){
     }
     row.append(bars);
     if(edit?.kind==='words')row.append(renderLaneEditors(g,row));
-    else if(!g.lanes.some(l=>!l.flow)){
+    else if(!g.lanes.some(l=>!l.flow&&!l.pickup)){
       // a row with no words yet: Edit shows a line to type them on
-      const add=zone(el('div','lane-add',g.passCount>1?'Click and type the words for pass '+passForEdit(g):'Click and type the words'),'words');
+      const add=zone(el('div','lane-add',g.passCount>1?'Click and type the lyrics for pass '+passForEdit(g):'Click and type the lyrics'),'words');
       add.onclick=e=>{e?.stopPropagation?.();startWords(g,passForEdit(g));};row.append(add);
     }
     if(g.endings.length){
@@ -406,7 +428,8 @@ export function mountChartPage(root,handlers={}){
   function render(){drawing=true;try{keepPlace(draw);}finally{drawing=false;}}
   function draw(){
     if(!data)return;
-    model=buildChartModel(data.content,data.music,{onsets:data.suggest?data.onsets:null});
+    // the Timing tool always shows true timing; typing lyrics always goes line by line
+    model=buildChartModel(data.content,data.music,{onsets:data.suggest?data.onsets:null,trueTiming:(mode==='timing'||wordView==='true')&&editing?.kind!=='words'});
     refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[],repeats:[],cues:[]};
     occById=new Map(model.projection.occurrences.map(o=>[o.id,o]));cueMap=placeCues(model,[...(data.content.cues||[]),...(handlers.planNotes?.()||[])]);   // plus the notes of the arrangement playing now (they're its, not the song's)
     notices.replaceChildren();for(const w of model.warnings)notices.append(el('p','chart-notice',w));
@@ -792,7 +815,7 @@ export function mountChartPage(root,handlers={}){
   // Each pass of a row has one editable line under it. It is separate from the chords, so typing never moves them; the words are
   // spread between whatever pins exist when you leave the line. A new line starts at the chord you click and ends with the row.
   function laneItems(g){
-    const items=g.lanes.map(lane=>({group:g,lane,passNumber:lane.passNumber,id:g.id+'|'+lane.line}));
+    const items=g.lanes.filter(lane=>!lane.pickup).map(lane=>({group:g,lane,passNumber:lane.passNumber,id:g.id+'|'+lane.line}));
     const have=new Set(g.lanes.filter(l=>!l.flow).map(l=>l.passNumber));
     const wanted=g.passCount>1?g.passes.map(p=>p.number).filter(n=>!have.has(n)):(g.lanes.length?[]:[1]);
     for(const n of wanted)items.push({group:g,lane:null,passNumber:n,id:g.id+'|new'+n});
@@ -813,7 +836,7 @@ export function mountChartPage(root,handlers={}){
         refs.lanes.push({tag,group:g,lane:{passNumber:item.passNumber}});line.append(tag);line.classList.add('tagged');
       }
       editor.contentEditable='plaintext-only';
-      editor.dataset.placeholder=item.lane?'…':(g.passCount>1?'Click and type the words for pass '+item.passNumber:'Click and type the words');
+      editor.dataset.placeholder=item.lane?'…':(g.passCount>1?'Click and type the lyrics for pass '+item.passNumber:'Click and type the lyrics');
       editor.append(document.createTextNode?document.createTextNode(text):text);
       const ref={...item,node:editor,line,row,original:text,anchorKey:tokens[0]?.chunkKey??null};
       editor._lane=ref;refs.editors.push(ref);wireLane(ref);line.append(editor);
@@ -971,7 +994,7 @@ export function mountChartPage(root,handlers={}){
     const note=el('p','chart-notice chart-sliver');
     note.append(el('span','',`There is a section “${section.name}” ${where} that lasts only ${length} s, less than one beat, so it has no bars to show. `));
     const join=el('button','chart-sliver-join',`Join it to “${home.name}”`);join.type='button';
-    join.title=`Remove the section “${section.name}” and let “${home.name}” take its ${length} s, so the player and the timeline say “${home.name}” there too. Its chords and words, if any, move to “${home.name}”. Undo takes it back.`;
+    join.title=`Remove the section “${section.name}” and let “${home.name}” take its ${length} s, so the player and the timeline say “${home.name}” there too. Its chords and lyrics, if any, move to “${home.name}”. Undo takes it back.`;
     join.onclick=()=>absorbSliver(section,home);
     note.append(join);return note;
   }
@@ -1008,7 +1031,7 @@ export function mountChartPage(root,handlers={}){
     for(const target of copyTargets(data.content,section.id)){
       const label=copyName(section,target);
       const b=el('button','sec-copy','Copy lyrics to '+label+(String(target.lyrics||'').trim()?' (replaces)':''));b.type='button';
-      b.title='Copies these words and their timing onto '+target.name+', bar for bar. '+(String(target.lyrics||'').trim()?'The words already there are replaced. ':'')+'Undo puts it back.';
+      b.title='Copies these lyrics and their timing onto '+target.name+', bar for bar. '+(String(target.lyrics||'').trim()?'The lyrics already there are replaced. ':'')+'Undo puts it back.';
       b.onclick=async event=>{
         event.stopPropagation?.();
         try{
@@ -1092,6 +1115,8 @@ export function mountChartPage(root,handlers={}){
       if(tool!=='play'){api.setTool('play');return true;}
       return false;
     },
+    getWordView:()=>wordView,
+    setWordView(next){if(!['line','true'].includes(next)||next===wordView)return;wordView=next;if(data)render();handlers.onWordViewChange?.(wordView);},
     setScope(next){if(['occurrence','all-matching'].includes(next))scope=next;handlers.onScopeChange?.(scope);},
     hasRepeats:()=>!!model?.sections.some(s=>s.groups.some(g=>g.passCount>1)),
     // the magnet: on snaps to a grid that follows the zoom, off places words and chords exactly where they are dropped

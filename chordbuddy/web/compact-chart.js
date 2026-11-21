@@ -88,7 +88,7 @@ export function buildCompactChart(content,music){
  const view={sections:[],groups:[],occurrences:[],warnings,mappingKey:JSON.stringify([content,music?.measures])};
  const breaks=new Set(content.layout?.breaks||[]);
  // Silence before the song starts is not a bar: phrases of four are counted from the first bar with music in it.
- const musicStart=chartPresentation(content,measures,music?.sound_start).start;
+ const musicStart=chartPresentation(content,measures,music?.sound_start,music?.sound_end).start;
  for(const section of content.sections){
   let bars=measures.filter(m=>m.start<section.end&&m.end>section.start).map(m=>fragment(content,section,m));
   // Include regions outside the grid; do not silently drop their chord events.
