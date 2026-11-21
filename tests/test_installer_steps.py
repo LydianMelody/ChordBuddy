@@ -90,3 +90,62 @@ def test_summary_lists_failures_and_exits_1(monkeypatch, capsys):
     assert inst.main(['--device', 'cpu']) == 1
     out = capsys.readouterr().out
     assert 'some parts did not install' in out and 'ffmpeg (reading audio files): Could not download' in out and 'check (final engine check): skipped' in out
+
+
+def test_bundled_web_libraries_match_their_pins():
+    # three.js (and any later browser library) ships in chordbuddy/web/vendor; every file must be the exact pinned release
+    pins = inst.PINS['web_libraries']
+    assert pins and all(pin['url'].startswith('https://registry.npmjs.org/') for pin in pins)
+    for pin in pins:
+        assert inst.check_web_library(pin) == [], pin['name']
+
+
+def web_pin(tmp_path, files):
+    import hashlib, io, tarfile
+    archive = tmp_path / 'lib.tgz'
+    with tarfile.open(archive, 'w:gz') as bundle:
+        for name, data in files.items():
+            info = tarfile.TarInfo('package/build/' + name)
+            info.size = len(data)
+            bundle.addfile(info, io.BytesIO(data))
+    pin = {'name': 'lib', 'version': '1', 'license': 'MIT', 'url': 'https://registry.npmjs.org/lib.tgz', 'sha256': inst.sha256_of(archive),
+           'folder': 'vendor/lib', 'files': {name: {'from': 'package/build/' + name, 'sha256': hashlib.sha256(data).hexdigest()} for name, data in files.items()}}
+    return pin, archive
+
+
+def test_a_changed_web_library_file_is_restored_from_the_pinned_download(monkeypatch, tmp_path):
+    pin, archive = web_pin(tmp_path, {'a.js': b'export const a=1;', 'b.js': b'export const b=2;'})
+    folder = tmp_path / 'vendor' / 'lib'
+    folder.mkdir(parents=True)
+    (folder / 'a.js').write_bytes(b'export const a=1;')
+    (folder / 'b.js').write_bytes(b'tampered')
+    monkeypatch.setattr(inst, 'ROOT', tmp_path)
+    monkeypatch.setattr(inst, 'PINS', {'web_libraries': [pin]})
+    asked = []
+    monkeypatch.setattr(inst, 'download', lambda url, dest, sha256, label: asked.append((url, sha256)) or archive)
+    assert inst.check_web_library(pin, tmp_path) == ['b.js']
+    inst.step_web({})
+    assert asked == [(pin['url'], pin['sha256'])]          # fetched only through the fingerprint-checked download
+    assert (folder / 'b.js').read_bytes() == b'export const b=2;' and inst.check_web_library(pin, tmp_path) == []
+
+
+def test_unchanged_web_libraries_download_nothing(monkeypatch, tmp_path):
+    pin, archive = web_pin(tmp_path, {'a.js': b'x'})
+    (tmp_path / 'vendor' / 'lib').mkdir(parents=True)
+    (tmp_path / 'vendor' / 'lib' / 'a.js').write_bytes(b'x')
+    monkeypatch.setattr(inst, 'ROOT', tmp_path)
+    monkeypatch.setattr(inst, 'PINS', {'web_libraries': [pin]})
+    monkeypatch.setattr(inst, 'download', lambda *a: (_ for _ in ()).throw(AssertionError('downloaded')))
+    inst.step_web({})
+
+
+def test_a_web_library_file_that_differs_inside_the_download_is_refused(monkeypatch, tmp_path):
+    pin, archive = web_pin(tmp_path, {'a.js': b'good'})
+    pin['files']['a.js']['sha256'] = '0' * 64                 # the release does not hold the file we expect
+    monkeypatch.setattr(inst, 'ROOT', tmp_path)
+    monkeypatch.setattr(inst, 'PINS', {'web_libraries': [pin]})
+    monkeypatch.setattr(inst, 'download', lambda *a: archive)
+    import pytest
+    with pytest.raises(inst.Failure):
+        inst.step_web({})
+    assert not (tmp_path / 'vendor' / 'lib' / 'a.js').exists()

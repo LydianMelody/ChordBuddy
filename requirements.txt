@@ -16,3 +16,5 @@ pywebview==6.1
 soundfile==0.12.1
 # numpy: the app reads and checks audio with it, so it opens even if the transcription engine did not install (same version as the engine)
 numpy==1.24.3
+# Browser libraries are not installed with pip: three.js 0.187.0 (3D visualizations, MIT) is bundled in chordbuddy/web/vendor/three,
+# pinned with its SHA-256 fingerprints in installer-pins.json ("web_libraries"); the installer's "web" step checks it and restores a changed file.

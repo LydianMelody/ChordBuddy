@@ -1,0 +1,2 @@
+# Pinned third-party files are kept byte for byte, so their SHA-256 fingerprints (installer-pins.json) match on every computer
+chordbuddy/web/vendor/three/** -text

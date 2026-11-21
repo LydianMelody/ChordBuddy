@@ -15,6 +15,23 @@
     "inside": "ffmpeg-6.0-essentials_build",
     "license": "GPL v3 (gyan.dev essentials build). Downloaded to your own computer, not redistributed by Chord Buddy."
   },
+  "web_libraries": [
+    {
+      "name": "three.js",
+      "version": "0.187.0",
+      "license": "MIT",
+      "why": "3D and shader drawing for visualizations (chordbuddy/web/visual-three.js). Included in this folder; the installer only checks the files, and restores them from the official npm release if one is missing or changed.",
+      "url": "https://registry.npmjs.org/three/-/three-0.187.0.tgz",
+      "sha256": "ff540832ded0cfe919764d24a3d88f3e2a05f23303f876423e4f893841e90728",
+      "npm_integrity": "sha512-Qiu7R+Cmh8CstZsY1uJOSWnVlfo7ZtNLV7mF8Jltk3LB3AtDu9cRZlcnRKkAk8Y4z6KKw35z7Y7Urd7jWY8etA==",
+      "folder": "chordbuddy/web/vendor/three",
+      "files": {
+        "three.module.js": {"from": "package/build/three.module.js", "sha256": "104f56145899722094556490d787aae0617cc2fc3382f31df02d724ea1aee341"},
+        "three.core.js": {"from": "package/build/three.core.js", "sha256": "613e370f76638fdef83926642bf256dc9615684922de1ce1f63a8583e5d78578"},
+        "LICENSE.txt": {"from": "package/LICENSE", "sha256": "8b378ebe60e2fe500158cb0ac71cb5e8b7d92953c2abcc63a0eb90499653b5bc"}
+      }
+    }
+  ],
   "torch_index": {
     "cuda": "https://download.pytorch.org/whl/cu128",
     "cpu": "https://download.pytorch.org/whl/cpu"

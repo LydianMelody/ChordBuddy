@@ -10,6 +10,8 @@ Steps (each can be repeated safely; finished ones are skipped):
     engine      PyTorch and the transcription libraries (requirements-engine.txt) -> runtime\\engine-packages
     separation  the stem engine's own small Python and libraries         -> .models\\separation
     ffmpeg      the audio converter                                      -> tools\\ffmpeg.exe
+    web         checks the bundled browser library (three.js, for 3D visualizations) against its fingerprints,
+                and restores a missing or changed file from the pinned official release -> chordbuddy\\web\\vendor
     models      the stem separation models (hash-checked)                -> .models\\separation
     sheetsage   the chord and melody model, SheetSage2 and MERT-v2-FullSong, at pinned versions -> .models\\hf\\hub
                 (public on Hugging Face, no account needed; the app can also download it)
@@ -41,7 +43,7 @@ PY = RUNTIME / 'python.exe'
 MODELS_DIR = ROOT / '.models'
 SEPARATION = MODELS_DIR / 'separation'
 STATE = MODELS_DIR / 'installer-state.json'
-STEPS = ['python', 'pip', 'app', 'engine', 'separation', 'ffmpeg', 'models', 'sheetsage', 'check']
+STEPS = ['python', 'pip', 'app', 'engine', 'separation', 'ffmpeg', 'web', 'models', 'sheetsage', 'check']
 OPTIONAL = []
 BACKSLASH = chr(92)
 
@@ -326,6 +328,38 @@ def step_ffmpeg(ctx):
     say('  ffmpeg installed. ' + pin['license'])
 
 
+def check_web_library(pin, root=None):
+    """The names of a bundled browser library's files that are missing or differ from their pinned SHA-256."""
+    folder = (root or ROOT) / pin['folder']
+    return [name for name, file in pin['files'].items()
+            if not (folder / name).is_file() or sha256_of(folder / name) != file['sha256']]
+
+
+def step_web(ctx):
+    """Browser libraries come with Chord Buddy (chordbuddy/web/vendor). This checks every file against its fingerprint and, only if one is
+    missing or changed, restores it from the pinned official release. The page runs nothing else from the internet."""
+    for pin in PINS.get('web_libraries', []):
+        label = f"{pin['name']} {pin['version']}"
+        bad = check_web_library(pin)
+        if not bad:
+            say(f'  {label} is here and unchanged.')
+            continue
+        say(f'  {label}: {", ".join(bad)} missing or changed; restoring from the official release.')
+        archive = download(pin['url'], MODELS_DIR / 'downloads' / f"{pin['name']}-{pin['version']}.tgz", pin['sha256'], label)
+        folder = ROOT / pin['folder']
+        folder.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(archive, 'r:gz') as bundle:
+            for name in bad:
+                file = pin['files'][name]
+                data = bundle.extractfile(bundle.getmember(file['from'])).read()   # only the named member, never extractall
+                if hashlib.sha256(data).hexdigest() != file['sha256']:
+                    raise Failure(f'{label}: {name} in the download does not match its fingerprint, so it was not used.')
+                partial = folder / (name + '.partial')
+                partial.write_bytes(data)
+                os.replace(partial, folder / name)
+        say(f'  {label} restored. License: {pin["license"]}.')
+
+
 def step_models(ctx):
     command = [str(PY), '-m', 'chordbuddy.model_downloads', '--project', str(ROOT)]
     if subprocess.run(command, cwd=ROOT, env=local_env()).returncode:
@@ -449,14 +483,14 @@ def main(argv=None):
 NEEDS = {'pip': ['python'], 'app': ['pip'], 'engine': ['pip'], 'separation': ['pip', 'engine'], 'ffmpeg': ['python'],
          'models': ['python'], 'sheetsage': ['engine'], 'check': ['engine', 'ffmpeg']}
 WHAT = {'python': 'the app\'s Python', 'pip': 'the package installer', 'app': 'the app window', 'engine': 'chord and melody transcription',
-        'separation': 'stem splitting', 'ffmpeg': 'reading audio files', 'models': 'stem splitting models', 'sheetsage': 'the chord model',
+        'separation': 'stem splitting', 'ffmpeg': 'reading audio files', 'web': '3D visualizations (three.js)', 'models': 'stem splitting models', 'sheetsage': 'the chord model',
         'check': 'final engine check'}
 
 
 def run_steps(names, ctx):
     """Run each step; one that fails is reported at the end instead of stopping the rest. Steps that need it are skipped."""
     functions = {'python': step_python, 'pip': step_pip, 'app': step_app, 'engine': step_engine, 'separation': step_separation,
-                 'ffmpeg': step_ffmpeg, 'models': step_models, 'check': step_check, 'sheetsage': step_sheetsage}
+                 'ffmpeg': step_ffmpeg, 'web': step_web, 'models': step_models, 'check': step_check, 'sheetsage': step_sheetsage}
     failed, skipped = {}, {}
     for name in names:
         say(f'\n== {name}')

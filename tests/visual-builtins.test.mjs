@@ -5,6 +5,7 @@ import {buildScene,sampleFrame,withFeatures,STEM_ORDER} from '../chordbuddy/web/
 import {frameEvents} from '../chordbuddy/web/visualizer-view.js';
 import {hudZones} from '../chordbuddy/web/visual-hud.js';
 import {Patcher,readInputs,choosePatch,sourceCatalog,catalogMap,canConnect} from '../chordbuddy/web/visual-patch.js';
+import {setRendererMaker} from '../chordbuddy/web/visual-three.js';
 
 // Every built-in visualization (and the template) drawn for a few seconds of a song, with its inputs fed by the patch bay's engine
 // exactly as the visualizer does, on a stand-in canvas that accepts any drawing call. Catches a visualization that breaks on its inputs.
@@ -14,6 +15,16 @@ globalThis.document??={createElement:()=>canvas()};
 globalThis.OffscreenCanvas??=class{constructor(w,h){this.width=w;this.height=h;}getContext(){return anything();}};
 globalThis.Path2D??=class{constructor(){return anything();}};
 globalThis.DOMMatrix??=class{constructor(){return anything();}};
+// three.js visualizations (visual-three.js) draw with a stand-in renderer here: no graphics card in a test. It checks that every uniform a
+// visualization sets is a real number, so a NaN cannot reach the screen. (The shaders themselves are compiled by a real browser check.)
+const finite=(v,where)=>{
+  if(typeof v==='number')assert.ok(Number.isFinite(v),where);
+  else if(Array.isArray(v))v.forEach((x,i)=>finite(x,where+'['+i+']'));
+  else if(v&&(v.isVector2||v.isVector3||v.isVector4))for(const k of ['x','y','z','w'])if(k in v)finite(v[k],where+'.'+k);
+};
+const threeRenders=[];
+setRendererMaker(()=>({setPixelRatio(){},setSize(){},setViewport(){},setScissor(){},setScissorTest(){},setClearColor(){},clear(){},clearDepth(){},setRenderTarget(){},extensions:{has:()=>true},getContext:()=>anything(),
+  render(scene){threeRenders.push(scene);scene.traverse(o=>{for(const [k,u] of Object.entries(o.material?.uniforms||{}))finite(u.value,k);});}}));
 
 const content={duration:12,chords:[{id:'b',label:'C',start:0,end:4},{id:'c',label:'Am',start:4,end:8},{id:'d',label:'F',start:8,end:12}],
   sections:[{id:'s1',name:'Verse',start:0,end:6},{id:'s2',name:'Chorus',start:6,end:12}]};
