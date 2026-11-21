@@ -13,7 +13,7 @@ The server only listens on `127.0.0.1`. Each session gets a random token, passed
 
 ## The library
 
-Songs and everything you change live in the `Data` folder next to the app (or the folder given with `--library`). A SQLite database holds the song list, set lists, preferences, every document revision, and saved arrangements and shows; each song has its own folder for the imported MP3, the analysis results, the stems and your own MIDI files (`my-midi`). Visual connections are in `visual-patches.json`.
+Songs and everything you change live in the `Data` folder next to the app (or the folder given with `--library`). A SQLite database holds the song list, set lists, preferences, every document revision, and saved arrangements and shows; each song has its own folder for its recording (`source.mp3`; a FLAC, WAV, M4A or OGG is converted to a 320 kbps MP3 on import), the analysis results, the stems and your own MIDI files (`my-midi`). Visual connections are in `visual-patches.json`.
 
 - The imported recording and the models' original output are never overwritten.
 - Every edit is saved as a revision, so Undo and Redo survive closing the app.

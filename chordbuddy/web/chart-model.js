@@ -152,6 +152,25 @@ function groupLanes(ctx,section,group,rep,bars){
       lanes.push({line,text,flow:!!tokens.length&&tokens.every(t=>t.flow),passNumber:tokens[0]?.passNumber??1,tokens,span:placed.length?{start:layout.start,end:layout.end}:null});
     }
   });
+  // A repeated row: a line can begin before its own pass does (the first words of pass 2's line sung at the end of pass 1). Its lane belongs
+  // to the pass most of its words are sung in (a tie goes to the later pass). With true timing, an early word is drawn in the lane of the
+  // pass it is sung in, so it shows in the bar where it is heard; line by line it is drawn at the start of its own lane.
+  if(group.passes.length>1){
+    for(const lane of lanes){
+      if(lane.flow||!lane.tokens.length)continue;
+      const count=new Map();for(const t of lane.tokens)count.set(t.passNumber,(count.get(t.passNumber)||0)+1);
+      lane.passNumber=[...count].sort((a,b)=>b[1]-a[1]||b[0]-a[0])[0][0];
+    }
+    for(const lane of lanes){
+      if(lane.flow)continue;
+      const early=lane.tokens.filter(t=>!t.flow&&t.passNumber<lane.passNumber);
+      for(const t of early){
+        const home=ctx.trueTiming?lanes.find(l=>l!==lane&&!l.flow&&l.passNumber===t.passNumber):null;
+        if(home){lane.tokens.splice(lane.tokens.indexOf(t),1);home.tokens.push(t);home.tokens.sort((a,b)=>(a.displaySeconds??0)-(b.displaySeconds??0));}
+        else if(!ctx.trueTiming&&finite(t.displaySeconds))t.displaySeconds=rep.start;
+      }
+    }
+  }
   // in pass order, whatever order the lines were typed in (a line typed for pass 2 first still shows under pass 1); a line with no place
   // in time yet keeps its spot
   const slots=lanes.map((lane,i)=>lane.flow?null:i).filter(i=>i!==null),timed=slots.map(i=>lanes[i]).sort((a,b)=>a.passNumber-b.passNumber||a.line-b.line);

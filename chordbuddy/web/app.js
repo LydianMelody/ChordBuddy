@@ -614,7 +614,7 @@ function renderLibrary({force=false,poll=false}={}) {
     const order=element('div','song-order');for(const [symbol,direction] of [['▲',-1],['▼',1]]){const move=element('button','',symbol);move.title=`Move ${song.title} ${direction<0?'up':'down'}`;move.setAttribute('aria-label',move.title);move.disabled=index+direction<0 || index+direction>=songs.length;move.onclick=()=>reorderSong(song.id,direction);order.append(move);}row.append(order);container.append(row);
     if(list?.id!=='default'){const details=performanceApp.setlist.rowDetails(song.id,song.title);if(details)container.append(details);}
   }
-  if(!container.children.length)container.append(element('p','sidebar-empty',query?'No songs match your search.':list?.id==='default'?'Your song library starts with an MP3. Import one to get going.':'This set list is ready for songs. Import an MP3 or add a song from your library.'));
+  if(!container.children.length)container.append(element('p','sidebar-empty',query?'No songs match your search.':list?.id==='default'?'Your song library starts with a recording. Import an MP3, FLAC, WAV, M4A or OGG to get going.':'This set list is ready for songs. Import a recording or add a song from your library.'));
   renderView();
   noteArrivals(state);
   const trashed=state.trash||[];$('trash-open').classList.toggle('hidden',!trashed.length);$('trash-open').textContent='Trash ('+trashed.length+')';
@@ -722,12 +722,12 @@ function openKeyMenu(chip){
   pop.replaceChildren(element('label','','Key of this song'),select);
   placePop(pop,chip);select.focus();
 }
-// The line under a song's name: the artist (read from the MP3's tags when the song was imported, and yours to change) then the details.
+// The line under a song's name: the artist (read from the recording's tags when the song was imported, and yours to change) then the details.
 function setSub(node,details){
   const song=currentSong();let artist=node.querySelector('.jartist');
   if(!artist){
     artist=element('span','jartist');artist.contentEditable='plaintext-only';artist.spellcheck=false;artist.setAttribute('role','textbox');artist.setAttribute('aria-label','Artist');
-    artist.dataset.placeholder='Add artist';artist.dataset.tipTitle='Artist';artist.dataset.tip='Click to type who wrote or performs this song. It starts as the artist in the MP3’s tags, and stays empty if there is none.';
+    artist.dataset.placeholder='Add artist';artist.dataset.tipTitle='Artist';artist.dataset.tip='Click to type who wrote or performs this song. It starts as the artist in the recording’s tags, and stays empty if there is none.';
     artist.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();artist.blur();}else if(event.key==='Escape'){artist.textContent=currentSong()?.artist||'';artist.blur();}};
     artist.onblur=()=>commitArtist(artist).catch(showError);
     node.replaceChildren(artist,element('span','jrest'));

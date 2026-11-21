@@ -35,12 +35,21 @@ function setup(answers={}){
   return {$,model,flow,calls,errors,win};
 }
 
-test('only an MP3, a song zip or a MIDI file is taken, and an MP3 over the limit is refused', async () => {
+test('only a recording, a song zip or a MIDI file is taken, and a recording over the limit is refused', async () => {
   const {flow,calls,errors,model}=setup();
-  await flow.importFile(undefined);await flow.importFile({name:'notes.txt',size:10});await flow.importFile({name:'huge.mp3',size:251*1024*1024});
-  assert.deepEqual(errors,['Choose an MP3 recording, or a song zip exported from Chord Buddy.','This recording is larger than the 250 MB import limit.']);
+  await flow.importFile(undefined);await flow.importFile({name:'notes.txt',size:10});await flow.importFile({name:'song.aiff',size:10});await flow.importFile({name:'huge.wav',size:251*1024*1024});
+  const which='Choose a recording (MP3, FLAC, WAV, M4A or OGG), or a song zip exported from Chord Buddy.';
+  assert.deepEqual(errors,[which,which,'This recording is larger than the 250 MB import limit.']);
   assert.deepEqual(calls,[]);assert.equal(model.importing,false);
   assert.equal(await flow.importFile({name:'Melody.MID',size:10}),'midi-result');assert.deepEqual(calls,[['midi','Melody.MID']]);
+});
+
+test('every recording type the app converts is sent to it like an MP3', async () => {
+  for(const name of ['a.flac','b.WAV','c.m4a','d.ogg']){
+    const {flow,calls,errors}=setup({'/api/import':{id:'new',title:'x',artist:''}});
+    await flow.importFile({name,size:1000,arrayBuffer:async()=>new ArrayBuffer(8)});
+    assert.deepEqual(errors,[]);assert.equal(calls[1][1],`/api/import?filename=${encodeURIComponent(name)}&setlist=gig`);
+  }
 });
 
 test('an MP3 is sent to the app with its name and the open set list, then opened', async () => {

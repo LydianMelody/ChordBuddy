@@ -59,6 +59,8 @@ GEMINI.md
 # screenshots and scratch files to share, kept on this computer only
 /temp/
 
-# --- Your own visualizations: they stay on this computer (only the folder's README is part of the app) ---
+# --- Your own visualizations, still being worked on: they stay on this computer (only the folder's README and fonts are part of the app).
+#     Finished ones move to chordbuddy/web/visualizations, which is published. ---
 /My Visuals/*
 !/My Visuals/README.txt
+!/My Visuals/fonts/

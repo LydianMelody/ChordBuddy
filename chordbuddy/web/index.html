@@ -109,10 +109,10 @@
               <button id="delete-song" class="text-button danger" type="button">Delete song…</button>
             </div>
           </div></details>
-          <button id="import-button" class="btn hot" title="Import an MP3, or a song zip exported from Chord Buddy"><span data-icon="plus"></span><em>Import</em></button>
+          <button id="import-button" class="btn hot" title="Add a song from a recording (MP3, FLAC, WAV, M4A or OGG), a song zip exported from Chord Buddy, or a MIDI file"><span data-icon="plus"></span><em>Import</em></button>
         </div>
         </div>
-        <input id="file-input" type="file" accept=".mp3,audio/mpeg,.zip,application/zip" hidden>
+        <input id="file-input" type="file" accept=".mp3,.flac,.wav,.m4a,.ogg,audio/*,.zip,application/zip" hidden>
       </header>
       <div class="alert-box"><div id="alert" role="alert" class="alert hidden"></div><button id="alert-close" class="alert-close" type="button" title="Dismiss this message" aria-label="Dismiss this message"><span data-icon="x"></span></button></div>
       <div id="history-note" role="status" class="history-note hidden"><span id="history-note-text"></span><button id="history-note-back" class="btn" type="button"></button></div>
@@ -123,7 +123,7 @@
       <section id="visual-editor" class="visual-editor hidden" aria-label="Advanced Visuals Editor"></section>
       <section id="perform-page" class="perform-page hidden"></section>
       <section id="empty-state" class="empty-state">
-        <div class="empty-tape" aria-hidden="true"><span class="empty-tape-label"></span><span class="tape-window"><i class="reel"></i><i class="reel"></i></span><span class="empty-tape-foot"></span></div><h2>Import a recording</h2><p>Choose an MP3 to create a chord chart, processed stems, a lead sheet and editable MIDI.</p><button id="empty-import" class="btn hot"><span data-icon="upload"></span>Import MP3</button><small>Or drop a file anywhere in this window</small>
+        <div class="empty-tape" aria-hidden="true"><span class="empty-tape-label"></span><span class="tape-window"><i class="reel"></i><i class="reel"></i></span><span class="empty-tape-foot"></span></div><h2>Import a recording</h2><p>Choose a recording (MP3, FLAC, WAV, M4A or OGG) to create a chord chart, processed stems, a lead sheet and editable MIDI.</p><button id="empty-import" class="btn hot"><span data-icon="upload"></span>Import recording</button><small>Or drop a file anywhere in this window</small>
       </section>
       <section id="locked-panel" class="locked-panel hidden" aria-live="polite">
         <div class="big"><span data-icon="lock"></span></div>
@@ -193,6 +193,6 @@
   </div>
   <div id="info-pop" class="info-pop hidden" role="note"></div>
   <div id="key-pop" class="info-pop key-pop hidden"></div>
-  <div id="drop-overlay" class="drop-overlay hidden"><div>↓<h2>Drop your MP3 here</h2><p>Or a song zip exported from Chord Buddy. It goes in your selected set list. A MIDI file is lined up with a song for the visualizer.</p></div></div>
+  <div id="drop-overlay" class="drop-overlay hidden"><div class="drop-card"><div class="drop-head"><span class="drop-icon" data-icon="upload" aria-hidden="true"></span><h2>Drop to import</h2></div><dl class="drop-kinds"><div><dt>A recording: MP3, FLAC, WAV, M4A or OGG</dt><dd>Becomes a new song in your selected set list.</dd></div><div><dt>A song zip exported from Chord Buddy</dt><dd>Adds the song. If one here has the same title, you choose what to replace.</dd></div><div><dt>A MIDI file</dt><dd>Is lined up with a song for the visualizer.</dd></div></dl></div></div>
 </body>
 </html>

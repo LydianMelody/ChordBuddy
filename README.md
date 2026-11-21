@@ -1,6 +1,6 @@
 # Chord Buddy
 
-A free practice and performance app for Windows. Give it a song (an MP3) and it works out the chords, the melody and the song's sections, then gives you three ways to play along:
+A free practice and performance app for Windows. Give it a song (an MP3, FLAC, WAV, M4A or OGG recording) and it works out the chords, the melody and the song's sections, then gives you three ways to play along:
 
 - **Chord chart:** the song's chords bar by bar, with the lyrics under them, repeats folded (`G C D C ×2`) and the current chord lit as the music plays.
 - **Lead sheet:** the melody on a staff with chord symbols and lyrics, ready to print or save as a PDF.
@@ -32,7 +32,7 @@ The models are public, so you don't need a Hugging Face account. To download the
 ## Use it
 
 1. Double-click **Start Chord Buddy.cmd**. (If the window does not open, **Start in browser.cmd** opens Chord Buddy in your web browser instead.)
-2. Drop an MP3 into the window, or choose **Import MP3**.
+2. Drop a recording (MP3, FLAC, WAV, M4A or OGG) into the window, or choose **Import**. Anything other than an MP3 is saved as a high-quality (320 kbps) MP3, so every song works the same way afterward.
 3. Check the title and artist (they are read from the file's tags), choose whether to split the stems, and choose what to process with: **Automatic**, **NVIDIA GPU only** or **CPU only**. Then choose **Analyze**.
 4. When the analysis is done, switch between **Chart**, **Lead sheet** and **MIDI** at the top of the page, and use the player at the bottom.
 

@@ -1,4 +1,4 @@
-import {effectiveMeasures} from './chart-layout.js';
+import {effectiveMeasures,pickupStart} from './chart-layout.js';
 
 export function activeChord(chords, time) {
   if (!Number.isFinite(time)) return null;
@@ -120,7 +120,9 @@ export function reconcileChartLayout(content,music){
   content.layout.lines=content.layout.lines.filter(p=>{
     const section=content.sections.find(s=>s.id===p.section_id);
     if(!section||section.lyrics.split('\n')[p.line]===undefined)return false;
-    return [p.start_measure,p.end_measure].every(id=>{const m=measures.find(m=>m.id===id);return m&&m.end>section.start+1e-6&&m.start<section.end-1e-6;});
+    // a line may start in the bar just before its section (a pickup), as chart-layout.js placeWord allows
+    const earliest=pickupStart(measures,section);
+    return [p.start_measure,p.end_measure].every(id=>{const m=measures.find(m=>m.id===id);return m&&m.end>earliest+1e-6&&m.start<section.end-1e-6;});
   });return content;
 }
 export function splitChartSection(content,id,time,newId,music) {

@@ -12,13 +12,38 @@ import sqlite3
 import threading
 import uuid
 
+from mutagen import File as AudioFile
 from mutagen.mp3 import MP3
+import subprocess
+import tempfile
 
 from .confidence import (confidence_defaults, opacity_defaults,
                          validate_confidence_settings, validate_opacity_settings)
 from .chords import chord_label
 from .path_policy import validate_song, validate_project, reserve_directory
 import math
+
+
+# recordings that can be imported; all but MP3 are converted to an MP3 on the way in (Library._to_mp3)
+IMPORT_TYPES = ('.mp3', '.flac', '.wav', '.m4a', '.ogg')
+
+
+def _easy_tags(data):
+    """The first non-blank title and artist in a FLAC, WAV, M4A or OGG file's tags, where it has them (a WAV often has none)."""
+    try:
+        audio = AudioFile(io.BytesIO(data), easy=True)
+    except Exception:
+        return {}
+    found = {}
+    for key in ('title', 'artist'):
+        try:
+            values = (audio.tags or {}).get(key) or [] if audio is not None else []
+        except Exception:
+            values = []
+        value = next((str(v).strip() for v in values if str(v).strip()), '')
+        if value:
+            found[key] = value
+    return found
 
 
 def now():
@@ -198,13 +223,43 @@ class Library:
                     'settings':self.read_settings(),
                     'root':str(self.root)}
 
+    def _converter(self):
+        bundled = self.project / 'tools' / 'ffmpeg.exe' if self.project is not None else None
+        if bundled is not None and bundled.is_file():
+            return str(bundled)
+        found = shutil.which('ffmpeg')
+        if not found:
+            raise ValueError('The audio converter (tools/ffmpeg.exe) is missing, so only MP3s can be imported')
+        return found
+
+    def _to_mp3(self, data, suffix):
+        """A FLAC, WAV, M4A or OGG recording as a 320 kbps MP3: everything after import (playback, analysis, stems, song transfer) works
+        from one source.mp3, and 320 kbps is far above what a stream or a room hears, so this is the whole cost of taking other formats."""
+        with tempfile.TemporaryDirectory(prefix='cb-import-') as folder:
+            source, out = Path(folder) / ('recording' + suffix), Path(folder) / 'recording.mp3'
+            source.write_bytes(data)
+            argv = [self._converter(), '-nostdin', '-v', 'error', '-i', str(source), '-vn', '-ar', '44100', '-ac', '2',
+                    '-c:a', 'libmp3lame', '-b:a', '320k', '-f', 'mp3', str(out)]
+            try:
+                run = subprocess.run(argv, capture_output=True, timeout=600, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            except subprocess.TimeoutExpired as exc:
+                raise ValueError('This recording took too long to convert') from exc
+            if run.returncode != 0 or not out.is_file() or out.stat().st_size == 0:
+                raise ValueError('This file could not be read as audio')
+            return out.read_bytes()
+
     def import_audio(self, filename, data, setlist_id='default'):
         if not isinstance(filename,str) or not filename or Path(filename).name != filename or PureWindowsPath(filename).name != filename or any(c in filename for c in '\\/:\x00'):
             raise ValueError('Choose a file name without folder paths')
-        if Path(filename).suffix.lower() != '.mp3':
-            raise ValueError('Please choose an MP3 file')
+        suffix = Path(filename).suffix.lower()
+        if suffix not in IMPORT_TYPES:
+            raise ValueError('Please choose an MP3, FLAC, WAV, M4A or OGG file')
         if not data or len(data) > 250 * 1024 * 1024:
-            raise ValueError('Choose an MP3 smaller than 250 MB')
+            raise ValueError('Choose a recording smaller than 250 MB')
+        # the title and artist come from the file you chose; anything other than an MP3 is converted to one first
+        original_tags = {} if suffix == '.mp3' else _easy_tags(data)
+        if suffix != '.mp3':
+            data = self._to_mp3(data, suffix)
         try:
             audio = MP3(io.BytesIO(data))
         except Exception as exc:
@@ -215,7 +270,10 @@ class Library:
                 return ''
             return next((str(value).strip() for value in getattr(frame,'text',[str(frame)])
                          if str(value).strip()),'')
-        title, artist = tag('TIT2') or Path(filename).stem, tag('TPE1')
+        if suffix == '.mp3':
+            title, artist = tag('TIT2') or Path(filename).stem, tag('TPE1')
+        else:
+            title, artist = original_tags.get('title') or Path(filename).stem, original_tags.get('artist', '')
         if self.project is not None:validate_project(self.project)
         validate_song(self.root,self.root/('a'*12))
         with self.lock:

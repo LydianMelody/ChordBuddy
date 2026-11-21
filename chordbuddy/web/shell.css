@@ -301,7 +301,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--k-edge);box-shadow:3p
 
 /* ---------- Dialogs ---------- */
 dialog{border:var(--bd) solid var(--k-edge);border-radius:16px;background:var(--page);color:var(--ink);box-shadow:var(--sh) var(--sh) 0 var(--k-shade)}
-.drop-overlay{background:color-mix(in srgb,var(--ink) 55%,transparent)}
+.drop-overlay{background:color-mix(in srgb,var(--ink) 50%,transparent)}
 
 /* ---------- Question dialogs and the Trash ---------- */
 .choice-dialog{width:min(92vw,520px);padding:22px 24px;border:var(--bd) solid var(--k-edge);border-radius:16px;background:var(--page);color:var(--ink);box-shadow:var(--sh) var(--sh) 0 var(--k-shade)}

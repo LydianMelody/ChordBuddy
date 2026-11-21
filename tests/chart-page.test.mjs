@@ -209,7 +209,7 @@ test('the chord line only takes chords: a letter A to G, with # or b after it', 
   assert.deepEqual(chordTokens(' F#m7  Bb/D C♯ '),['F#m7','Bb/D','C#']);
   assert.throws(()=>chordTokens('G H7'),/H7.*not a chord/);
   const m=mount(fixture());typeLine(openChords(m),'G C hello C');press(chordLine(m.root),'Enter');await tick();
-  assert.equal(m.commits.length,0);assert.match(m.root.textContent,/hello/);
+  assert.equal(m.commits.length,0);assert.match(m.errors.map(e=>e.message).join(' '),/hello/);   // said once, in the app's alert bar
 });
 
 test('alignChords keeps what is unchanged and retypes, removes or adds the rest', () => {
@@ -242,7 +242,7 @@ test('a second save while one is in flight is ignored, and a failed save can be 
   release();await tick();await tick();assert.equal(m.view.hasPendingSave(),false);
   const failing=mount(fixture(),{commit:async()=>{throw Error('Revision changed');}});
   typeLine(openChords(failing),'D C D C');press(chordLine(failing.root),'Enter');await tick();await tick();
-  assert.match(failing.root.textContent,/Revision changed/);assert.equal(failing.errors.length,1);assert.equal(failing.view.hasPendingSave(),false);
+  assert.equal(failing.errors.length,1);assert.match(failing.errors[0].message,/Revision changed/);assert.doesNotMatch(failing.root.textContent,/Revision changed/,'not repeated under the chart');assert.equal(failing.view.hasPendingSave(),false);
   assert.ok(openChords(failing),'free to try again');
 });
 
@@ -690,7 +690,7 @@ test('a cue line: Esc or no change writes nothing, and a cue too long to read at
   assert.equal(m.commits.length,0);assert.equal(cueLines(m.root).length,0);
   chordButtons(m.root)[0].onclick({});cueLines(m.root)[0].onblur();await tick();assert.equal(m.commits.length,0,'nothing typed');
   chordButtons(m.root)[0].onclick({});typeLine(cueLines(m.root)[0],'x'.repeat(41));press(cueLines(m.root)[0],'Enter');await tick();
-  assert.equal(m.commits.length,0);assert.match(m.root.textContent,/Keep a cue short/);assert.equal(cueLines(m.root).length,1,'still typing');
+  assert.equal(m.commits.length,0);assert.match(m.errors.map(e=>e.message).join(' '),/Keep a cue short/);assert.equal(cueLines(m.root).length,1,'still typing');
 });
 
 test('every chord shows where a cue would go only while the Cue tool is in hand, and Ctrl over it still edits the chords', () => {

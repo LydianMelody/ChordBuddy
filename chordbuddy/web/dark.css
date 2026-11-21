@@ -95,7 +95,7 @@
 
 
 
-[data-scheme="dark"] .drop-overlay{background:color-mix(in srgb,var(--desk) 94%,transparent)}
+[data-scheme="dark"] .drop-overlay{background:#000a}
 [data-scheme="dark"] .document-empty>span{color:var(--faint)}
 [data-scheme="dark"] .progress-track{background:var(--tint)}
 [data-scheme="dark"] :is(.lock-banner,.alert) :is(button,.secondary){background:#FBF7EE;color:#1A1C24;border-color:#1A1C24}

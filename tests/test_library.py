@@ -118,3 +118,38 @@ def test_a_song_leaves_a_set_list_but_never_the_library(tmp_path, mp3_bytes):
         library.remove_from_setlist('default', a['id'])
     with pytest.raises(KeyError):
         library.remove_from_setlist('nope', a['id'])
+
+
+def _recording(suffix, title=None):
+    """A short real recording in another format, made with ffmpeg (skipped where there is none)."""
+    import shutil, subprocess
+    if not shutil.which('ffmpeg'):
+        pytest.skip('FFmpeg is required to make real FLAC, WAV, M4A and OGG files')
+    tags = ['-metadata', f'title={title}', '-metadata', 'artist=Test Artist'] if title else []
+    import tempfile
+    with tempfile.TemporaryDirectory() as folder:   # an M4A needs a real file to be written, not a pipe
+        out = Path(folder) / ('take' + suffix)
+        subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=220:duration=1:sample_rate=96000', '-ac', '1', *tags,
+                        str(out)], capture_output=True, check=True)
+        return out.read_bytes()
+
+
+@pytest.mark.parametrize('suffix', ['.flac', '.m4a', '.ogg'])
+def test_other_formats_are_kept_as_an_mp3_with_their_tags(tmp_path, suffix):
+    library = Library(tmp_path)
+    song = library.import_audio('My Song' + suffix, _recording(suffix, 'Tagged Title'))
+    source = library.source_path(song['id'])
+    assert source.name == 'source.mp3' and source.read_bytes()[:3] in (b'ID3', b'\xff\xfb', b'\xff\xf3')
+    assert (song['title'], song['artist']) == ('Tagged Title', 'Test Artist')
+    assert song['filename'] == 'My Song' + suffix
+    assert 0.9 < song['duration'] < 1.2
+
+
+def test_an_untagged_wav_takes_its_file_name_and_bad_or_other_files_are_refused(tmp_path):
+    library = Library(tmp_path)
+    song = library.import_audio('Demo Take.WAV', _recording('.wav'))
+    assert (song['title'], song['artist']) == ('Demo Take', '')
+    for name, data in [('broken.flac', b'not audio'), ('song.aiff', b'FORM'), ('song.txt', b'words')]:
+        with pytest.raises(ValueError):
+            library.import_audio(name, data)
+    assert [s['id'] for s in library.state()['songs']] == [song['id']]

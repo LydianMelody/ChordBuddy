@@ -54,7 +54,7 @@ export function renderLibraryPage(root,value,handlers){
       // a blank cassette with its reels turning slowly (touches.css .empty-tape), the same one the empty song page shows
       const tape=el('div','empty-tape'),reels=el('span','tape-window');tape.setAttribute('aria-hidden','true');reels.append(el('i','reel'),el('i','reel'));
       tape.append(el('span','empty-tape-label'),reels,el('span','empty-tape-foot'));
-      empty.append(tape,el('p','','Your song library starts with an MP3.'));const b=el('button','btn hot');b.type='button';b.innerHTML=icon('plus')+'<em>Import</em>';b.onclick=()=>handlers.onImport?.();empty.append(b);}
+      empty.append(tape,el('p','','Your song library starts with a recording (MP3, FLAC, WAV, M4A or OGG).'));const b=el('button','btn hot');b.type='button';b.innerHTML=icon('plus')+'<em>Import</em>';b.onclick=()=>handlers.onImport?.();empty.append(b);}
     list.append(empty);
   }
   const typing=root.contains?.(document.activeElement)&&document.activeElement?.type==='search';

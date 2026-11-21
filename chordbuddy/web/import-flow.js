@@ -1,9 +1,12 @@
-// Import: an MP3 becomes a new song (then its name, artist and "split stems?" are asked, and its analysis starts), a song zip exported
+// Import: a recording (MP3, FLAC, WAV, M4A or OGG; the app turns the others into an MP3) becomes a new song (then its name, artist and "split stems?" are asked, and its analysis starts), a song zip exported
 // from Chord Buddy is added or updates a song here, and a MIDI file goes to the MIDI import screen. Files come from the Import button or
 // are dropped anywhere on the window.
 // app.js makes one with createImportFlow({...}) (everything it needs from the page is passed in; midiImport only needs importFile(file))
 // and calls wireButtons() and wireDrop() where that code used to stand.
 import {askSongSetup,askSongImport} from './dialogs.js';
+
+// the recordings the app takes (chordbuddy/library.py IMPORT_TYPES)
+export const RECORDING=/\.(mp3|flac|wav|m4a|ogg)$/i;
 
 export function createImportFlow({$,model,prefs,api,midiImport,wantsStems,stemsHint,startAnalysis,refreshState,selectSong,leaveSong,renderControls,showError,clearError}){
 // Straight after an import: the song's name and artist (read from the file's tags, so usually right already) and whether to split the stems.
@@ -20,7 +23,7 @@ async function setupImportedSong(song){
 async function importFile(file){
   if(!file)return;if(/\.zip$/i.test(file.name))return importSongZip(file);
   if(/\.midi?$/i.test(file.name))return midiImport.importFile(file);
-  if(!/\.mp3$/i.test(file.name)){showError('Choose an MP3 recording, or a song zip exported from Chord Buddy.');return;}if(file.size>250*1024*1024){showError('This recording is larger than the 250 MB import limit.');return;}
+  if(!RECORDING.test(file.name)){showError('Choose a recording (MP3, FLAC, WAV, M4A or OGG), or a song zip exported from Chord Buddy.');return;}if(file.size>250*1024*1024){showError('This recording is larger than the 250 MB import limit.');return;}
   if(model.importing)return;model.importing=true;$('import-button').disabled=true;$('import-button').querySelector('em').textContent='Importing…';clearError();
   let added=null;
   try{const bytes=await file.arrayBuffer();const song=await api(`/api/import?filename=${encodeURIComponent(file.name)}&setlist=${encodeURIComponent(model.setlist || '')}`,undefined,{method:'POST',headers:{'Content-Type':'audio/mpeg'},body:bytes});await refreshState();await selectSong(song.id);added=song;}

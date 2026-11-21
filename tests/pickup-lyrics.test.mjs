@@ -7,6 +7,7 @@ import {Node,all,installDom} from './compact-dom.mjs';
 import {mountChartPage} from '../chordbuddy/web/chart-page.js';
 import {buildChartModel} from '../chordbuddy/web/chart-model.js';
 import {placeWord,pickupStart,validatePlacements} from '../chordbuddy/web/chart-layout.js';
+import {planSectionEdit} from '../chordbuddy/web/practice-edit.js';
 
 const has=(n,c)=>n.className.split(' ').includes(c);
 const byClass=(root,c)=>all(root).filter(n=>has(n,c));
@@ -158,4 +159,74 @@ test('True timing in the chart: the first word of the next line of the same sect
   assert.equal(slots.length,1);assert.equal(slots[0].textContent.trim(),'I');
   // the bars with words of the first line still show them, on one line each
   const m0=byClass(row,'bar').find(b=>b.dataset.bar==='m0');assert.equal(byClass(m0,'lyr').length,1);assert.match(byClass(m0,'lyr')[0].textContent,/row/);
+});
+
+// The Verse's two bars repeat (G C, G C), so its row is folded: it shows bars 1 and 2 once, for both passes. The bar just before the
+// Chorus is bar 4, the second pass's copy of the bar shown second.
+function foldedChart(){
+  const f=chart();
+  const labels=['G','C','G','C'];
+  f.content.chords=f.content.chords.filter(c=>c.start>=8);
+  labels.forEach((label,i)=>f.content.chords.unshift({id:'v'+i,label,start:i*2,end:i*2+2,section_id:'v',line:null,offset:null}));
+  f.content.chords.sort((a,b)=>a.start-b.start);
+  return f;
+}
+
+test('Timing: a pickup can be dragged into the bar before its section when that row is a folded repeat', async () => {
+  const s=setup(foldedChart());
+  const verse=buildChartModel(foldedChart().content,foldedChart().music,{trueTiming:true}).sections.find(x=>x.id==='v').groups[0];
+  assert.equal(verse.passes.length,2,'the Verse row is folded into two passes');
+  const shownLast=verse.passes[0].measureIds.at(-1);                       // bar 2 on screen, which stands for bar 4 in pass 2
+  const chip=chipOf(s,'And'),bar=s.bars.find(b=>b.dataset.bar===shownLast),r=bar.getBoundingClientRect();
+  chip.setPointerCapture=()=>{};chip.releasePointerCapture=()=>{};
+  chip.onpointerdown({button:0,pointerId:1,clientX:10,clientY:50,shiftKey:true,preventDefault(){}});
+  const x=r.left+r.width*.75;                                               // beat 4
+  chip.onpointermove({pointerId:1,clientX:x,clientY:50});chip.onpointerup({pointerId:1,clientX:x,clientY:50});
+  await tick();await tick();
+  assert.equal(s.errors.length,0);assert.equal(s.commits.length,1);
+  assert.deepEqual(wordsOf(s.commits[0].candidate,'c')[0],[0,'m3',3]);     // bar 4 (pass 2), where it is sung, not bar 2 (pass 1)
+});
+
+// Two lines in the folded Verse: "one two" in pass 1 (bars 1-2) and "three four" in pass 2 (bars 3-4).
+function twoPassChart(){
+  const f=foldedChart(),v=f.content.sections[0];
+  v.lyrics=['one two','three four'].join(String.fromCharCode(10));
+  Object.assign(f.content.layout.lines.find(p=>p.section_id==='v'&&p.line===0),{end_measure:'m1',words:[{offset:0,measure_id:'m0',beat:0},{offset:4,measure_id:'m1',beat:0}]});
+  f.content.layout.lines.splice(1,0,{section_id:'v',line:1,start_measure:'m2',end_measure:'m3',words:[{offset:0,measure_id:'m2',beat:0},{offset:6,measure_id:'m3',beat:0}]});
+  return f;
+}
+// each pass's lane gets its own height on screen: pass 1 above, pass 2 below
+function placeLanes(s){for(const l of byClass(s.root,'tlane')){const top=l.dataset.pass==='1'?40:70;l.getBoundingClientRect=()=>({left:0,right:0,top,bottom:top+28,width:0,height:28});}}
+
+test('Timing: the first word of pass 2’s line can be dragged onto the end of pass 1, by dropping it in pass 1’s lane', async () => {
+  const s=setup(twoPassChart());placeLanes(s);
+  const chip=chipOf(s,'three'),bar=s.bars.find(b=>b.dataset.bar==='m1'),r=bar.getBoundingClientRect();
+  chip.setPointerCapture=()=>{};chip.releasePointerCapture=()=>{};
+  chip.onpointerdown({button:0,pointerId:1,clientX:5,clientY:80,shiftKey:true,preventDefault(){}});
+  const x=r.left+r.width*.75;                                               // beat 4 of the bar shown second, in pass 1's lane
+  chip.onpointermove({pointerId:1,clientX:x,clientY:50});chip.onpointerup({pointerId:1,clientX:x,clientY:50});
+  await tick();await tick();
+  assert.equal(s.errors.length,0);assert.equal(s.commits.length,1);
+  const saved=s.commits[0].candidate.layout.lines.find(p=>p.section_id==='v'&&p.line===1);
+  assert.deepEqual([saved.words[0].measure_id,saved.words[0].beat],['m1',3]);   // bar 2, the end of pass 1 (not bar 4)
+});
+
+test('a word of pass 2’s line sung in pass 1 is drawn in pass 1’s lane with true timing, and at the start of its own lane line by line', () => {
+  const f=twoPassChart();f.content=placeWord(f.content,'v',1,0,'m1',3,measures(f));
+  const verse=model=>model.sections.find(x=>x.id==='v').groups[0];
+  const sung=verse(buildChartModel(f.content,f.music,{trueTiming:true})),line=verse(buildChartModel(f.content,f.music));
+  const laneOf=(g,text)=>g.lanes.find(l=>l.tokens.some(t=>t.text===text));
+  assert.equal(laneOf(sung,'three').passNumber,1);assert.equal(laneOf(sung,'four').passNumber,2);
+  assert.equal(laneOf(sung,'three').tokens.find(t=>t.text==='three').measureId,'m1');
+  assert.equal(laneOf(line,'three'),laneOf(line,'four'));assert.equal(laneOf(line,'four').passNumber,2);
+  assert.equal(laneOf(line,'three').tokens.find(t=>t.text==='three').displaySeconds,0);   // the start of the row
+});
+
+test('renaming a section keeps the pickup that the next section’s line sings in its last bar', () => {
+  const f=withPickup(chart());
+  for(const id of ['v','c']){
+    const plan=planSectionEdit(f.content,f.music,{sectionId:id,operation:'edit',fields:{name:id==='v'?'Verse 2':'Big Chorus'}});
+    assert.deepEqual(plan.conflicts,[]);assert.ok(plan.candidate);
+    assert.deepEqual(wordsOf(plan.candidate,'c')[0],[0,'m3',3]);   // the pickup is still in bar 4
+  }
 });

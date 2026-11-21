@@ -233,7 +233,7 @@ export function createTiming(env){
     const chip=el('span','wchip'+(token.pinned?' pinned':'')+(token.kind==='chord'?' anchor':'')+(token.kind==='suggest'?' guess':''));
     chip.dataset.line=String(token.line);chip.dataset.offset=String(token.offset);
     env.zone?.(chip,'word','time');
-    const pin=el('span','pinb');pin.innerHTML=icon('pin');pin.title='Click to release the pin: the word goes back to spreading out between its neighbours';
+    const pin=el('span','pinb');pin.innerHTML=icon('pin');pin.title='Click to release the pin: the word goes back to spreading out between its neighbors';
     pin.onpointerdown=e=>{if(timeAct(e))e.stopPropagation?.();};
     pin.onclick=e=>{if(!timeAct(e))return;e.stopPropagation?.();release(g,lane,token);};
     chip.append(pin,document.createTextNode?document.createTextNode(token.text):token.text);
@@ -288,8 +288,16 @@ export function createTiming(env){
   }
   // The pointer's distance from the start of the bar it is over, in the bar's own (laid out) pixels.
   const pointerX=({b,rect},e)=>rect.width>0?(e.clientX-rect.left)/rect.width*b.width:0;
-  // The pass of a row that holds the dragged word's own line.
-  const passIn=gb=>gb.passes.find(p=>p.number===(drag.token?.passNumber??drag.lane?.passNumber))||gb.passes[0];
+  // Which pass of a row the dragged word lands in. A folded row shows its bars once for every pass, so the pass is chosen by time: the
+  // one closest to where the word may go (its line, or the bar before its section for a pickup), then the one nearest to where it is
+  // sung now. In its own row that is the pass it is sung in; in the row before its section it is the last pass, which holds the bar just
+  // before the section (matching pass numbers put a Chorus word's pickup in the first pass there, bars too early to be allowed).
+  const passIn=gb=>{
+    const now=drag.times?.[drag.tokenIndex],lo=drag.bounds?.start,hi=drag.bounds?.end;
+    if(!finite(now)||!finite(lo)||!finite(hi)||gb.passes.length<2)return gb.passes.find(p=>p.number===(drag.token?.passNumber??drag.lane?.passNumber))||gb.passes[0];
+    const gap=p=>Math.max(0,lo-p.end,p.start-hi),away=p=>Math.max(0,p.start-now,now-p.end);
+    return gb.passes.reduce((best,p)=>gap(p)<gap(best)-1e-6||(Math.abs(gap(p)-gap(best))<=1e-6&&away(p)<away(best))?p:best);
+  };
   function targetsFor(b,ctx=drag.ctx){
     if(drag.targetsByBar.has(b.id))return drag.targetsByBar.get(b.id);
     const gb=ctx.g,onsets=b.bar.chunks.map(c=>c.start).filter(finite);
@@ -310,11 +318,21 @@ export function createTiming(env){
     const list=barTargets(b.bar.measure,{snap:gridSnap(),onsets,pins});drag.targetsByBar.set(b.id,list);return list;
   }
   // A displayed grid point -> the same point in the line's own pass: its address and recording time.
-  function actualFor(b,target,ctx){
+  // `pass` is the pass to land in (the one whose lane is under the pointer); without it the pass is found by time (passIn).
+  function actualFor(b,target,ctx,pass=passIn(ctx.g)){
     const {measures}=env.getModel(),gb=ctx.g,rep=gb.passes[0];
-    const measureId=sourceMeasureFor(rep,passIn(gb),b.id);
+    const measureId=sourceMeasureFor(rep,pass,b.id);
     let seconds;try{seconds=secondsAtAddress(measures,{measure_id:measureId,beat:target.beat});}catch{return null;}
-    return {address:{measure_id:measureId,beat:target.beat},seconds,displayBar:b,displayBeat:target.beat,ctx};
+    return {address:{measure_id:measureId,beat:target.beat},seconds,displayBar:b,displayBeat:target.beat,ctx,passNumber:pass?.number??1};
+  }
+  // The pass whose lane is under the pointer in a repeated row (each pass has its own lane of words), or null.
+  function laneUnder(e,{b,ctx}){
+    if(ctx.g.passes.length<2)return null;
+    for(const lanes of ctx.laneEls.values()){
+      const laneEl=lanes.get(b.id),r=laneEl?.getBoundingClientRect?.();
+      if(r&&r.height>0&&e.clientY>=r.top&&e.clientY<=r.bottom)return ctx.g.passes.find(p=>p.number===Number(laneEl.dataset.pass))||null;
+    }
+    return null;
   }
   // Every grid point of every row that the dragged word is allowed to land on.
   function allCandidates(){
@@ -323,6 +341,7 @@ export function createTiming(env){
     for(const ctx of allCtxs())for(const b of ctx.barEls)for(const target of targetsFor(b,ctx)){const a=actualFor(b,target,ctx);if(a)list.push(a);}
     return drag.candidates=list;
   }
+  const inBounds=s=>s>=drag.bounds.start-1e-6&&s<=drag.bounds.end+1e-6;
   function moveDrag(e){
     if(!drag||e.pointerId!==drag.pointer)return;
     if(!drag.moved){
@@ -335,11 +354,15 @@ export function createTiming(env){
     const {b,ctx}=hit,x=pointerX(hit,e);
     // magnet off: the exact beat under the pointer; on: the nearest grid point, chord or pin
     const target=env.getSnap()==='free'&&b.n?{beat:Math.max(0,Math.min(b.n,b.beatOf(x)))}:nearestTarget(targetsFor(b,ctx),x,b.width,b.n,b.beatOf);if(!target)return;
-    let actual=actualFor(b,target,ctx);if(!actual)return;
+    // over a pass's lane in a repeated row: that pass, if the word may go there; otherwise the pass found by time
+    const lanePass=laneUnder(e,hit);
+    let actual=lanePass?actualFor(b,target,ctx,lanePass):null;
+    if(!actual||!inBounds(actual.seconds)||!allowedTime(actual.seconds,drag.limits))actual=actualFor(b,target,ctx);
+    if(!actual)return;
     // a word may never pass a pinned neighbour: if the pointer is past one, use the nearest grid point that is still between them
     if(!allowedTime(actual.seconds,drag.limits)){
       actual=nearestAllowed(allCandidates(),actual.seconds,drag.limits);
-      if(!actual){drag.drop=null;env.say?.('There is no room between this word\'s pinned neighbours. Release one of them first.');return;}
+      if(!actual){drag.drop=null;env.say?.('There is no room between this word\'s pinned neighbors. Release one of them first.');return;}
     }
     drag.drop=actual;
     preview(actual);
@@ -358,11 +381,12 @@ export function createTiming(env){
     // the drop marker shows exactly where the word will land, in whichever row that is
     drag.mark?.remove?.();
     const dropCtx=drag.drop.ctx,b=drag.drop.displayBar,mark=el('i','drop-mark');
-    const shown=displayAddress(dropCtx.g,{passNumber:drag.token.passNumber},actual.seconds);
+    const shown=displayAddress(dropCtx.g,{passNumber:actual.passNumber},actual.seconds);
     mark.style.left=b.xOf(shown?.beat??drag.drop.displayBeat)+'px';
     const pos=shown?musicalPosition(measures,shown.seconds):null;
     mark.dataset.t=pos&&finite(pos.beat)?'Bar '+(pos.bar-(env.getModel().barOffset||0))+' · beat '+Number(pos.beat.toFixed(2)):'Bar '+b.bar.number;
-    const barId=shown?.measureId||b.id,laneEl=dropCtx.laneEls.get(drag.laneIndex)?.get(barId)||[...dropCtx.laneEls.values()].map(m=>m.get(barId)).find(Boolean);
+    const barId=shown?.measureId||b.id,lanes=[...dropCtx.laneEls.values()].map(m=>m.get(barId)).filter(Boolean);
+    const laneEl=(dropCtx.g.passes.length>1?lanes.find(l=>Number(l.dataset.pass)===actual.passNumber):null)||dropCtx.laneEls.get(drag.laneIndex)?.get(barId)||lanes[0];
     if(laneEl)laneEl.append(mark);else{mark.className+=' in-bar';(dropCtx.barEls.find(x=>x.id===barId)?.node||b.node).append(mark);}   // a row with no lyrics has no lane: the marker stands in the bar
     drag.mark=mark;
   }
@@ -437,7 +461,7 @@ export function createTiming(env){
     try{
       const next=planPageEdit.releaseWord({content:env.getData().content,sectionId:token.sectionId,line:token.line,offset:token.offset});
       await env.commit(next,'Release word');
-      env.say?.('Released. This word now spreads out between its neighbours.');
+      env.say?.('Released. This word now spreads out between its neighbors.');
     }catch(error){env.fail(error);}
   }
   async function placeFlow(g,lane){

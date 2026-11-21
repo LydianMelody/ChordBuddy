@@ -120,7 +120,9 @@ export function mountChartPage(root,handlers={}){
     positioning:(g,pass)=>{positioning={groupId:g.id,pass:pass||1};last=null;if(data?.transport)updatePlayback(data.transport);},
   });
   const notify=()=>handlers.onDraftChange?.({draft:!!draft?.dirty,saving,failed:!!draft?.failed});
-  const fail=e=>{message.textContent=e?.message||String(e);handlers.onError?.(e);};
+  // An error is shown once, in the app's alert bar at the top (where every view shows its errors); the line under the chart keeps only its
+  // own notes ("Released. …"). Without that bar (a chart mounted on its own), the line shows the error instead.
+  const fail=e=>{if(handlers.onError){message.textContent='';handlers.onError(e);}else message.textContent=e?.message||String(e);};
   const context=()=>({documentId:data.documentId,revision:data.revision});
 
   // ----- which pass? Playback wins while it is inside the group; otherwise the last pass you chose; otherwise the first. -----
