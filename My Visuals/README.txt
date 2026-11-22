@@ -24,6 +24,17 @@ Starting a new one
 - The full guide is the "chordbuddy-visuals" skill. Ask Claude to "make a Chord Buddy visualization" and it
   knows what a visualization can use: chords, beats, sections, lyrics, MIDI melodies, the loop and all seven stems.
 
+3D and shaders (three.js)
+- A visualization can draw in 3D, or with shaders like the ones on shadertoy.com, using three.js, which comes with Chord Buddy (nothing
+  is downloaded):  import {THREE,createThreeView,shadertoyPass} from '../visual-three.js';
+  The chord and lyrics are still drawn on top as usual. The first lines of chordbuddy\web\visual-three.js explain each part,
+  including a shader with several passes, like Shadertoy's Buffer A-D tabs.
+- It keeps your monitor's full frame rate (144 Hz on a 144 Hz monitor): when the graphics card falls behind, the picture is drawn at a
+  lower resolution, never below half, and goes back up when there is time again.
+- Adapting someone else's code (a shader from Shadertoy, say): only use it if its author allows it. Keep the author's credit and link
+  at the top of your file, exactly as they ask. Never use one that says you cannot host, display, distribute or share it (or anything like that), and do not copy
+  Shadertoy's own sample pictures and textures; noiseTexture() in visual-three.js makes a noise texture instead.
+
 In a show
 - A show can switch to your visualization and fire or set the parts it declares as `inputs`, so declare the ones worth controlling.
 - A show file names your visualization but never carries its code. On another computer, copy the .js file here too.
