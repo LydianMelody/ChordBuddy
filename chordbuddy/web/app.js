@@ -40,7 +40,8 @@ import {mountDeskBars,combinedZoom} from './desk-bars.js';
 import {mountDeskFollow} from './desk-follow.js';
 import {createVisualPublisher,desktopWindow,joinChannels,playerRelay,CHANNEL} from './visual-bridge.js';
 import {mountVisualizer,loadVisualizations} from './visualizer-view.js';
-import {defaultVisualOptions,readSetup,readUsual,writeSetup,writeUsual} from './visual-setup.js';
+import {defaultVisualOptions,readSetup,readUsual,writeSetup,writeUsual,readOrder,writeOrder,orderScenes,stepScene} from './visual-setup.js';
+import {createStage,BEAT} from './visual-stage.js';
 import {createMidiImport} from './midi-import.js';
 import {buildScene} from './visual-scene.js';
 import {createPerformanceApp} from './performance-app.js';
@@ -270,7 +271,14 @@ async function reloadPracticeChart(){
 transport.subscribe(()=>{if(model.detail)updatePlayback();renderLock();});
 // ---- Visualizer: a pop-out window or this page in full screen, following the player over the visual bridge (visual-bridge.js). ----
 // visualizers in this browser hear it on the BroadcastChannel; one in OBS (a Browser Source at the "Stream to OBS" address) through the server
+// Only one visualizer draws at a time (visual-stage.js): the newest one opened, or OBS while a Browser Source there is drawing.
+const visualStage=createStage({post:message=>visuals.stage(message)});
+setInterval(()=>visualStage.tick(),BEAT);
 const visuals=createVisualPublisher({open:()=>joinChannels(new BroadcastChannel(CHANNEL),playerRelay(token)),onListen:()=>publishVisualScene(),onCommand:action=>runPlaybackAction(action),
+  onStage:message=>visualStage.receive(message),
+  onViewers:status=>{visualStage.obs(status);paintObsButton();},
+  onOrder:order=>{prefs.set('cb-visual-order',writeOrder(order));publishVisualSetup();},   // the picker was dragged into a new order
+  onOnTop:on=>{desktopWindow()?.stream_controls_on_top?.(on).catch(()=>{});},    // Stream controls' Always on top (desktop app only)
   onMix:mix=>{try{transport.setMix(mix);}catch(error){showError(error);}},        // a visualizer's mixer drawer (the transport checks it)
   onPin:(songId,setup)=>{
     // unpinning keeps the look on screen for now; pinning makes the pinned look the one showing
@@ -307,10 +315,11 @@ function publishVisualSetup(){
   if(visualPatches.songId!==(song?.id||null))loadVisualPatches(song?.id||null);   // it publishes again once they are here
   const patches=visualPatches.songId===(song?.id||null)?{usual:visualPatches.usual,song:visualPatches.song}:{usual:visualPatches.usual,song:{}};
   visuals.setup({songId:song?.id||null,pinned:song?readSetup(prefs.get('cb-visual:'+song.id,'')):null,usual:readUsual(prefs.get('cb-visual-usual','')),
-    showing:visualShowing?.scene||null,patches});
+    showing:visualShowing?.scene||null,patches,order:readOrder(prefs.get('cb-visual-order','[]'))});
 }
-// ---- Visualizer keys: 1–9, Y and C in the chart and MIDI views choose the look and switch the lyrics and calm mode for every visualizer, OBS included, as they do
-// in a visualizer window. The lead sheet keeps its own keys (C picks its Chords tool). ----
+// ---- Visualizer keys: 1–9, [ and ], Y and C in the chart and MIDI views choose the look and switch the lyrics and calm mode for every visualizer, OBS included,
+// as they do in a visualizer window. 1–9 are the first nine in the picker's order; [ and ] step to the previous and next. The lead sheet
+// keeps its own keys (C picks its Chords tool), but [ and ] work there too. ----
 const onAirLabel=$('visual-menu').querySelector('summary em');
 let onAirScenes=null,onAirNote=0;
 // says briefly on the Visualizer button what a key just did, since the visualizer may only be showing in OBS
@@ -319,9 +328,12 @@ async function onAirKey(key){
   const usual=readUsual(prefs.get('cb-visual-usual','')),song=model.detail?currentSong():null;
   const setUsual=change=>{prefs.set('cb-visual-usual',writeUsual({...usual,...change}));publishVisualSetup();};
   if(key==='y'){const on=!(usual.lyrics??true);setUsual({lyrics:on});onAirSay(on?'Lyrics on':'Lyrics off');return;}
+  if(key==='h'){const on=!(usual.chords??true);setUsual({chords:on});onAirSay(on?'Chords on':'Chords off');return;}
   if(key==='c'){const on=!(usual.calm??false);setUsual({calm:on});onAirSay(on?'Calm on':'Calm off');return;}
   try{onAirScenes=(await loadVisualizations()).scenes;}catch{if(!onAirScenes)return;}
-  const scene=onAirScenes[Number(key)-1];if(!scene){onAirSay(`No look ${key}`);return;}
+  const list=orderScenes(onAirScenes,readOrder(prefs.get('cb-visual-order','[]')));
+  const scene=key==='['||key===']'?stepScene(list,practiceCurrentVisual(),key===']'?1:-1):list[Number(key)-1];
+  if(!scene){onAirSay(`No look ${key}`);return;}
   // like a click in a visualizer's picker: over a pinned look it shows for now; otherwise it becomes the usual look
   if(song&&readSetup(prefs.get('cb-visual:'+song.id,''))){visualShowing={songId:song.id,scene:scene.id};publishVisualSetup();}
   else{visualShowing=null;setUsual({scene:scene.id});}
@@ -329,11 +341,16 @@ async function onAirKey(key){
 }
 document.addEventListener('keydown',event=>{
   if(event.ctrlKey||event.metaKey||event.altKey||event.shiftKey||event.defaultPrevented||event.repeat)return;
-  const key=String(event.key).toLowerCase();if(!/^[1-9yc]$/.test(key))return;
+  const key=String(event.key).toLowerCase();if(!/^[1-9ych[\]]$/.test(key))return;
   if(typingTarget(event.target)||document.querySelector('dialog[open]')||midiImport.isOpen)return;
-  if(currentRecord()?.doc.kind==='abc')return;          // the lead sheet's own keys
+  if(currentRecord()?.doc.kind==='abc'&&!['[',']','h'].includes(key))return;          // the lead sheet's own keys ([, ] and H are free there)
   event.preventDefault();onAirKey(key);
 });
+// the look showing now: one chosen for now, else the open song's pinned one, else the usual one (null: the default)
+function practiceCurrentVisual(){
+  const song=model.detail?currentSong():null;if(visualShowing?.songId===song?.id&&visualShowing?.scene)return visualShowing.scene;
+  return (song?readSetup(prefs.get('cb-visual:'+song.id,''))?.scene:null)??readUsual(prefs.get('cb-visual-usual','')).scene??null;
+}
 function publishVisualScene(){
   const song=currentSong(),record=chartRecord();
   publishVisualSetup();
@@ -397,11 +414,12 @@ function openVisualizer(fullScreen){
   const desktop=desktopWindow();
   if(fullScreen){
     const overlay=document.createElement('div');overlay.className='visualizer-overlay';document.body.append(overlay);
-    const view=mountVisualizer(overlay),button=document.createElement('button');
-    button.type='button';button.dataset.control='close';button.textContent='Close';button.title='Close the visualizer (Esc)';view.toolbar.append(button);
+    let close=()=>{};
+    const view=mountVisualizer(overlay,{kind:'overlay',onClose:()=>close()}),button=document.createElement('button');
+    button.type='button';button.dataset.control='close';button.textContent='Close';button.title='Close the visualizer (Esc)';view.addControl(button,'x');
     let entered=false,closed=false;
     // Esc leaves full screen first (the browser does that); leaving it, Esc or Close removes the view
-    const close=()=>{if(closed)return;closed=true;if(closeVisualOverlay===close)closeVisualOverlay=null;document.removeEventListener('fullscreenchange',changed);document.removeEventListener('keydown',key);view.dispose();overlay.remove();
+    close=()=>{if(closed)return;closed=true;if(closeVisualOverlay===close)closeVisualOverlay=null;document.removeEventListener('fullscreenchange',changed);document.removeEventListener('keydown',key);view.dispose();overlay.remove();
       if(document.fullscreenElement===overlay)document.exitFullscreen().catch(()=>{});
       if(desktop)desktop.is_fullscreen().then(on=>{if(on)desktop.toggle_fullscreen();}).catch(()=>{});};
     const changed=()=>{if(document.fullscreenElement===overlay)entered=true;else if(entered)close();};
@@ -448,10 +466,10 @@ const performanceApp=createPerformanceApp({api,token,transport,visuals,$,showErr
     barStarts:()=>(practiceView.getModel()?.measures||practiceData?.music?.measures||[]).map(m=>m.start),
     songTempo:()=>songTempoNow(),
     song:direction=>{const ids=(model.state?.setlists||[]).find(list=>list.id===model.setlist)?.song_ids||[],at=ids.indexOf(model.song),to=ids[at+direction];if(at>=0&&to)selectSong(to).catch(showError);},
-    currentVisual:()=>{const song=model.detail?currentSong():null;if(visualShowing?.songId===song?.id&&visualShowing?.scene)return visualShowing.scene;return (song?readSetup(prefs.get('cb-visual:'+song.id,''))?.scene:null)??readUsual(prefs.get('cb-visual-usual','')).scene??null;},
+    currentVisual:()=>practiceCurrentVisual(),
     showVisual:id=>{const song=model.detail?currentSong():null;if(song&&readSetup(prefs.get('cb-visual:'+song.id,''))){visualShowing={songId:song.id,scene:id};publishVisualSetup();}else{visualShowing=null;prefs.set('cb-visual-usual',writeUsual({...readUsual(prefs.get('cb-visual-usual','')),scene:id}));publishVisualSetup();}},
-    toggleVisual:name=>{const usual=readUsual(prefs.get('cb-visual-usual',''));prefs.set('cb-visual-usual',writeUsual({...usual,[name]:!(usual[name]??name==='lyrics')}));publishVisualSetup();},
-    visualSwitch:name=>readUsual(prefs.get('cb-visual-usual',''))[name]??name==='lyrics',
+    toggleVisual:name=>{const usual=readUsual(prefs.get('cb-visual-usual',''));prefs.set('cb-visual-usual',writeUsual({...usual,[name]:!(usual[name]??(name==='lyrics'||name==='chords'))}));publishVisualSetup();},
+    visualSwitch:name=>readUsual(prefs.get('cb-visual-usual',''))[name]??(name==='lyrics'||name==='chords'),
   },
   chordNow:()=>lastNow?{now:lastNow.chord,next:lastNow.next}:null,mappings:()=>{try{return JSON.parse(prefs.get('cb-midi-mappings','[]')).map(currentMapping);}catch{return [];}},saveMappings:value=>prefs.set('cb-midi-mappings',JSON.stringify(value))});
 $('visual-editor-open').addEventListener('click',()=>performanceApp.closePage());
@@ -463,8 +481,10 @@ $('all-songs').addEventListener('click',closeVisualEditor);     // All songs tak
 // program that plays the sound, so picking it works (obs-sound.html, and allow_sound_window in __main__.py). It comes back with each launch
 // until it is closed. A browser needs none of this: OBS can pick the browser itself.
 let soundWindow=null,soundWatch=0;
+// It is also the Stream controls window: the visualizer's picker for what OBS shows (the mixer stays in this window), which has no controls of its own. In a
+// browser it is only that (OBS can hear the browser itself).
 function openSoundWindow({remember=true}={}){
-  soundWindow=window.open('/obs-sound.html','cb-obs-sound','popup,width=460,height=190');
+  soundWindow=window.open(desktopWindow()?'/obs-sound.html?sound=1':'/obs-sound.html','cb-obs-sound','popup,width=420,height=640');
   if(!soundWindow)return;
   if(remember)prefs.set('cb-obs-sound','1');
   clearInterval(soundWatch);
@@ -493,8 +513,13 @@ $('copy-run-log').onclick=async()=>{
   let copied=true;try{await navigator.clipboard.writeText(log);}catch{copied=false;}
   await askChoice({title:copied?'Copied the show’s run log':'Copy the show’s run log',message:copied?'Paste it into a message to say what went wrong.':['It couldn’t be copied by itself. Select it here and copy it:',log.slice(0,4000)+(log.length>4000?' …':'')],cancel:'Done',choices:[]});
 };
-$('visualizer-obs').onclick=async()=>{
+$('visualizer-obs').onclick=()=>{
   $('settings-menu').open=false;
+  if(visualStage.obsState.connected){explainObs();return;}
+  openSoundWindow({remember:!!desktopWindow()});        // the Stream controls window: OBS shows no controls of its own
+  showObsSetup();
+};
+async function showObsSetup(){
   let url;try{({url}=await api('/api/visual-relay/address'));}catch(error){showError(error);return;}
   const desktop=!!desktopWindow();
   const copy=async()=>{try{await navigator.clipboard.writeText(url);return true;}catch{return false;}};
@@ -502,13 +527,37 @@ $('visualizer-obs').onclick=async()=>{
   await askChoice({title:'Stream the visualizer to OBS',
     message:[`${copied?'Copied this address':'This is the address'} for an OBS Browser Source:`,url,
       'In OBS, add a Browser Source, paste it as the URL, and set the width and height you stream at (for example 1920 × 1080). Tick “Use custom frame rate” and choose 60 for smooth motion.',
-      'It follows this window: the song, playback and the look you choose in the visualizer here.',
-      desktop?'For the sound, click Open sound window, then add an Application Audio Capture source in OBS and pick the window named “Chord Buddy sound for OBS”. OBS hears nothing from this main window. The sound window opens by itself each time Chord Buddy starts, until you close it.'
+      'It follows this window: the song, playback and the look. Choose the look in the Stream controls window that just opened, or with the keys [ and ] (and 1 to 9) here.',
+      desktop?'For the sound, add an Application Audio Capture source in OBS and pick the Stream controls window (its name is “Chord Buddy sound for OBS”). OBS hears nothing from this main window. That window opens by itself each time Chord Buddy starts, until you close it.'
         :'For the sound, add an Application Audio Capture source and pick this browser.',
       'Keep the address private: while Chord Buddy is running, it can read your songs.'],
-    cancel:'Done',choices:[{id:'copy',label:copied?'Copy again':'Copy',keepOpen:true},...(desktop?[{id:'sound',label:'Open sound window',keepOpen:true}]:[])],
-    onPick:id=>{if(id==='sound')openSoundWindow();else copy();}});
+    cancel:'Done',choices:[{id:'copy',label:copied?'Copy again':'Copy',keepOpen:true},{id:'sound',label:'Open Stream controls',keepOpen:true}],
+    onPick:id=>{if(id==='sound')openSoundWindow({remember:desktop});else copy();}});
 };
+// While a Browser Source in OBS is connected, the button says so (red while it draws), and a click explains how to stop it: Chord Buddy
+// can't close something that runs inside OBS. The Visualizer button shows a red dot too, since its menu is usually closed.
+function paintObsButton(){
+  const {connected,drawing}=visualStage.obsState,button=$('visualizer-obs'),menu=$('visual-menu').querySelector('summary');
+  button.textContent=drawing?'Streaming to OBS…':connected?'OBS paused (hidden)…':'Stream to OBS…';
+  button.classList.toggle('on-air',drawing>0);button.classList.toggle('obs-paused',!drawing&&connected>0);
+  button.title=drawing?'The visualizer is drawing in OBS, as a Browser Source. Click to see how to stop it.'
+    :connected?'The Browser Source in OBS is hidden, so it is not drawing. Click to see how to stop it completely.'
+    :'Stream the visualizer: an address for an OBS Browser Source, with no controls on screen, and how to get the sound into OBS';
+  menu.classList.toggle('on-air',drawing>0);
+  menu.title=drawing?'Visualizer (drawing in OBS now): show it, stream it, or edit how it reacts':'Show the visualizer, stream it, or edit how it reacts';
+}
+async function explainObs(){
+  const {drawing}=visualStage.obsState;
+  const choice=await askChoice({title:drawing?'Streaming to OBS':'OBS Browser Source (paused)',
+    message:[drawing?'The visualizer is drawing inside OBS, which uses your graphics card. While it does, the visualizer windows here show only their controls, so the look is never drawn twice.'
+        :'The Browser Source is hidden in OBS, so it isn’t drawing right now. It is still open, and starts again when you show it.',
+      'The Browser Source runs inside OBS itself, so Chord Buddy can’t close it. To stop it, either:',
+      '• In OBS, open the Browser Source’s properties, turn on “Shutdown source when not visible”, then hide the source (the eye icon), or',
+      '• Close OBS.'],
+    cancel:'Done',choices:[{id:'controls',label:'Open Stream controls',keepOpen:true},{id:'setup',label:'Show the address again'}],
+    onPick:id=>{if(id==='controls')openSoundWindow({remember:!!desktopWindow()});}});
+  if(choice==='setup')showObsSetup();
+}
 // Default Visualization: the look a song opens with. The same choice as Pin on the visualizer's toolbar, offered under the mixer and in the
 // Advanced Visuals Editor; every copy of the menu follows it. "My usual look" unpins it, and a pinned layout stays when the look changes.
 const defaultVisualMenus=new Set();let defaultVisualScenes=[];

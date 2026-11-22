@@ -230,3 +230,30 @@ test('renaming a section keeps the pickup that the next section’s line sings i
     assert.deepEqual(wordsOf(plan.candidate,'c')[0],[0,'m3',3]);   // the pickup is still in bar 4
   }
 });
+
+test('true timing: while a pickup is sung, it is the word lit up, not the last word of the row before', () => {
+  installDom();const root=new Node();
+  const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{}});
+  const f=withPickup(chart());
+  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});view.setWordView('true');
+  const lit=()=>byClass(root,'wnow').map(n=>n.textContent.trim());
+  view.updatePlayback({seconds:5,ready:true,playing:true});assert.deepEqual(lit(),['two']);
+  view.updatePlayback({seconds:7.6,ready:true,playing:true});assert.deepEqual(lit(),['And']);     // "And" is sung at 7.5, in bar 4
+  view.updatePlayback({seconds:10.5,ready:true,playing:true});assert.deepEqual(lit(),['And']);     // held until the next word
+  view.updatePlayback({seconds:11.2,ready:true,playing:true});assert.deepEqual(lit(),['so']);
+});
+
+test('a chord held into the next bar keeps the chord where it began lit, not the empty spot', () => {
+  installDom();const root=new Node();
+  const view=mountChartPage(root,{onSeek:()=>Promise.resolve(),onCommit:async()=>{}});
+  const f=chart();
+  // C is played from bar 2 through bar 3 (2 to 6 seconds), so bar 3 only holds it
+  f.content.chords=f.content.chords.filter(c=>c.id!=='c2').map(c=>c.id==='c1'?{...c,end:6}:c);
+  view.update({...f,documentId:'d',revision:0,songId:'s',transport:{seconds:0,ready:true}});
+  const lit=()=>byClass(root,'chunk').filter(n=>has(n,'now')).map(n=>[n.parent.dataset?.bar??n.parent.parent?.dataset?.bar,byClass(n,'chord')[0]?.textContent.trim()]);
+  assert.equal(byClass(root,'held').length,1,'bar 3 shows C as held');
+  view.updatePlayback({seconds:3,ready:true,playing:true});const atStart=lit();
+  view.updatePlayback({seconds:5,ready:true,playing:true});
+  assert.deepEqual(lit(),atStart);assert.equal(atStart.length,1);assert.equal(atStart[0][1],'C');
+  view.updatePlayback({seconds:6.5,ready:true,playing:true});assert.equal(lit()[0][1],'C');   // the C in bar 4 is played again: its own
+});

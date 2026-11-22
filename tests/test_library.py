@@ -69,6 +69,11 @@ def test_many_taught_switches_are_kept_and_other_preferences_stay_small(tmp_path
         library.write_prefs({'cb-theme': 'x' * 201})
     with pytest.raises(ValueError):
         library.write_prefs({'cb-midi-mappings': 'x' * (64 * 1024 + 1)})
+    order = '[' + ','.join(f'"look-{i}"' for i in range(100)) + ']'
+    library.write_prefs({'cb-visual-order': order})
+    assert Library(tmp_path).read_prefs()['cb-visual-order'] == order
+    with pytest.raises(ValueError):
+        library.write_prefs({'cb-visual-order': 'x' * (8 * 1024 + 1)})
 
 
 def test_bad_audio_and_traversal_do_not_create_songs(tmp_path, mp3_bytes):

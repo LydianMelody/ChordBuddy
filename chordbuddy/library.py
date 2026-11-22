@@ -438,6 +438,8 @@ class Library:
                         device=values.get('device','auto'))
 
     PREF_KEY=re.compile(r'cb-[a-z0-9:_.-]{1,80}')
+    # most preferences are a word or two; these hold lists: taught MIDI switches, and the visualizer picker's order (visualization ids)
+    PREF_ROOM={'cb-midi-mappings':64*1024,'cb-visual-order':8*1024}
 
     def read_prefs(self):
         """Small interface preferences (theme, folded panels, a song's key) kept with the library, so they survive every launch."""
@@ -447,7 +449,7 @@ class Library:
     def write_prefs(self,values):
         if not isinstance(values,dict) or len(values)>40:raise ValueError('Expected a few preferences')
         for key,value in values.items():
-            if not isinstance(key,str) or not self.PREF_KEY.fullmatch(key) or not isinstance(value,str) or len(value)>(64*1024 if key=='cb-midi-mappings' else 200):raise ValueError('Unknown preference')
+            if not isinstance(key,str) or not self.PREF_KEY.fullmatch(key) or not isinstance(value,str) or len(value)>self.PREF_ROOM.get(key,200):raise ValueError('Unknown preference')
         with self.transaction() as db:
             for key,value in values.items():db.execute('INSERT OR REPLACE INTO settings VALUES(?,?)',('ui.'+key,value))
             if db.execute("SELECT COUNT(*) FROM settings WHERE key LIKE 'ui.%'").fetchone()[0]>500:raise ValueError('Too many saved preferences')

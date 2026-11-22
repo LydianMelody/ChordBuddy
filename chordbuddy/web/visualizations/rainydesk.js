@@ -247,7 +247,7 @@ export default {
       fill(POLY([[1422,304],[1512,272],[1512,372],[1422,340]]),[0.88,0.3,0.2]);fill(E(1510,322,10,48),[0,0.05,0.4]);pop();
       const Lv=calm?0.8:0.55+0.45*clamp(vocS*1.4,0,1);
       light(1080,610,600,340,Lv);
-      clock(fr,t);
+      clock(fr,t,env.chords!==false);
     }
 
     function trainX(T,t){const v=150,TL=380;return T.dir>0?GX0-TL-40+(t-T.t0)*v:GX1+40-(t-T.t0)*v;}
@@ -352,20 +352,21 @@ export default {
       stroke(P(p=>{p.moveTo(H[0]-16,H[1]+6);p.quadraticCurveTo(H[0]-4,H[1]+14,H[0]+12,H[1]+10);}),SKIND,2,true);
     }
 
-    function clock(fr,t){
+    function clock(fr,t,shown=true){
       const K=0.95;for(const c of X){c.save();c.translate(24-1280*K,650-560*K);c.scale(K,K);}
-      const ch=fr.chord||{},cur=parseChord(ch.label),nx=ch.next?parseChord(ch.next.label):null;
+      // with the Chords switch off the clock still keeps the beat (its colon and the count-in dots), its digits dark
+      const ch=shown?fr.chord||{}:{},cur=parseChord(ch.label),nx=ch.next?parseChord(ch.next.label):null;
       fill(E(1404,676,138,10),[0.35,0.4,0.35]);
       fill(RR(1280,560,246,112,16),[0.8,0.5,0.12]);fill(RR(1294,574,218,84,8),[0.92,0.28,0.22]);
       const flash=ch.label&&t-(ch.start??-9)<0.15,ghost=flash?[0.6,0.48,0.5]:[0.8,0.34,0.32],lit=[0,1,1],dim=[0.12,0.62,0.68];
-      seven(1306,586,48,64,9,cur?cur.root:'-',ghost,lit);
+      seven(1306,586,48,64,9,cur?cur.root:shown?'-':' ',ghost,lit);
       if(cur){const top=(cur.acc+cur.qual).slice(0,5);if(top)text(top,1364,606,`700 ${top.length>3?16:20}px ${MONO}`,lit,'left',false);
         if(cur.bass)text('/'+cur.bass,1364,642,`700 17px ${MONO}`,lit,'left',false);}
       const b=fr.beat||{},on=!fr.playing||b.bar==null||(b.phase||0)<0.5;
       fill(E(1430,604,4.2,4.2),on?lit:ghost);fill(E(1430,632,4.2,4.2),on?lit:ghost);
       seven(1446,592,28,40,6,ch.next?(nx?nx.root:'-'):' ',ghost,dim);
       if(nx&&(nx.acc+nx.qual))text((nx.acc+nx.qual).slice(0,4),1480,608,`700 13px ${MONO}`,dim,'left',false);
-      const spb=60/(b.bpm||100),n=ch.next?Math.ceil((ch.next.in??99)/spb):0;
+      const nxt=(fr.chord||{}).next,spb=60/(b.bpm||100),n=nxt?Math.ceil((nxt.in??99)/spb):0;
       for(let i=0;i<4;i++)fill(R(1446+i*15,644,9,6),n>0&&n<=4&&i<n?lit:ghost);
       pop();
     }

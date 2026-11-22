@@ -109,4 +109,6 @@
 [data-scheme="dark"] .attribution-credit{border-top-color:var(--faint)}
 [data-scheme="dark"] .settings-error{color:var(--a1)}
 [data-scheme="dark"] .attribution-details a{color:var(--hl)}
-
+/* Stream to OBS, on air: a red that stays readable on the dark page */
+[data-scheme="dark"] #visualizer-obs.on-air{color:#FF6B6B}
+[data-scheme="dark"] #visual-menu>summary.on-air::after{background:#FF6B6B}

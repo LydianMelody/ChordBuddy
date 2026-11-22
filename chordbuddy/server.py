@@ -363,7 +363,8 @@ class Handler(BaseHTTPRequestHandler):
             if secrets.compare_digest(token,self.app.token):return True
             # A visualizer in OBS holds only the stream key, never the session token: the key opens just the reads that draw a song.
             offered=self.headers.get('X-ChordBuddy-Stream','')
-            key=stream_key(self.app.stream_key_path) if offered and method=='GET' and STREAM_READS.fullmatch(path) else None
+            reads=method=='GET' and STREAM_READS.fullmatch(path)
+            key=stream_key(self.app.stream_key_path) if offered and (reads or method=='POST' and path=='/api/visual-relay/viewer-state') else None
             return bool(key) and secrets.compare_digest(offered,key)
         return True
 
@@ -477,7 +478,7 @@ class Handler(BaseHTTPRequestHandler):
         try:self._json({'error':message},status)
         except OSError:pass       # the page is gone, or the answer had already begun: nothing left to tell it
 
-    def _event_stream(self,role):
+    def _event_stream(self,role,extra=None):
         # server-sent events from the visual relay, until the browser goes away
         self.send_response(200)
         self.send_header('Content-Type','text/event-stream; charset=utf-8')
@@ -485,7 +486,7 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection=True
         def write(text):
             self.wfile.write(text.encode('utf-8'));self.wfile.flush()
-        try:self.app.visual_relay.stream(role,write)
+        try:self.app.visual_relay.stream(role,write,**(extra or {}))
         except OSError:pass                              # the page closed or reloaded (Windows reports it as aborted, not reset)
 
     def _attachment(self,kind,name,size=None):
@@ -518,7 +519,7 @@ class Handler(BaseHTTPRequestHandler):
         key=stream_key(self.app.stream_key_path)
         if not key or not secrets.compare_digest(_first(query,'key'),key):
             return self._json({'error':'This stream address is not valid. Copy it again from Chord Buddy (More options, Visualizer for OBS).'},403)
-        self._event_stream('viewer')
+        self._event_stream('viewer',{'viewer':_first(query,'id')[:64] or None,'drawing':_first(query,'drawing','1')!='0'})
 
     def _relay_address(self,query):
         key=stream_key(self.app.stream_key_path,True)
@@ -783,6 +784,7 @@ def find_route(table,path):
 
 
 # The OBS stream key may read /api/document/, /api/visual-features/ and one file of /api/user-midi/ (STREAM_READS above): keep the two in step.
+# It may also post /api/visual-relay/viewer-state (in POST_ROUTES), and nothing else.
 GET_ROUTES=_routes([
     ('/visual-stream',OWN,Handler._viewer_stream),
     ('/api/visual-relay/address',JSON,Handler._relay_address),
@@ -831,6 +833,8 @@ POST_ROUTES=_routes([
     ('/api/cue-track/upload',UPLOAD,lambda h,q:h.app.cue_tracks.add(_first(q,'song'),_first(q,'name'),h._read(250*1024*1024))),
     ('/api/user-midi/upload',UPLOAD,Handler._user_midi_upload),
     ('/api/visual-relay/send',JSON,lambda h,b:{'viewers':h.app.visual_relay.send(b.get('messages'))}),
+    # a visualizer in OBS (with its stream key: _allowed) says whether it is drawing; it stops while its source is hidden
+    ('/api/visual-relay/viewer-state',JSON,lambda h,b:{'known':h.app.visual_relay.set_drawing(b.get('viewer'),b.get('drawing'))}),
     ('/api/documents/{id}/timing',JSON,lambda h,b,document:h.app.documents.set_chart_timing(document,b['timing'],b['revision'])),
     ('/api/documents/{id}/cleanup/preview',JSON,lambda h,b,document:h.app.documents.preview_cleanup(document)),
     ('/api/documents/{id}/cleanup/apply',JSON,lambda h,b,document:h.app.documents.apply_cleanup(document,b['preview'],b['revision'])),

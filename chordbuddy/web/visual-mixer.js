@@ -11,7 +11,7 @@ const withIcon=(node,name)=>{node.insertAdjacentHTML('afterbegin',icon(name));re
  *  always there, not dragged, and its button folds it down to its title instead of hiding it. Returns {toggle(open?), setMix(mix),
  *  setLevels(frame), element (the floating panel), handle (what it is dragged by), docked, dispose()}. */
 const FOLDED='chordbuddy.editorMixerFolded';
-export function mountMixerDrawer(container,{send,docked=false,foldable=true}){
+export function mountMixerDrawer(container,{send,docked=false,foldable=true,onToggle=()=>{}}){
   const drawer=el('div','visualizer-mixer'+(docked?' docked open':''));drawer.hidden=!docked;
   const rack=el('aside','rack');rack.setAttribute('aria-label','Mixer');
   const head=el('div','rack-head'),title=withIcon(el('b','','Mixer'),'layers'),close=withIcon(el('button','fold'),'chevron');
@@ -70,7 +70,7 @@ export function mountMixerDrawer(container,{send,docked=false,foldable=true}){
     if(document.activeElement!==master)master.value=Math.round(mix.master*100);
     masterOut.textContent=Math.round(mix.master*100);
   }
-  function toggle(value=!open){open=!!value;drawer.hidden=false;requestAnimationFrame(()=>drawer.classList.toggle('open',open));drawer.setAttribute('aria-hidden',String(!open));
+  function toggle(value=!open){open=!!value;onToggle(open);drawer.hidden=false;requestAnimationFrame(()=>drawer.classList.toggle('open',open));drawer.setAttribute('aria-hidden',String(!open));
     if(!open)setTimeout(()=>{if(!open)drawer.hidden=true;},300);}
   render();
   return {

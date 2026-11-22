@@ -462,7 +462,7 @@ export default {
       x.setLineDash([Math.max(2,kk*0.5),Math.max(2,kk*0.3)]);x.lineDashOffset=-V.t*kk*4;
       x.strokeStyle=rgba(col,0.85*a);x.lineWidth=Math.max(1,kk*0.06);x.beginPath();x.moveTo(X(-7.2),Y(top));x.lineTo(X(7.2),Y(top));x.stroke();x.setLineDash([]);
       x.globalCompositeOperation='source-over';
-      const fs=kk*1.0;if(fs<7)return;
+      const fs=kk*1.0;if(fs<7||!V.chords)return;      // the gate's name tag goes when the Chords switch is off; the gate stays
       const lab=String(gt.label).replace(/#/g,'♯').replace(/b(?=\d|$|\/|m|s|a|d)/g,'♭');
       x.font=`800 ${fs}px ${DISPLAY}`;const tw=x.measureText(lab).width,pw=tw+fs*0.9,ph=fs*1.35,cx0=X(0),cy0=Y(top+1.3);
       x.globalAlpha=a;x.fillStyle='rgba(18,15,29,0.85)';x.beginPath();x.roundRect(cx0-pw/2,cy0-ph/2,pw,ph,ph/2);x.fill();
@@ -573,6 +573,7 @@ export default {
     function hudChord(g,fr,wall,calm){
       const zc=L.zc,Z=zc.bottom-zc.top,u=L.u,PW=Math.min(w*0.46,u*0.95),PH=Z*0.62,R={x:(w-PW)/2,y:zc.top+Z*0.18,w:PW,h:PH},ch=fr.chord||{};
       plate(g,R.x,R.y,R.w,R.h,'rgba(255,63,164,0.45)');
+      if(!V.chords)return PW;      // the Chords switch is off: the cockpit panel stays, empty
       g.save();g.beginPath();g.roundRect(R.x,R.y,R.w,R.h,R.h*0.14);g.clip();
       const kk=clamp((wall-chordWall)/0.28,0,1),e=ease(kk),dy=calm?0:R.h*0.5,mcx=R.x+R.w*0.31,mcy=R.y+R.h*0.5,mw=R.w*0.54,fs=R.h*0.66;
       const main=(lab,yo,al)=>{if(lab)chordLabel(g,lab,mcx,mcy+yo,mw,fs,kindOf(lab),al);else{g.globalAlpha=al;g.font=`700 ${fs*0.42}px ${MONO}`;g.textAlign='center';g.textBaseline='middle';g.fillStyle=LAV;g.fillText('N.C.',mcx,mcy+yo);g.globalAlpha=1;}};
@@ -699,7 +700,7 @@ export default {
         ensureInfo(env.song,env.inputs?.rings?.all||null);ensureLayout(env,g);
         const u=L.u,jumped=lastT==null||t<lastT-0.02||t-lastT>0.5;
         if(jumped){bolts.length=0;flares.length=0;}
-        V.t=t;V.wall=wall;V.Dt=info.dist(t);V.speed=(info.dist(t+0.05)-info.dist(t-0.05))/0.1;V.beat=frame.beat?.beat||0;
+        V.t=t;V.wall=wall;V.chords=env.chords!==false;V.Dt=info.dist(t);V.speed=(info.dist(t+0.05)-info.dist(t-0.05))/0.1;V.beat=frame.beat?.beat||0;
         const seg=info.segAt(t),tp=seg.changed?clamp((t-seg.start)/0.9,0,1):1,tpE=ease(tp);
         const wt=s=>s===seg.scene?(tp<1?tpE:1):(tp<1&&s===seg.from?1-tpE:0);
         // smoothing + reactions

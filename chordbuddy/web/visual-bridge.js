@@ -14,6 +14,10 @@
 //          visual, patch or null (remove it)}; the setup message then carries patches: {usual:{visual:patch}, song:{visual:patch}}
 //   editor (visualizer -> player) open the Advanced Visuals Editor in the main window (a visualizer's Edit visuals button)
 //   perform (player -> visualizers) a running show's timed actions (performance-visuals.js), stamped in epoch ms; a visualizer opening late gets the state in force
+//   order  (visualizer -> player)  the picker's new order after a drag: {order: [visualization ids]}; the setup message then carries it too
+//   ontop  (Stream controls -> player) keep the Stream controls window above other windows, or not: {on} (the desktop app does it)
+//   here, take, bye (visualizer -> player) and stage (player -> visualizers): which one visualizer draws (visual-stage.js)
+//   viewers (player's relay -> player) how many Browser Sources in OBS are connected and drawing: {connected, drawing}
 // A visualizer in another browser (an OBS Browser Source, at the address from Visualizer → Stream to OBS) gets the same messages through the
 // server instead (playerRelay, viewerRelay below); it only listens.
 // Clock stamps are epoch milliseconds (performance.timeOrigin + performance.now()), so each window converts them to its own clock.
@@ -38,7 +42,8 @@ export function clockMessage(snapshot,at=epoch()){
  * publish a fresh scene (nothing is published while nobody listens). onMix(mix): a visualizer changed the mix (the page applies and
  * validates it). Returns {clock(snapshot), scene(value), dispose()}; scene(null) clears it.
  */
-export function createVisualPublisher({open=()=>new BroadcastChannel(CHANNEL),onListen=()=>{},onMix=()=>{},onCommand=()=>{},onPin=()=>{},onUsual=()=>{},onShow=()=>{},onPatch=()=>{},onEditor=()=>{}}={}){
+export function createVisualPublisher({open=()=>new BroadcastChannel(CHANNEL),onListen=()=>{},onMix=()=>{},onCommand=()=>{},onPin=()=>{},onUsual=()=>{},onShow=()=>{},onPatch=()=>{},onEditor=()=>{},
+  onOrder=()=>{},onStage=()=>{},onViewers=()=>{},onOnTop=()=>{}}={}){
   let lastScene=null,lastClock=null,lastSetup=null,listening=false,performState=null;
   const channel=open();
   channel.onmessage=event=>{
@@ -50,6 +55,10 @@ export function createVisualPublisher({open=()=>new BroadcastChannel(CHANNEL),on
     if(m?.type==='show'&&typeof m.songId==='string'&&typeof m.scene==='string'){onShow(m.songId,m.scene);return;}
     if(m?.type==='patch'&&typeof m.visual==='string'&&(m.songId===null||typeof m.songId==='string')){onPatch(m.songId,m.visual,m.patch&&typeof m.patch==='object'?m.patch:null);return;}
     if(m?.type==='editor'){onEditor();return;}
+    if(m?.type==='order'&&Array.isArray(m.order)){onOrder(m.order);return;}
+    if(m?.type==='ontop'&&typeof m.on==='boolean'){onOnTop(m.on);return;}
+    if(m?.type==='here'||m?.type==='take'||m?.type==='bye'){onStage(m);return;}
+    if(m?.type==='viewers'){onViewers({connected:m.connected,drawing:m.drawing});return;}
     if(m?.type!=='hello')return;
     listening=true;
     const before=lastScene,setupBefore=lastSetup;onListen();
@@ -72,17 +81,19 @@ export function createVisualPublisher({open=()=>new BroadcastChannel(CHANNEL),on
       lastScene={...message,signature};
       if(listening)channel.postMessage(lastScene);
     },
-    // value: {songId, pinned, usual, showing, patches}; resent only when it changed
+    // value: {songId, pinned, usual, showing, patches, order (the picker's order)}; resent only when it changed
     setup(value){
       const message={type:'setup',songId:value?.songId||null,pinned:value?.pinned||null,usual:value?.usual||null,showing:value?.showing||null,
-        patches:value?.patches||{usual:{},song:{}}};
-      const signature=JSON.stringify([message.songId,message.pinned,message.usual,message.showing,message.patches]);
+        patches:value?.patches||{usual:{},song:{}},order:value?.order||[]};
+      const signature=JSON.stringify([message.songId,message.pinned,message.usual,message.showing,message.patches,message.order]);
       if(lastSetup&&lastSetup.signature===signature)return;
       lastSetup={...message,signature};
       if(listening)channel.postMessage(lastSetup);
     },
     // A show's timed actions. current(): what a visualizer opening late needs (the state in force; never effects that have already happened).
     perform(message){if(listening)channel.postMessage({type:'perform',...message});},
+    // which visualizer draws (visual-stage.js); sent to the visualizers in this browser (the relay passes only what OBS needs)
+    stage(message){channel.postMessage(message);},
     setPerformState(current){performState=current;},
     get listening(){return listening;},
     dispose(){channel.close();},
@@ -139,6 +150,7 @@ export function playerRelay(token,{fetch=globalThis.fetch,EventSource=globalThis
   }
   events.onmessage=event=>{
     let m;try{m=JSON.parse(event.data);}catch{return;}
+    if(m?.type==='viewers'){channel.onmessage?.({data:m});return;}   // how many Browser Sources are connected and drawing
     if(m?.type!=='hello')return;
     active=true;lastClock=null;channel.onmessage?.({data:m});      // a new viewer gets the clock at once
   };
@@ -148,20 +160,32 @@ export function playerRelay(token,{fetch=globalThis.fetch,EventSource=globalThis
 /** In a visualizer in another browser: the relay as a BroadcastChannel-like channel that only listens. key: from its address (?stream=).
  * onLink(connected): the connection to Chord Buddy came up, or was lost (the app was closed). The browser keeps trying the same address
  * by itself, so it comes back up when the app runs again; the server then says hello for it and the player sends the song. */
-export function viewerRelay(key,{EventSource=globalThis.EventSource,onLink=()=>{}}={}){
-  const events=new EventSource('/visual-stream?key='+encodeURIComponent(key));
-  events.onopen=()=>onLink(true);events.onerror=()=>onLink(false);
-  const channel={onmessage:null,postMessage(){},close(){events.close();}};
+export function viewerRelay(key,{EventSource=globalThis.EventSource,fetch=globalThis.fetch,onLink=()=>{},id=randomId()}={}){
+  // drawing: whether this viewer is drawing now (it stops while its source is hidden in OBS). Said as it connects and whenever it
+  // changes, and again after a reconnection, so Chord Buddy always knows (the player shows it: Streaming to OBS).
+  let drawing=true;
+  const events=new EventSource('/visual-stream?key='+encodeURIComponent(key)+'&id='+encodeURIComponent(id));
+  const tell=()=>fetch('/api/visual-relay/viewer-state',{method:'POST',headers:{'Content-Type':'application/json','X-ChordBuddy-Stream':key},
+    body:JSON.stringify({viewer:id,drawing})}).catch(()=>{});
+  events.onopen=()=>{onLink(true);if(!drawing)tell();};events.onerror=()=>onLink(false);
+  const channel={onmessage:null,postMessage(){},close(){events.close();},
+    setDrawing(value){value=!!value;if(value===drawing)return;drawing=value;tell();}};
   events.onmessage=event=>{let m;try{m=JSON.parse(event.data);}catch{return;}channel.onmessage?.({data:m});};
   return channel;
 }
 
 /** In a visualizer. onScene(message), onClock(message with `at` converted to this page's performance.now() clock). */
-export function createVisualReceiver({onScene,onClock,onSetup=()=>{},onPerform=()=>{},open=()=>new BroadcastChannel(CHANNEL)}){
+export function randomId(){
+  const bytes=new Uint8Array(9);globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+export function createVisualReceiver({onScene,onClock,onSetup=()=>{},onPerform=()=>{},onStage=()=>{},open=()=>new BroadcastChannel(CHANNEL)}){
   const channel=open();
   channel.onmessage=event=>{
     const m=event.data;
     if(m?.type==='scene')onScene(m);
+    else if(m?.type==='stage')onStage(m);
     else if(m?.type==='clock')onClock({...m,at:m.at-performance.timeOrigin});
     else if(m?.type==='setup')onSetup(m);
     else if(m?.type==='perform')onPerform(m);
@@ -172,5 +196,8 @@ export function createVisualReceiver({onScene,onClock,onSetup=()=>{},onPerform=(
     show(songId,scene){channel.postMessage({type:'show',songId,scene});},
     patch(songId,visual,value){channel.postMessage({type:'patch',songId:songId||null,visual,patch:value||null});},
     editor(){channel.postMessage({type:'editor'});},
+    order(list){channel.postMessage({type:'order',order:list});},
+    onTop(on){channel.postMessage({type:'ontop',on:!!on});},
+    here(id,kind){channel.postMessage({type:'here',id,kind});},take(id){channel.postMessage({type:'take',id});},bye(id){channel.postMessage({type:'bye',id});},
     dispose(){channel.close();}};
 }

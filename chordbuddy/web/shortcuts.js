@@ -39,8 +39,10 @@ export const SHORTCUTS=[
     [['Esc'],'Back to Select, or deselect'],
   ]},
   {title:'Visualizer',rows:[
-    [['1','–','9'],'Choose a visualization, in the order of the buttons'],
+    [['[','/',']'],'Previous or next visualization in the list (the ‹ and › buttons above it do the same)'],
+    [['1','–','9'],'Choose one of the first nine visualizations in the list. Drag a visualization up or down the list to change the order.'],
     [['Y'],'Show or hide the lyrics'],
+    [['H'],'Show or hide the chord at the top (with the ones coming next)'],
     [['C'],'Calm mode on or off: gentler motion, with no shaking, flashing or sudden bursts of light (easier on the eyes, and safer for light sensitivity)'],
     [['M'],'Slide the mixer out or back in'],
     [['Ctrl','Z','/','Ctrl','Shift','Z'],'In the Advanced Visuals Editor: undo or redo your last change there (never the chart’s). It also has Undo and Redo buttons.'],
@@ -48,9 +50,11 @@ export const SHORTCUTS=[
     [['K'],'Plain controls: the buttons and mixer keep their usual look instead of matching the visualization'],
     [['F'],'Full screen (in the visualizer window)'],
   ]},
-  {title:'Streaming the visualizer',note:'These work in the chart and MIDI views too, and change every visualizer, OBS included. Not in the lead sheet, where C picks the Chords tool.',rows:[
-    [['1','–','9'],'Choose a visualization, in the order of the visualizer’s buttons'],
+  {title:'Streaming the visualizer',note:'These work in the chart and MIDI views too, and change every visualizer, OBS included. In the lead sheet only [, ] and H do, since C picks its Chords tool there.',rows:[
+    [['[','/',']'],'Previous or next visualization, in the order of the visualizer’s list'],
+    [['1','–','9'],'Choose one of the first nine visualizations in the visualizer’s list'],
     [['Y'],'Show or hide the lyrics'],
+    [['H'],'Show or hide the chord at the top (with the ones coming next)'],
     [['C'],'Calm mode on or off'],
   ]},
   {title:'During a show',note:'The same keys, but they wait for the music: nothing moves until a bar line, and what’s coming is shown in the show controls above the chart.',rows:[

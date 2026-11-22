@@ -5,22 +5,44 @@ import re
 import secrets
 import threading
 
-PING=15                       # seconds between keep-alive comments, so a quiet stream is not dropped
+PING=5                        # seconds between keep-alive comments, so a quiet stream is not dropped and a closed one is noticed soon
 BACKLOG=512                   # messages a slow listener may fall behind by before it is dropped (it reconnects and starts fresh)
 HELLO=json.dumps({'type':'hello'})
-TO_VIEWERS={'scene','clock','setup'}
+TO_VIEWERS={'scene','clock','setup','perform'}   # perform: a running show's timed actions, so OBS follows a show too
 
 
 class VisualRelay:
     """Carries the visual bridge's messages (visual-bridge.js) between the player page and visualizers in another browser, such as an
     OBS Browser Source, which the page's BroadcastChannel cannot reach. Viewers only listen: they never change the player. When a viewer
     connects (or the player page connects while viewers wait), the player is sent a hello for it, so it answers with the scene, the setup
-    and the clock, exactly as for a pop-out window."""
+    and the clock, exactly as for a pop-out window.
+    The player pages are also told how many viewers are connected and how many are drawing ({type:'viewers', connected, drawing})
+    whenever that changes: a viewer in OBS stops drawing while its source is hidden, and says so (set_drawing)."""
     def __init__(self):
-        self.lock=threading.Lock()
+        self.lock=threading.RLock()    # reentrant: telling the players a status happens while holding it (below)
         self.viewers=set()
         self.players=set()
+        self.drawing={}            # viewer listener -> [its id, whether it is drawing]
         self.closed=False
+
+    def status(self):
+        with self.lock:
+            drawing=sum(1 for listener in self.viewers if self.drawing.get(listener,[None,True])[1])
+            return {'type':'viewers','connected':len(self.viewers),'drawing':drawing}
+
+    def _tell_players(self):
+        # worked out and queued in one step, so two viewers connecting at once can never leave the players with the older count
+        with self.lock:
+            self._put(self.players,json.dumps(self.status(),separators=(',',':')))
+
+    def set_drawing(self,viewer,drawing):
+        """A viewer (by the id it connected with) started or stopped drawing. False when no viewer has that id."""
+        if not isinstance(viewer,str) or not viewer or not isinstance(drawing,bool):raise ValueError('Expected a viewer id and true or false')
+        with self.lock:
+            found=[state for state in self.drawing.values() if state[0]==viewer]
+            for state in found:state[1]=drawing
+        if found:self._tell_players()
+        return bool(found)
 
     def _put(self,group,text):
         for listener in list(group):
@@ -36,16 +58,21 @@ class VisualRelay:
         for message in messages:self._put(self.viewers,json.dumps(message,allow_nan=False,separators=(',',':')))
         with self.lock:return len(self.viewers)
 
-    def stream(self,role,write,ping=PING):
-        """Writes server-sent events to `write` until the listener goes away or the relay closes. role: 'viewer' or 'player'."""
+    def stream(self,role,write,ping=PING,viewer=None,drawing=True):
+        """Writes server-sent events to `write` until the listener goes away or the relay closes. role: 'viewer' or 'player'.
+        viewer: a viewer's own id, so it can say later whether it is drawing (set_drawing); drawing: whether it is drawing as it connects."""
         listener=queue.Queue(BACKLOG)
         group=self.viewers if role=='viewer' else self.players
         with self.lock:
             if self.closed:return
             group.add(listener)
+            if role=='viewer':self.drawing[listener]=[viewer,bool(drawing)]
             waiting=bool(self.viewers)
-        if role=='viewer':self._put(self.players,HELLO)
-        elif waiting:listener.put_nowait(HELLO)
+        if role=='viewer':
+            self._put(self.players,HELLO);self._tell_players()
+        else:
+            if waiting:listener.put_nowait(HELLO)
+            listener.put_nowait(json.dumps(self.status(),separators=(',',':')))
         try:
             write(': connected\n\n')
             while True:
@@ -57,7 +84,9 @@ class VisualRelay:
                 if text is None:return
                 write('data: '+text+'\n\n')
         finally:
-            with self.lock:group.discard(listener)
+            with self.lock:
+                group.discard(listener);self.drawing.pop(listener,None)
+            if role=='viewer':self._tell_players()
 
     def close(self):
         with self.lock:

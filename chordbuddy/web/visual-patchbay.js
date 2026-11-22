@@ -56,7 +56,7 @@ export function mountPatchBay(container,{onSave,stored=()=>null,onChoose=()=>{},
   const undoButton=button('btn sq bay-undo','', 'undo'),redoButton=button('btn sq bay-redo','','redo');
   undoButton.setAttribute('aria-label','Undo');redoButton.setAttribute('aria-label','Redo');
   const reset=button('btn bay-reset','Back to the defaults');
-  const popOut=button('btn vx-popout','Pop out','expand','Open the visualizer in its own window, to put on another monitor or full screen. The preview here keeps going.');
+  const popOut=button('btn vx-popout','Pop out','expand','Open the visualizer in its own window, to put on another monitor or full screen. The preview here pauses meanwhile, so the look is only drawn once.');
   const close=button('btn sq vx-close','','x','Close the editor and go back to the chart (your changes are already saved)');close.setAttribute('aria-label','Close the editor');
   popOut.onclick=()=>onPopOut();close.onclick=()=>onClose();
   const defaultPick=el('label','vx-pick');defaultPick.title='The visualization this song opens with. The same choice as the menu under the mixer.';if(defaultVisualMenu)defaultPick.append(el('span','vx-cap','Default Visualization'),defaultVisualMenu);

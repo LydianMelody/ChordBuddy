@@ -4,13 +4,16 @@
 // starting with _ are templates and drafts, left out. A file in My Visuals with the id of a built-in one takes its place. They draw the world; the chord and the lyrics are drawn on top by
 // visual-hud.js in their own bands, so nothing covers them. A visualization that fails to load or throws while drawing is shown as
 // broken, with its error, and the others keep working. Mounted by visualizer.html (pop-out window) and the main page's full-screen view.
+// Only one visualizer draws at a time (visual-stage.js decides which, in the main window): the others stop drawing, let go of their
+// graphics, and show their controls with a note saying where the picture is. The Stream controls window never draws at all.
 //
 // A visualization module's default export: {id, name, order (toolbar position, default 100), hud (default true),
 //   skin (optional: restyles the picker and the mixer to match; visual-skin.js), create() -> {draw(g, frame, env), resize?(w, h), dispose?()}}.
 //   inputs (optional, see visual-patch.js): {key:{label, type, default, help}}, the things the patch bay can wire sounds and signals to.
 //   fonts (optional): font files from the visualization's own folder, and overlay (optional): the font the chord and lyrics are drawn in
 //   (visual-fonts.js says how, and why a file there cannot reach anything else).
-// env: {w, h, dt (wall seconds since the last frame), wall (wall seconds), calm, lyrics, zones (hudZones), song (the built scene),
+// env: {w, h, dt (wall seconds since the last frame), wall (wall seconds), calm, lyrics, chords (false: the chord is switched off, so a
+//       visualization that draws its own chord, with hud:false, leaves it out too), zones (hudZones), song (the built scene),
 //       fonts (the names it declared -> CSS font-family values, with a fallback), fontsReady (every declared font has loaded or failed), fontsLoaded ({name:true} for the ones that loaded),
 //       inputs (each declared input's value this frame, from the patch in use; {} for a visualization without inputs),
 //       events: {hits: {role: [strength…]} (new drum and instrument hits this frame), beat (a new beat: {bar, beat, downbeat}) or null,
@@ -18,7 +21,8 @@
 //       its start)}, status, fps}
 // frame.loop (visual-scene.js): the loop being repeated or null, with its kind, progress, bars and pass (which time around).
 // Everything a scene shows must follow song time or wall time, never a fixed-length animation, so every scene runs as long as the song.
-import {createVisualReceiver} from './visual-bridge.js';
+import {createVisualReceiver,randomId} from './visual-bridge.js';
+import {BEAT} from './visual-stage.js';
 import {SceneClock} from './visual-clock.js';
 import {buildScene,sampleFrame,withFeatures} from './visual-scene.js';
 import {loadSongFiles,songParts} from './midi-user.js';
@@ -26,16 +30,17 @@ import {effectiveMeasures} from './chart-layout.js';
 import {setKeySpelling} from './spelling.js';
 import {hudZones,drawChordHud,drawLyricHud} from './visual-hud.js';
 import {mountMixerDrawer} from './visual-mixer.js';
-import {pickScene,panelPlace,ID_TEXT} from './visual-setup.js';
+import {pickScene,panelPlace,ID_TEXT,orderScenes,stepScene,moveScene} from './visual-setup.js';
 import {VisualCues} from './performance-visuals.js';
 import {placePanel,draggable} from './visual-layout.js';
 import {readSkin,applySkin,browserCheck,skinStylesheet,loadSkinSheet} from './visual-skin.js';
 import {createFontLoader} from './visual-fonts.js';
 import {Patcher,readInputs,choosePatch,sourceCatalog,catalogMap,sourceValue,sourceRange} from './visual-patch.js';
 import {mountPatchBay} from './visual-patchbay.js';
+import {icon} from './icons.js';
 
 const SETTINGS='cb-visualizer';
-const USUAL=['scene','lyrics','calm','picker','mixer','patchbay'];   // what the usual setup keeps (visual-setup.js), saved by the main window
+const USUAL=['scene','lyrics','chords','calm','picker','mixer','patchbay'];   // what the usual setup keeps (visual-setup.js), saved by the main window
 const MAX_PIXELS=2560*1440;                     // a 4K screen gets a 1440p picture, gently upscaled, so every scene keeps a smooth frame rate
 // MIDI documents by file name: the vocal melody, the instrumental melody and the combined melody
 const MIDI_NAMES=[[/(^|\/)melody_vocal\.mid$/,'vocal'],[/(^|\/)melody_instrumental\.mid$/,'instrumental'],[/(^|\/)melody\.mid$/,'melody']];
@@ -75,7 +80,7 @@ export async function loadVisualizations({
 }
 
 function loadSettings(){
-  const fallback={scene:'abstract',lyrics:true,calm:false,fps:false,plain:false};
+  const fallback={scene:'abstract',lyrics:true,chords:true,calm:false,fps:false,plain:false};
   try{return {...fallback,...JSON.parse(localStorage.getItem(SETTINGS)||'{}')};}catch{return fallback;}
 }
 function saveSettings(value){try{localStorage.setItem(SETTINGS,JSON.stringify(value));}catch{}}
@@ -121,8 +126,13 @@ function loopEvents(previous,frame){
 
 // options: {streamKey (the OBS address's key, used in place of a token), open (the bridge channel; the BroadcastChannel by default), stream (an OBS Browser Source: no controls at all, nothing saved here,
 // and it follows the main window's look rather than choosing one), editor (the Advanced Visuals Editor, visual-patchbay.js: {root, defaultVisualMenu, onPopOut,
-// onClose}; the editor fills root and this visualizer draws in its preview corner, with no controls of its own)}
-export function mountVisualizer(container,{open,stream=false,streamKey='',editor=null}={}){
+// onClose}; the editor fills root and this visualizer draws in its preview corner, with no controls of its own),
+// kind (what it is, for visual-stage.js: 'window', 'overlay', 'editor' or 'controls'; the Stream controls window shows the picker only
+// and never draws), onClose (the main window asked it to close because a newer visualizer opened),
+// keepOnTop (the Stream controls window in the desktop app: (on) => keep the window above the others; without it, Always on top keeps
+// the controls from fading instead)}
+export function mountVisualizer(container,{open,stream=false,streamKey='',editor=null,kind=editor?'editor':'window',onClose=null,keepOnTop=null}={}){
+  const controlsOnly=kind==='controls';
   let bay=null;
   if(editor){
     // the patch bay (visual-patchbay.js; bayShown: what it was last given, so it is only told when something changed): a change shows at
@@ -137,11 +147,43 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
   const canvas=document.createElement('canvas');canvas.className='visualizer-canvas';container.append(canvas);
   const g=canvas.getContext('2d'),clock=new SceneClock(),settings=stream?{...loadSettings(),fps:false,plain:false}:loadSettings();
   if(stream)container.classList.add('streaming');
-  // the bundled fonts (FONTS in visual-hud.js): a canvas only uses a web font once it is loaded, so load them up front
+  if(controlsOnly){container.classList.add('controls-only');canvas.hidden=true;}
+  // ---- whether this one draws (visual-stage.js): undefined until the main window says, so a lone visualizer starts at once ----
+  const me=randomId();
+  let drawer,obsShown=true;
+  const drawsHere=()=>!controlsOnly&&(stream?obsShown:drawer===undefined||drawer===me);
+  const elsewhere=document.createElement('div');elsewhere.className='visualizer-elsewhere';elsewhere.hidden=true;
+  const elsewhereText=document.createElement('p'),takeButton=document.createElement('button');
+  takeButton.type='button';takeButton.className='btn';takeButton.textContent='Show the preview here';
+  takeButton.title='Draw the preview here again. The visualizer window closes, so the look is still only drawn once.';
+  takeButton.onclick=()=>receiver.take(me);
+  elsewhere.append(elsewhereText,takeButton);container.append(elsewhere);
+  function whereNote(){
+    if(stream)return '';
+    if(drawer==='obs')return controlsOnly?'Showing in OBS. These controls change what OBS shows.'
+      :'Showing in OBS, so it isn’t drawn here too (that would use your graphics card twice). To see it here, hide the Browser Source in OBS.';
+    if(controlsOnly)return drawer?'Showing in the visualizer window.':'Not showing anywhere yet. Add the Browser Source in OBS, or open the visualizer.';
+    return kind==='editor'?'The preview is in its own window, so it isn’t drawn here too.':'Showing in another visualizer window.';
+  }
+  function updateDrawing(){
+    const on=drawsHere();
+    if(on&&!raf&&!disposed){lastWall=null;raf=requestAnimationFrame(draw);}
+    if(!on&&raf){
+      cancelAnimationFrame(raf);raf=0;
+      try{active?.dispose?.();}catch{}active=null;activeId=null;activeDefinition=null;   // its graphics are let go, not just left still
+      g.setTransform(1,0,0,1,0,0);g.clearRect(0,0,canvas.width,canvas.height);
+    }
+    const text=on?'':whereNote();
+    elsewhere.hidden=!text;elsewhereText.textContent=text;
+    container.dataset.where=drawer==='obs'?'obs':drawer?'window':'nowhere';   // the Stream controls window's status light
+    takeButton.hidden=!(kind==='editor'&&drawer&&drawer!=='obs'&&drawer!==me);
+    container.classList.toggle('drawn-elsewhere',!on);
+    if(!on)wake?.();
+  }  // the bundled fonts (FONTS in visual-hud.js): a canvas only uses a web font once it is loaded, so load them up front
   for(const face of ['400 16px "Bricolage Grotesque"','800 16px "Bricolage Grotesque"','400 16px "Space Mono"','700 16px "Space Mono"','400 16px "Courier Prime"','700 16px "Courier Prime"'])
     document.fonts?.load?.(face).catch(()=>{});
   const fontLoader=createFontLoader();           // the fonts visualizations bring (visual-fonts.js), loaded once per copy of each
-  let mixer=null,song=null,songKey=null,mix=null,status='Waiting for Chord Buddy… start playback in the main window.',raf=0,disposed=false;
+  let mixer=null,song=null,songKey=null,mix=null,status='Waiting for Chord Buddy… start playback in the main window.',raf=0,disposed=false,order=[];
   let frames=0,fpsAt=performance.now(),fps=0,lastWall=null,previous=null,active=null,activeId=null,activeDefinition=null,size=[0,0];
   let scenes=[],failed=[];const broken=new Map();   // visualizations, the files that failed to load, and ones that threw (id -> message)
   // which look to draw (visual-setup.js): the open song's own (pinned), else the usual one (settings.scene); a click in the picker shows
@@ -198,34 +240,95 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
     onSetup:m=>{followSong(m.songId);pinned=m.pinned||null;showing=m.showing||null;   // the player keeps the look chosen for now, so every visualizer agrees
       patches={usual:m.patches?.usual||{},song:m.patches?.song||{}};bayShown=null;
       if(m.usual){for(const key of USUAL)if(key in m.usual)settings[key]=m.usual[key];if(!stream)saveSettings(settings);}
+      const nextOrder=Array.isArray(m.order)?m.order:[];
+      if(JSON.stringify(nextOrder)!==JSON.stringify(order)){order=nextOrder;showScenes();}
       paintControls();arrange();},
+    onStage:m=>{
+      if(stream)return;                                  // OBS draws while its source is shown (setDrawing)
+      drawer=m.drawer??null;updateDrawing();          // stops at once, even if the window can't close (a browser tab it didn't open)
+      if(m.close?.includes(me))onClose?.();
+    },
   });
+  // say this one is open (and again every couple of seconds, so the main window can tell when one vanished), and when it closes
+  const bye=()=>receiver.bye(me);
+  let heartbeat=0;
+  if(!stream){receiver.here(me,kind);heartbeat=setInterval(()=>receiver.here(me,kind),BEAT);container.ownerDocument.defaultView?.addEventListener('pagehide',bye);}
 
   // ---- the controls: scene, lyrics, calm; they hide when the mouse rests ----
   const toolbar=document.createElement('div');toolbar.className='visualizer-toolbar';
   const button=(label,title,onclick)=>{const b=document.createElement('button');b.type='button';b.textContent=label;b.title=title;b.onclick=onclick;return b;};
   let sceneButtons=[];
   const lyricsButton=button('Lyrics','Show the lyrics (Y)',()=>set({lyrics:!settings.lyrics}));
+  const chordsButton=button('Chords','Show the chord at the top: its name, and the ones coming next (H)',()=>set({chords:settings.chords===false}));
+  // Always on top: in the Stream controls window (desktop app) the window stays above your other windows; in a visualizer window or full
+  // screen, the controls stay on screen instead of fading when the mouse rests. Kept in this window's own settings.
+  const topButton=button('Always on top',controlsOnly
+    ?'Keep this window above your other windows, so the controls are always at hand while you stream'
+    :'Keep these controls on screen: they stop fading away when the mouse rests',()=>setOnTop(!onTop));
   const calmButton=button('Calm','Calm mode: gentler motion, with no shaking, flashing or sudden bursts of light (C)',()=>set({calm:!settings.calm}));
   const mixerButton=button('Mixer','Slide out the mixer (M)',()=>toggleMixer());
   // the patch bay lives in the main window (the Advanced Visuals Editor), where there is room for it
   const patchButton=button('Edit visuals','Open the Advanced Visuals Editor in the main window: choose which sounds and signals move which parts of this visualization',()=>receiver.editor());
   const pinButton=button('Pin','',()=>togglePin());pinButton.className='visualizer-pin';
   // stable names for a skin's stylesheet (visual-skin.js)
-  for(const [b,name] of [[pinButton,'pin'],[lyricsButton,'lyrics'],[calmButton,'calm'],[mixerButton,'mixer'],[patchButton,'patch']])b.dataset.control=name;
+  for(const [b,name] of [[pinButton,'pin'],[topButton,'ontop'],[lyricsButton,'lyrics'],[chordsButton,'chords'],[calmButton,'calm'],[mixerButton,'mixer'],[patchButton,'patch']])b.dataset.control=name;
+  // every switch in the app's own buttons, each with its icon (as in the Stream controls window)
+  for(const [b,name] of [[topButton,'pin'],[lyricsButton,'text'],[chordsButton,'note'],[calmButton,'heart'],[mixerButton,'layers'],[patchButton,'wand']]){
+    b.classList.add('btn');b.insertAdjacentHTML('afterbegin',icon(name));}
+  if(controlsOnly&&!keepOnTop)topButton.hidden=true;           // a browser can't keep a window on top, and nothing here fades
+  const ON_TOP='cb-visualizer-on-top:'+kind;
+  let onTop=false;try{onTop=localStorage.getItem(ON_TOP)==='1';}catch{}
+  function setOnTop(on){onTop=on;try{localStorage.setItem(ON_TOP,on?'1':'');}catch{}if(controlsOnly)keepOnTop?.(on);paintControls();wake();}
+  if(controlsOnly&&onTop)keepOnTop?.(true);
   const group=document.createElement('div');group.className='visualizer-scenes';
+  // previous and next look, going around at the ends ([ and ] on the keyboard)
+  const stepper=document.createElement('div');stepper.className='visualizer-step';
+  const previousButton=button('‹ Previous','Previous visualization: the one above in this list (the [ key)',()=>step(-1));previousButton.setAttribute('aria-label','Previous visualization');
+  const nextButton=button('Next ›','Next visualization: the one below in this list (the ] key)',()=>step(1));nextButton.setAttribute('aria-label','Next visualization');
+  previousButton.dataset.control='previous';nextButton.dataset.control='next';
+  previousButton.textContent='';previousButton.insertAdjacentHTML('afterbegin',icon('chevronLeft')+'<span>Previous</span>');
+  nextButton.textContent='';nextButton.insertAdjacentHTML('afterbegin','<span>Next</span>'+icon('chevron'));
+  stepper.classList.add('seg');stepper.append(previousButton,nextButton);
+  // the look showing, as a dropdown (the list of looks got too long for a column); the Stream controls window keeps the whole list
+  const lookButton=document.createElement('button');lookButton.type='button';lookButton.className='btn visualizer-look';
+  lookButton.title='Choose a visualization: the list opens here. Drag one up or down in it to change the order (keys 1 to 9 choose the first nine).';
+  lookButton.setAttribute('aria-haspopup','true');lookButton.setAttribute('aria-expanded','false');
+  const lookName=document.createElement('span');lookName.className='visualizer-look-name';
+  lookButton.append(lookName);lookButton.insertAdjacentHTML('beforeend',icon('chevronDown'));
+  const lookMenu=document.createElement('div');lookMenu.className='visualizer-look-menu';lookMenu.hidden=true;lookMenu.append(group);
+  const lookWrap=document.createElement('div');lookWrap.className='visualizer-look-wrap';lookWrap.append(lookButton,lookMenu);
+  function showMenu(open){
+    lookMenu.hidden=!open;lookButton.setAttribute('aria-expanded',String(open));toolbar.classList.toggle('menu-open',open);
+    if(open){wake();group.querySelector('button[aria-pressed="true"]')?.scrollIntoView({block:'nearest'});}
+  }
+  lookButton.onclick=()=>showMenu(lookMenu.hidden);
+  const outside=event=>{if(!lookMenu.hidden&&!lookWrap.contains(event.target))showMenu(false);};
+  container.ownerDocument.addEventListener('pointerdown',outside,true);
   // the grip along the top: drag it to move the picker anywhere on the screen (the ridges of a cassette's hinge, as on the set lists)
   const grip=document.createElement('div');grip.className='visualizer-grip';grip.title='Drag to move these controls';grip.setAttribute('aria-hidden','true');
-  toolbar.append(grip,group,pinButton,lyricsButton,calmButton,mixerButton,patchButton);container.append(toolbar);
+  const switches=document.createElement('div');switches.className='visualizer-switches';
+  switches.append(topButton,lyricsButton,chordsButton,calmButton,mixerButton,patchButton);
+  toolbar.append(grip,stepper,lookWrap,switches);container.append(toolbar);
+  // The Stream controls window lays the same controls out as two of the app's panels, each with a small label: the looks (with
+  // Previous and Next) and the switches. Elsewhere the picker stays one slim floating column.
+  let lookCount=null;
+  if(controlsOnly){
+    const panel=(cls,title,...nodes)=>{const box=document.createElement('section'),head=document.createElement('p');
+      box.className='controls-panel '+cls;head.className='controls-label';head.textContent=title;box.append(head,...nodes);return box;};
+    lookCount=document.createElement('em');
+    const looks=panel('controls-looks','Visualizations',stepper,group);looks.firstChild.append(lookCount);
+    toolbar.replaceChildren(looks,panel('controls-switches','On screen',topButton,lyricsButton,chordsButton,calmButton,patchButton));
+  }
   // in the editor the mixer sits under the preview (muting a stem there quiets what it moves too: visual-patch.js)
-  mixer=mountMixerDrawer(bay?bay.mixerSlot:container,{send:value=>receiver.setMix(value),docked:!!bay});
+  mixer=mountMixerDrawer(bay?bay.mixerSlot:container,{send:value=>receiver.setMix(value),docked:!!bay,
+    onToggle:open=>{mixerButton.setAttribute('aria-pressed',String(open));}});   // its own chevron closes it too   // (the Stream controls window hides it: visualizer.css)
   if(mix)mixer.setMix(mix);
-  function toggleMixer(value){mixer.toggle(value);mixerButton.setAttribute('aria-pressed',String(mixer.open));arrange();}
+  function toggleMixer(value){if(controlsOnly)return;mixer.toggle(value);mixerButton.setAttribute('aria-pressed',String(mixer.open));arrange();}
   // ---- where the picker and the mixer float (visual-layout.js): the song's own places when it has a pin, else the usual ones ----
   // A drag saves the new place to the pin when the song has one (so the whole look comes back with the song), else as the usual place.
   const SPOTS={picker:{x:0,y:0},mixer:{x:1,y:0}};   // the built-in spots: picker top left, mixer top right
   function arrange(){
-    if(!mixer)return;
+    if(!mixer||controlsOnly)return;
     placePanel(toolbar,container,panelPlace('picker',{pinned,usual:settings})||SPOTS.picker);
     if(!mixer.element.hidden&&!mixer.docked)placePanel(mixer.element,container,panelPlace('mixer',{pinned,usual:settings})||SPOTS.mixer);
     bay?.redraw();
@@ -234,11 +337,16 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
     if(pinned){pinned={...pinned,[panel]:place};receiver.pin(songId,pinned);}
     else set({[panel]:place});
   }
-  const undrag=[draggable(toolbar,grip,container,place=>moved('picker',place)),...(mixer.docked?[]:[draggable(mixer.element,mixer.handle,container,place=>moved('mixer',place))])];
+  const undrag=controlsOnly?[]:[draggable(toolbar,grip,container,place=>moved('picker',place)),...(mixer.docked?[]:[draggable(mixer.element,mixer.handle,container,place=>moved('mixer',place))])];
   function paintControls(){
-    scenes.forEach((s,i)=>{sceneButtons[i].setAttribute('aria-pressed',String(s.id===current()?.id));sceneButtons[i].classList.toggle('broken',broken.has(s.id));sceneButtons[i].classList.toggle('pinned',pinned?.scene===s.id);});
+    shown().forEach((s,i)=>{sceneButtons[i].setAttribute('aria-pressed',String(s.id===current()?.id));sceneButtons[i].classList.toggle('broken',broken.has(s.id));sceneButtons[i].classList.toggle('pinned',pinned?.scene===s.id);});
     lyricsButton.setAttribute('aria-pressed',String(settings.lyrics));calmButton.setAttribute('aria-pressed',String(settings.calm));
-    mixerButton.setAttribute('aria-pressed',String(!!mixer?.open));bay?.setScenes(scenes,current()?.id);
+    chordsButton.setAttribute('aria-pressed',String(settings.chords!==false));topButton.setAttribute('aria-pressed',String(onTop));
+    lookName.textContent=current()?.name||'Choose a look';
+    mixerButton.setAttribute('aria-pressed',String(!!mixer?.open));bay?.setScenes(shown(),current()?.id);
+    previousButton.disabled=nextButton.disabled=scenes.length<2;
+    // in the Stream controls window the list scrolls: keep the look showing in view when it changes
+    if(controlsOnly||!lookMenu.hidden){const on=group.querySelector('button[aria-pressed="true"]');if(on&&on.dataset.scene!==shownLook){shownLook=on.dataset.scene;on.scrollIntoView({block:'nearest'});}}
     const look=current(),on=!!pinned&&look?.id===pinned.scene;
     pinButton.hidden=!songId;pinButton.setAttribute('aria-pressed',String(on));pinButton.textContent=on?'Pinned':'Pin';
     pinButton.title=on?`${look.name} is pinned to this song. Click to unpin it (the song then uses your usual look).`
@@ -249,6 +357,7 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
     if(!scenes.some(s=>s.id===id))return;
     broken.delete(id);if(activeId===id){try{active?.dispose?.();}catch{}active=null;activeId=null;}
     showing=id;if(pinned){receiver.show(songId,id);paintControls();}else set({scene:id});   // every other visualizer follows (OBS too)
+    if(!controlsOnly&&!lookMenu.hidden&&!stepping)showMenu(false);
   }
   // a running show's timed actions (performance-visuals.js). Times arrive in epoch ms; a chosen look or switch outranks everything until the show ends.
   const cues=new VisualCues();
@@ -263,11 +372,46 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
     if(!pinned)showing=look.id;                         // unpinned: it stays on screen for now; the usual look is unchanged
     receiver.pin(songId,pinned);paintControls();
   }
+  // the looks in the picker's order (your favorites first: drag one up or down the list); 1-9 choose the first nine
+  function shown(){return orderScenes(scenes,order);}
+  let stepping=false;   // Previous and Next leave the list open if it is
+  function step(direction){const next=stepScene(shown(),current()?.id,direction);if(next){stepping=true;choose(next.id);stepping=false;}}
+  function sceneTip(s,i){return `Show ${s.name}${i<9?` (key ${i+1})`:''}. Drag it up or down to change the order: keys 1 to 9 choose the first nine.`;}
   function showScenes(){
-    sceneButtons=scenes.map((s,i)=>button(s.name,`${s.name} (${i+1})`,()=>choose(s.id)));
+    sceneButtons=shown().map((s,i)=>{const b=button(s.name,sceneTip(s,i),()=>{if(!dragged)choose(s.id);});b.dataset.scene=s.id;
+      // in the Stream controls window, a grip that shows on hover (as on the sidebar's songs) and the number key on the right
+      {b.classList.add('setlist-item');b.textContent='';b.insertAdjacentHTML('afterbegin',`<span class="scene-grip">${icon('grip')}</span>`);
+        const name=document.createElement('span');name.className='scene-name';name.textContent=s.name;b.append(name);
+        if(i<9){const key=document.createElement('em');key.className='scene-key';key.textContent=String(i+1);b.append(key);}}
+      return b;});
+    if(lookCount)lookCount.textContent=`${scenes.length} looks`;
     const problems=failed.map(f=>{const b=button('⚠ '+f.file.replace(/[.]js$/,''),`${f.file} could not be loaded: ${f.error}`,()=>{});b.className='visualizer-failed';return b;});
     group.replaceChildren(...sceneButtons,...problems);paintControls();arrange();
   }
+  // Drag a look up or down the list to reorder it. The new order is saved by the main window (cb-visual-order), so every visualizer, the
+  // number keys and [ ] follow it. A press that moves less than a few pixels is a click.
+  let dragged=false,press=null,shownLook=null;
+  group.addEventListener('pointerdown',event=>{
+    const b=event.target.closest?.('button[data-scene]');if(!b||event.button!==0)return;
+    press={b,id:b.dataset.scene,y:event.clientY,pointer:event.pointerId};dragged=false;
+  });
+  group.addEventListener('pointermove',event=>{
+    if(!press||event.pointerId!==press.pointer)return;
+    if(!dragged){if(Math.abs(event.clientY-press.y)<6)return;dragged=true;group.setPointerCapture?.(event.pointerId);press.b.classList.add('dragging');group.classList.add('reordering');}
+    const others=[...group.querySelectorAll('button[data-scene]')].filter(b=>b!==press.b);
+    const before=others.find(b=>{const r=b.getBoundingClientRect();return event.clientY<r.top+r.height/2;});
+    group.insertBefore(press.b,before||others.at(-1)?.nextSibling||null);
+  });
+  const drop=event=>{
+    if(!press||event.pointerId!==press.pointer)return;
+    const was=press;press=null;
+    if(!dragged)return;
+    was.b.classList.remove('dragging');group.classList.remove('reordering');
+    const at=[...group.querySelectorAll('button[data-scene]')].indexOf(was.b);
+    order=moveScene(shown(),was.id,at);receiver.order(order);showScenes();
+    setTimeout(()=>{dragged=false;},0);                // the click that ends a drag does not choose the look
+  };
+  group.addEventListener('pointerup',drop);group.addEventListener('pointercancel',drop);
   // The folder is read again every few seconds and whenever the window comes back into focus: a file dropped in appears, a deleted one
   // goes (the chosen look falls back to the first), and a changed one is loaded fresh and restarted. Nothing is redone if nothing changed.
   let listing=null,listingNow=null;
@@ -288,15 +432,21 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
   const onFocus=()=>refreshScenes();container.ownerDocument.defaultView?.addEventListener('focus',onFocus);
   paintControls();
   let idleTimer=0;
+  // the controls fade while the mouse rests over the picture; with no picture here (drawn elsewhere), they stay
   const wake=()=>{toolbar.classList.remove('idle');container.classList.remove('idle');clearTimeout(idleTimer);
+    if(!drawsHere()||onTop||!lookMenu.hidden)return;
     idleTimer=setTimeout(()=>{toolbar.classList.add('idle');container.classList.add('idle');},2500);};
   container.addEventListener('pointermove',wake);wake();
   const keys=event=>{
     if(stream)return;
     if(event.target?.closest?.('input,textarea,[contenteditable="true"]')||event.ctrlKey||event.metaKey||event.altKey)return;
-    const n=Number(event.key);
-    if(n>=1&&n<=scenes.length)choose(scenes[n-1].id);
-    else if(event.key==='y'||event.key==='Y')set({lyrics:!settings.lyrics});      // (L loops four bars, as in the main window)
+    if(event.key==='Escape'&&!lookMenu.hidden){showMenu(false);event.preventDefault();event.stopPropagation();return;}
+    const n=Number(event.key),list=shown();
+    if(n>=1&&n<=Math.min(9,list.length))choose(list[n-1].id);
+    else if(event.key==='[')step(-1);
+    else if(event.key===']')step(1);
+    else if(event.key==='y'||event.key==='Y')set({lyrics:!settings.lyrics});
+    else if(event.key==='h'||event.key==='H')set({chords:settings.chords===false});   // the chord at the top      // (L loops four bars, as in the main window)
     else if(event.key==='c'||event.key==='C')set({calm:!settings.calm});
     else if(event.key==='p'||event.key==='P')set({fps:!settings.fps});       // frame rate readout, to check smoothness
     else if(event.key==='m'||event.key==='M')toggleMixer();
@@ -326,7 +476,7 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
     g.fillStyle='#14111a';g.fillRect(0,0,w,h);g.textAlign='center';g.textBaseline='middle';
     g.fillStyle='#ffb4a8';g.font='700 18px system-ui';g.fillText(`“${definition.name}” stopped with an error`,w/2,h*0.45);
     g.fillStyle='#b8b4c8';g.font='500 14px system-ui';g.fillText(String(broken.get(definition.id)).slice(0,160),w/2,h*0.45+28);
-    g.fillText(`The other visualizations still work (keys 1–${scenes.length}). Choosing this one again retries it.`,w/2,h*0.45+52);
+    g.fillText('The other visualizations still work: choose one in the list, or press [ or ]. Choosing this one again retries it.',w/2,h*0.45+52);
   }
   // the shown visualization's skin on the picker and the mixer, worked out again when the look, the app's theme or its scheme changes,
   // or K turns skins off (plain controls)
@@ -351,7 +501,7 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
     arrange();                                          // a new border or font can change a panel's size
   }
   function draw(now){
-    if(disposed)return;raf=requestAnimationFrame(draw);
+    if(disposed||!drawsHere()){raf=0;return;}raf=requestAnimationFrame(draw);
     frames++;if(now-fpsAt>=1000){fps=frames*1000/(now-fpsAt);frames=0;fpsAt=now;}
     const dt=lastWall===null?1/60:Math.min(0.1,(now-lastWall)/1000);lastWall=now;
     cues.step(epochOf(now));
@@ -363,7 +513,8 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
       g.fillText(scenes.length||!failed.length?'Loading the visualizations…':'No visualization could be loaded.',w/2,h/2);return;}
     const shownLyrics=cues.state.lyrics??settings.lyrics;
     const typeface=fontLoader.use(definition);
-    const env={w,h,dt,wall:now/1000,calm:cues.state.calm??settings.calm,lyrics:shownLyrics,zones:hudZones(w,h,shownLyrics),song,
+    const shownChords=settings.chords!==false;
+    const env={w,h,dt,wall:now/1000,calm:cues.state.calm??settings.calm,lyrics:shownLyrics,chords:shownChords,zones:hudZones(w,h,shownLyrics),song,
       events:frameEvents(previous,frame,song),status,fps,inputs:{},random:cues.random,fonts:typeface.families,fontsReady:typeface.ready,fontsLoaded:typeface.loaded};
     const replay=cues.takeReplay();if(replay)env.events.replay=replay;
     const inputs=inputsFor(definition);
@@ -390,18 +541,23 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
     g.restore();
     if(broken.has(definition.id)){g.save();drawBroken(definition,w,h);g.restore();}
     if(definition.hud!==false&&!typeface.waiting){        // held back while its own font loads, so it never flashes in the wrong face
-      g.save();drawChordHud(g,frame,w,h,{calm:settings.calm,style:typeface.style});g.restore();
+      if(shownChords){g.save();drawChordHud(g,frame,w,h,{calm:settings.calm,style:typeface.style});g.restore();}
       if(settings.lyrics){g.save();drawLyricHud(g,frame,w,h,{style:typeface.style});g.restore();}
     }
     if(settings.fps){g.font='600 12px ui-monospace,monospace';g.textAlign='right';g.textBaseline='bottom';g.fillStyle='rgba(255,255,255,.7)';
       g.fillText(`${Math.round(fps)} fps · ${canvas.width}×${canvas.height}`,w-10,h-8);}
   }
-  raf=requestAnimationFrame(draw);
+  updateDrawing();
   return {
     toolbar,
+    /** Add a button to the switches (Full screen, Close): one of the app's buttons, with its icon. */
+    addControl(b,iconName){b.classList.add('btn');if(iconName)b.insertAdjacentHTML('afterbegin',icon(iconName));(controlsOnly?toolbar:switches).append(b);},
+    /** An OBS Browser Source: whether its source is shown in OBS (it draws only then). */
+    setDrawing(value){obsShown=!!value;updateDrawing();},
     command:action=>receiver.command(action),           // a playback key, for the player (a pop-out window has no player of its own)
-    dispose(){disposed=true;cancelAnimationFrame(raf);clearTimeout(idleTimer);clearInterval(rescan);container.ownerDocument.defaultView?.removeEventListener('focus',onFocus);receiver.dispose();try{active?.dispose?.();}catch{}mixer.dispose();bay?.dispose();
+    dispose(){disposed=true;cancelAnimationFrame(raf);clearTimeout(idleTimer);clearInterval(rescan);clearInterval(heartbeat);container.ownerDocument.defaultView?.removeEventListener('focus',onFocus);
+      if(!stream){bye();container.ownerDocument.defaultView?.removeEventListener('pagehide',bye);}receiver.dispose();elsewhere.remove();try{active?.dispose?.();}catch{}mixer.dispose();bay?.dispose();
       if(skinSheet){const doc=container.ownerDocument;doc.adoptedStyleSheets=doc.adoptedStyleSheets.filter(s=>s!==skinSheet);}
-      container.ownerDocument.removeEventListener('keydown',keys,true);container.removeEventListener('pointermove',wake);undrag.forEach(off=>off());canvas.remove();toolbar.remove();},
+      container.ownerDocument.removeEventListener('keydown',keys,true);container.ownerDocument.removeEventListener('pointerdown',outside,true);container.removeEventListener('pointermove',wake);undrag.forEach(off=>off());canvas.remove();toolbar.remove();},
   };
 }

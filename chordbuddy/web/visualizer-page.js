@@ -19,13 +19,21 @@ if(streamKey){
   document.body.classList.add('streaming');
   let lost=0;
   const link=up=>{clearTimeout(lost);if(up)document.body.classList.remove('offline');else lost=setTimeout(()=>document.body.classList.add('offline'),2000);};
-  mountVisualizer(stage,{open:()=>viewerRelay(streamKey,{onLink:link}),stream:true,streamKey});
+  let relay=null;
+  const view=mountVisualizer(stage,{open:()=>relay=viewerRelay(streamKey,{onLink:link}),stream:true,streamKey});
+  // OBS says when this source is hidden or shown again (its eye icon, or switching to a scene without it). Hidden, it stops drawing,
+  // which frees the graphics card, and tells Chord Buddy, whose Stream to OBS button then says it is paused. (Only OBS sends this event:
+  // in an ordinary browser the page simply keeps drawing.)
+  window.addEventListener('obsSourceVisibleChanged',event=>{const shown=event.detail?.visible!==false;view.setDrawing(shown);relay?.setDrawing(shown);});
 }
 else popOut();
 function popOut(){
-  const view=mountVisualizer(stage);
-  const button=document.createElement('button');button.type='button';button.title='Full screen (F)';button.textContent='Full screen';view.toolbar.append(button);
-  const label=on=>{button.textContent=on?'Exit full screen':'Full screen';};
+  // a newer visualizer opened (only one draws at a time): this window closes. In the desktop app the window must be asked to.
+  const closeWindow=()=>{const desktop=desktopWindow();if(desktop?.close_window)desktop.close_window().catch(()=>window.close());else window.close();};
+  const view=mountVisualizer(stage,{kind:'window',onClose:closeWindow});
+  const button=document.createElement('button');button.type='button';button.title='Full screen (F)';button.dataset.control='fullscreen';view.addControl(button,'expand');
+  const words=document.createElement('span');words.textContent='Full screen';button.append(words);
+  const label=on=>{words.textContent=on?'Exit full screen':'Full screen';};
   async function isFull(){const desktop=desktopWindow();return desktop?!!(await desktop.is_fullscreen()):!!document.fullscreenElement;}
   async function toggle(){
     const desktop=desktopWindow();

@@ -557,6 +557,14 @@ export function mountChartPage(root,handlers={}){
       const placed=lane.tokens.filter(t=>!t.flow);
       wordIndexes.set(lane,live?currentWordIndex(placed.map(t=>({seconds:t.seconds})),seconds):-1);
     }
+    // One word is sung at a time: only the line whose word started most recently keeps it lit, across the whole chart. A line's stretch
+    // of time runs on after its last word (to the end of its row), and the next line's first words (a pickup, even one drawn in the row
+    // before) start inside it; without this, the earlier line's last word would stay lit beside the word being sung.
+    {
+      const sungAt=lane=>{const i=wordIndexes.get(lane);return i>=0?lane.tokens.filter(t=>!t.flow)[i]?.seconds??-Infinity:-Infinity;};
+      const latest=Math.max(-Infinity,...[...wordIndexes.keys()].map(sungAt));
+      if(latest>-Infinity)for(const lane of wordIndexes.keys())if(sungAt(lane)<latest)wordIndexes.set(lane,-1);
+    }
     paintRepeatCount(target,transport);paintPlayMark(seconds,target,occ);
     const wsig=sig+JSON.stringify([...wordIndexes.values()]);
     const changedTarget=!last||last.sig!==sig;
@@ -577,13 +585,19 @@ export function mountChartPage(root,handlers={}){
       for(const lane of r.node.querySelectorAll?.('.tlane')||[])lane.classList.toggle('dim',focus!==null&&r.model.passCount>1&&lane.dataset.pass!==String(focus));
       if(here&&r.model.passCount>1)seekPass[r.model.id]=target.passNumber;
     }
-    for(const r of refs.chunks)r.node.classList.toggle('now',!!target&&!alt&&r.chunk.key===target.chunkKey);
+    // a chord held over from the bar before has an empty spot in this bar: the chord where it began stays lit instead (the nearest one
+    // before it, in reading order, that is not itself held)
+    let litKey=target&&!alt?target.chunkKey:null;
+    if(litKey){const at=refs.chunks.findIndex(r=>r.chunk.key===litKey);
+      if(at>=0&&refs.chunks[at].chunk.continued)for(let i=at-1;i>=0;i--){const c=refs.chunks[i].chunk;
+        if(!c.continued){if(c.label===refs.chunks[at].chunk.label)litKey=c.key;break;}}}
+    for(const r of refs.chunks)r.node.classList.toggle('now',!!litKey&&r.chunk.key===litKey);
     for(const r of refs.endings)r.node.classList.toggle('now',!!occ&&r.occurrence.id===occ.id);
     for(const r of refs.slots)r.node.classList.toggle('dim',!!target&&target.groupId===r.group.id&&r.group.passCount>1&&target.passNumber!==r.lane.passNumber);
-    for(const r of refs.words){
-      const placed=r.lane.tokens.filter(t=>!t.flow),idx=wordIndexes.get(r.lane);
-      r.node.classList.toggle('wnow',idx>=0&&placed[idx]===r.token);
-    }
+    // the words being sung, whichever line of text draws them (a pickup shares the row's own line when they follow one another)
+    const sungNow=new Set();
+    for(const [lane,idx] of wordIndexes)if(idx>=0){const t=lane.tokens.filter(t=>!t.flow)[idx];if(t)sungNow.add(t);}
+    for(const r of refs.words)r.node.classList.toggle('wnow',sungNow.has(r.token));
     for(const r of refs.lanes)if(r.tag)r.tag.classList.toggle('cur',target?.groupId===r.group.id&&target.passNumber===r.lane.passNumber);
     if(changedTarget&&mode==='nav'&&!editing&&transport.playing&&target)followPlayback(target);
   }

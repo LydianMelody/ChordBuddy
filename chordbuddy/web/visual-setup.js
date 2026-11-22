@@ -21,7 +21,7 @@ export function readSetup(text){
 export function readUsual(text){
   const value=parse(text)||{},out={};
   if(ID.test(value.scene))out.scene=value.scene;
-  for(const key of ['lyrics','calm'])if(typeof value[key]==='boolean')out[key]=value[key];
+  for(const key of ['lyrics','chords','calm'])if(typeof value[key]==='boolean')out[key]=value[key];
   return places(value,out);
 }
 /** The Default Visualization menu: [value, label] pairs. Empty means My usual look. A pinned look whose file is gone stays listed, and says so. */
@@ -41,4 +41,32 @@ export const panelPlace=(panel,{pinned=null,usual=null}={})=>pinned?.[panel]||us
 export function pickScene(scenes,{showing=null,pinned=null,usual=null}={}){
   for(const id of [showing,pinned?.scene,usual?.scene,DEFAULT_SCENE]){const found=id&&scenes.find(s=>s.id===id);if(found)return found;}
   return scenes[0]||null;
+}
+
+// ---- The picker's order: your favorites first, in the order you dragged them to (kept as 'cb-visual-order', a list of ids). Number keys
+// 1-9 choose the first nine in this order; [ and ] step through all of them. A visualization not in the list goes after, in file order.
+export function readOrder(text){
+  let value;try{value=JSON.parse(text||'[]');}catch{return [];}
+  if(!Array.isArray(value))return [];
+  const out=[];for(const id of value)if(ID.test(id)&&!out.includes(id)&&out.length<150)out.push(id);
+  return out;
+}
+export const writeOrder=order=>JSON.stringify(readOrder(JSON.stringify(order||[])));
+/** The visualizations in the picker's order. */
+export function orderScenes(scenes,order=[]){
+  const rank=new Map(order.map((id,i)=>[id,i]));
+  return scenes.map((s,i)=>[s,rank.has(s.id)?rank.get(s.id):order.length+i]).sort((a,b)=>a[1]-b[1]).map(([s])=>s);
+}
+/** The look before or after this one (step -1 or 1), going around at the ends. Scenes already in the picker's order. */
+export function stepScene(scenes,id,step){
+  if(!scenes.length)return null;
+  const at=scenes.findIndex(s=>s.id===id);
+  if(at<0)return scenes[step>0?0:scenes.length-1];
+  return scenes[(at+step+scenes.length)%scenes.length];
+}
+/** The order after dragging one look to a new place among the scenes shown (in the picker's order): every id, so it stays put. */
+export function moveScene(scenes,id,to){
+  const ids=scenes.map(s=>s.id),from=ids.indexOf(id);if(from<0)return ids;
+  ids.splice(from,1);ids.splice(Math.max(0,Math.min(ids.length,to)),0,id);
+  return ids;
 }

@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import sys
 import threading
 from urllib.parse import urlparse
 import webbrowser
@@ -121,6 +122,33 @@ def keep_drawing_arguments(existing=''):
 
 
 SOUND_WINDOW='/obs-sound.html'
+STREAM_CONTROLS_TITLE='Chord Buddy sound for OBS'      # obs-sound.html's title; OBS finds the window by it too, so it never changes
+
+
+def set_topmost(title,on):
+    """Put every visible top-level window with exactly this title above all other windows (on) or back among them. Windows only."""
+    if sys.platform!='win32':
+        return False
+    import ctypes
+    from ctypes import wintypes
+    user32=ctypes.windll.user32
+    found=[]
+    @ctypes.WINFUNCTYPE(wintypes.BOOL,wintypes.HWND,wintypes.LPARAM)
+    def each(hwnd,_):
+        if user32.IsWindowVisible(hwnd):
+            size=user32.GetWindowTextLengthW(hwnd)
+            if size==len(title):
+                text=ctypes.create_unicode_buffer(size+1)
+                user32.GetWindowTextW(hwnd,text,size+1)
+                if text.value==title:
+                    found.append(hwnd)
+        return True
+    user32.EnumWindows(each,0)
+    HWND_TOPMOST,HWND_NOTOPMOST=-1,-2
+    SWP_NOSIZE,SWP_NOMOVE,SWP_NOACTIVATE=0x1,0x2,0x10
+    for hwnd in found:
+        user32.SetWindowPos(hwnd,HWND_TOPMOST if on else HWND_NOTOPMOST,0,0,0,0,SWP_NOSIZE|SWP_NOMOVE|SWP_NOACTIVATE)
+    return bool(found)
 
 
 def is_sound_window(url):
@@ -151,6 +179,7 @@ class WindowApi:
         self._window=None
         self._fullscreen=False
         self._visualizer=None
+        self._closable=False           # only a visualizer window may close itself
 
     def toggle_fullscreen(self):
         if self._window is None:
@@ -161,6 +190,20 @@ class WindowApi:
 
     def is_fullscreen(self):
         return self._fullscreen
+
+    def stream_controls_on_top(self,on):
+        """Keep the Stream controls window (obs-sound.html) above every other window, or let it go back among them. That window belongs
+        to WebView2, not to pywebview, so it is found by its title among this computer's windows, as Windows' own SetWindowPos needs.
+        Returns whether it was found."""
+        return set_topmost(STREAM_CONTROLS_TITLE,bool(on))
+
+    def close_window(self):
+        """A visualizer window closes itself when a newer visualizer opens (only one draws at a time: visual-stage.js). WebView2 ignores
+        the page's own window.close(), so the page asks here. The main window has no use for this and never calls it."""
+        if self._window is None or not self._closable:
+            return False
+        self._window.destroy()
+        return True
 
     def open_visualizer(self):
         import webview
@@ -174,6 +217,7 @@ class WindowApi:
         window=webview.create_window('Chord Buddy Visualizer',self._base+'/visualizer.html',width=1280,height=720,min_size=(480,300),
                                      background_color='#0d0e14',js_api=api)
         api._window=window
+        api._closable=True
         self._visualizer=window
 
         def closed(*args):

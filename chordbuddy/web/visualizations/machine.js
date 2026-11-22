@@ -449,7 +449,7 @@ export default {
       g.globalAlpha=1;
     }
 
-    function drawChordScreen(g,fr,wall,calm){
+    function drawChordScreen(g,fr,wall,calm,shown=true){
       const R=L.chord,c=fr.chord||{},h0=hue;
       g.save();rr(g,R.x,R.y,R.w,R.h,R.rad);g.clip();
       const kk=clamp((wall-chordWall)/0.3,0,1),e=easeOut(kk);
@@ -457,6 +457,7 @@ export default {
       g.fillStyle=`hsla(${h0},60%,40%,0.07)`;g.fillRect(R.x,R.y,R.w,R.h);
       if(!calm&&kk<1){g.fillStyle=`hsla(${h0},80%,60%,${0.12*(1-kk)})`;g.fillRect(R.x,R.y,R.w,R.h);}
       g.globalCompositeOperation='source-over';
+      if(!shown){g.restore();return;}      // the Chords switch is off: the screen glows on, with no chord in it
       const mcx=R.x+R.w*0.32,mcy=R.y+R.h*0.5,mw=R.w*0.54,fs=R.h*0.64,dy=calm?0:R.h*0.55;
       const drawMain=(lab,yo,al)=>{
         if(lab){const hh=chordColor(lab).hue;drawChordLabel(g,lab,mcx,mcy+yo,mw,fs,`hsl(${hh},85%,75%)`,`hsla(${hh},90%,60%,0.28)`,al);}
@@ -546,7 +547,7 @@ export default {
       g.restore();
     }
 
-    function drawTape(g,fr,t){
+    function drawTape(g,fr,t,names=true){
       const T=L.tape,u=L.u,sp=L.speed,look=(Math.min(T.y1,L.bot+u*0.12)-T.y0)/sp;
       g.save();g.beginPath();g.rect(T.x0,T.y0,T.x1-T.x0,T.y1-T.y0);g.clip();
       // sprocket holes (move with song time)
@@ -563,7 +564,7 @@ export default {
       if(chords.length){g.font=`700 ${u*0.021}px ${MONO}`;g.textAlign='left';g.textBaseline='middle';
         for(let i=Math.max(0,after(chords,t)-1);i<chords.length;i++){const c=chords[i];if(noChord(c.label))continue;const y=T.y0+(c.start-t)*sp;if(y>T.y1)break;if(y<T.y0-1)continue;
           const ch=chordColor(c.label).hue;g.fillStyle=`hsla(${ch},70%,65%,0.55)`;g.fillRect(T.x0+u*0.018,y,T.lab-T.x0-u*0.018,1.5);
-          g.fillStyle=`hsl(${ch},70%,72%)`;g.fillText(chordParts(c.label).join(''),T.x0+u*0.02,y-u*0.016);}
+          if(names){g.fillStyle=`hsl(${ch},70%,72%)`;g.fillText(chordParts(c.label).join(''),T.x0+u*0.02,y-u*0.016);}}   // the marks stay when the Chords switch is off, the names go
       }
       // note holes, lit from behind
       g.globalCompositeOperation='lighter';
@@ -657,7 +658,7 @@ export default {
         g.fillStyle='hsla(40,40%,80%,0.25)';for(let i=1;i<8;i++){const y=g0+(g1-g0)*i/8;g.fillRect(rx+gw*0.3,y,gw*0.2,1);}
         g.fillStyle='hsla(30,30%,90%,0.08)';g.fillRect(rx-gw*0.35,g0,gw*0.12,g1-g0);
         // roll + pipes
-        drawTape(g,frame,t);
+        drawTape(g,frame,t,env.chords!==false);
         // Jacob's ladder (lead guitar)
         {const b=Math.min(1,leadS*1.3)*(0.65+0.35*arcHit);
           if(b>0.03){const {jx,jw,jB,jT}=L,y=jB-u*0.02-arcH*(jB-u*0.02-jT),sp=0.14+0.36*Math.pow(arcH,1.4),xl=jx-jw*sp,xr=jx+jw*sp;
@@ -726,8 +727,8 @@ export default {
         g.drawImage(vig,0,0,w,h);
         // screens
         g.drawImage(front,0,0,w,h);
-        drawChordScreen(g,frame,wall,calm);
-        drawLyricScreen(g,frame,t);
+        drawChordScreen(g,frame,wall,calm,env.chords!==false);
+        if(env.lyrics!==false)drawLyricScreen(g,frame,t);      // the Lyrics switch off: the lower screen stays dark
         g.drawImage(scan,0,0,w,h);
         drawSection(g,frame);
       },

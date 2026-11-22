@@ -7,14 +7,15 @@ const STEM_NAMES={vocals:'Vocals',lead:'Lead gtr',rhythm:'Rhythm gtr',bass:'Bass
 
 export default {
   id:'diagnostic',order:90,name:'Diagnostic',hud:false,
-  create(){return {draw(g,frame,env){g.fillStyle='#0d0e14';g.fillRect(0,0,env.w,env.h);g.textBaseline='middle';g.textAlign='center';drawDiagnostic(g,frame,env.w,env.h,env.status,env.fps);}};},
+  create(){return {draw(g,frame,env){g.fillStyle='#0d0e14';g.fillRect(0,0,env.w,env.h);g.textBaseline='middle';g.textAlign='center';drawDiagnostic(g,frame,env.w,env.h,env.status,env.fps,env.chords!==false);}};},
 };
 
 const fmt=t=>`${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,'0')}.${String(Math.floor(t%1*10))}`;
 
-function drawDiagnostic(g,frame,w,h,status,fps){
+function drawDiagnostic(g,frame,w,h,status,fps,chords=true){
   const {chord,beat,section}=frame,cx=w/2,top=h*0.36;
-  // current chord, and a ring counting down to the next change
+  // current chord, and a ring counting down to the next change (left out while the Chords switch is off)
+  if(chords){
   g.font=`800 ${Math.round(Math.min(w,h)*0.16)}px system-ui`;g.fillStyle='#fff';g.fillText(chord.label??'—',cx,top);
   if(chord.next){
     const span=chord.end&&chord.start!==null?chord.next.start-chord.start:4,left=Math.max(0,Math.min(1,chord.timeToNext/Math.max(span,1e-3)));
@@ -24,6 +25,7 @@ function drawDiagnostic(g,frame,w,h,status,fps){
     g.font=`700 ${Math.round(r*0.9)}px system-ui`;g.fillStyle='#ffb84d';g.fillText(chord.next.label,x,y);
     g.font='500 14px system-ui';g.fillStyle='#9aa0b4';
     g.fillText('then '+chord.upcoming.slice(1).map(c=>c.label).join('  '),cx,top+Math.min(w,h)*0.11);
+  }
   }
   // the lyric line being sung: words already sung, the word now, words still to come; the next line below it
   const lyric=frame.lyric,ly=top+Math.min(w,h)*0.17;

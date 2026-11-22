@@ -5,13 +5,47 @@
 .visualizer-stage.idle,.visualizer-overlay.idle{cursor:none}
 /* the controls: scenes, lyrics, calm (and full screen or close); they fade when the mouse rests */
 /* a slim column at the top left, clear of the chord (top centre) and the lyrics (bottom), in the app's own look like the mixer */
-.visualizer-toolbar{position:absolute;top:12px;left:12px;z-index:2;display:flex;flex-direction:column;gap:4px;align-items:stretch;padding:6px;
-  border-radius:var(--panel-radius,14px);background:var(--page);border:var(--bd) solid var(--k-edge);box-shadow:var(--sh) var(--sh) 0 var(--k-shade);color:var(--ink);transition:opacity .4s}
+.visualizer-toolbar{position:absolute;top:12px;left:12px;z-index:2;display:flex;flex-direction:column;gap:8px;width:264px;max-width:calc(100% - 24px);padding:10px;
+  border-radius:var(--k-r-l,10px);background:var(--page);border:var(--k-bd,2px) solid var(--k-edge);box-shadow:var(--k-sh,2px) var(--k-sh,2px) 0 var(--k-shade);color:var(--ink);transition:opacity .4s}
 .visualizer-toolbar.idle{opacity:0;pointer-events:none}
-.visualizer-toolbar button,.visualizer-scenes button{padding:5px 12px;border:2px solid transparent;border-radius:999px;background:transparent;color:var(--ink);font:700 12px var(--g);cursor:pointer;text-align:left}
-.visualizer-toolbar button:hover{border-color:var(--k-edge)}
-.visualizer-toolbar button[aria-pressed="true"]{background:var(--ink);color:var(--page)}
-.visualizer-scenes{display:flex;flex-direction:column;gap:2px;padding-bottom:6px;margin-bottom:2px;border-bottom:2px solid var(--k-edge)}
+.visualizer-toolbar button{color:var(--ink);cursor:pointer}
+/* Previous and Next: the kit's joined pair (.seg) */
+.visualizer-step.seg{flex:none;display:flex;gap:0;overflow:hidden;background:var(--page)}
+.visualizer-step.seg button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:4px;border:0;border-radius:0;font:700 12px var(--g);background:transparent}
+.visualizer-step.seg button:first-child{border-right:var(--k-bd,2px) solid var(--k-edge)}
+.visualizer-step.seg button:hover:not(:disabled){background:var(--tint)}
+.visualizer-step.seg button:disabled{opacity:.4;cursor:default}
+.visualizer-step .ic{width:14px;height:14px}
+/* the look showing, as a dropdown: one of the kit's buttons, with the list of looks opening under it */
+.visualizer-look-wrap{position:relative}
+.visualizer-toolbar .visualizer-look{width:100%;justify-content:space-between;border-radius:var(--k-r-m,6px);font:800 13px var(--g);background:var(--page)}
+.visualizer-look-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
+.visualizer-look .ic{width:15px;height:15px;transition:transform .2s}
+.visualizer-look[aria-expanded="true"] .ic{transform:rotate(180deg)}
+.visualizer-look-menu{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:5;display:flex;flex-direction:column;max-height:min(60vh,430px);padding:6px;
+  border:var(--k-bd,2px) solid var(--k-edge);border-radius:var(--k-r-l,10px);background:var(--page);box-shadow:var(--k-sh-lift,4px) var(--k-sh-lift,4px) 0 var(--k-shade);
+  animation:k-menu .24s var(--k-spring,ease);transform-origin:top center}
+.visualizer-look-menu[hidden]{display:none}
+/* the looks: rows like the sidebar's set lists, the one showing in the kit's yellow sticker, a grip on hover (drag to reorder) and the
+   number key on the right */
+.visualizer-scenes{display:flex;flex-direction:column;gap:2px;min-height:0;overflow-y:auto;padding:2px 3px 3px 0}
+.visualizer-scenes button.setlist-item{display:flex;align-items:center;gap:6px;min-height:var(--k-h,28px);padding:0 var(--k-row-px,8px) 0 4px;line-height:1.2;
+  border:var(--k-bd,2px) solid transparent;border-radius:var(--k-r-m,6px);font:700 13px var(--g);text-align:left;background:transparent;touch-action:none}
+.visualizer-scenes button.setlist-item:not([aria-pressed="true"]):hover{border-color:var(--k-edge)}
+.visualizer-scenes button.setlist-item[aria-pressed="true"]{background:var(--k-sel-bg,var(--hl));color:var(--k-sel-fg,#1A1C24);border-color:var(--k-edge);box-shadow:var(--k-sh-press,1px) var(--k-sh-press,1px) 0 var(--k-shade)}
+.scene-grip{display:flex;color:var(--faint);opacity:0}
+.scene-grip .ic{width:13px;height:13px}
+.visualizer-scenes button:hover .scene-grip{opacity:1}
+.visualizer-scenes button[aria-pressed="true"] .scene-grip{color:inherit}
+.scene-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scene-key{flex:none;min-width:18px;padding:0 4px;border:var(--k-bd-fine,1.5px) solid currentColor;border-radius:var(--k-r-s,4px);font:700 10.5px/16px var(--m);font-style:normal;text-align:center;opacity:.55}
+/* the switches: the kit's buttons, two to a row; one that is on wears the yellow sticker and sits pressed in */
+.visualizer-switches{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding-top:8px;border-top:var(--k-bd,2px) solid var(--k-edge)}
+.visualizer-switches .btn{min-width:0;justify-content:flex-start;padding:0 8px;border-radius:var(--k-r-m,6px);font:800 12px var(--g);background:var(--page);white-space:nowrap}
+.visualizer-switches .btn .ic{width:15px;height:15px;flex:none}
+.visualizer-switches .btn[data-control="ontop"]{grid-column:1/-1}
+.visualizer-switches .btn[aria-pressed="true"]{background:var(--k-sel-bg,var(--hl));color:var(--k-sel-fg,#1A1C24);transform:translate(var(--k-sh-press,1px),var(--k-sh-press,1px));box-shadow:var(--k-sh-press,1px) var(--k-sh-press,1px) 0 var(--k-shade)}
+.visualizer-switches .btn[hidden]{display:none}
 /* the main page's full-screen view */
 .visualizer-overlay{position:fixed;inset:0;z-index:1000;background:#0d0e14}
 /* the mixer: the main window's mixer rack (mixer-rack.css) floating over the scene wherever it was dragged (by its title bar);
@@ -71,3 +105,60 @@ body.streaming.offline #visualizer{visibility:hidden}
 .visualizer-stage.streaming :is(.visualizer-toolbar,.visualizer-mixer){display:none!important}
 /* the preview in the Advanced Visuals Editor (visual-editor.css): the picture only; the editor around it has the controls */
 .visualizer-stage.in-editor :is(.visualizer-toolbar,.visualizer-mixer){display:none!important}
+/* dragging a look up or down the list to reorder it */
+.visualizer-scenes button[data-scene]{touch-action:none}
+.visualizer-scenes.reordering{cursor:grabbing}
+.visualizer-scenes button.setlist-item.dragging{border-color:var(--k-edge);border-style:dashed;background:var(--tint);color:var(--ink);cursor:grabbing}
+/* drawn somewhere else (only one visualizer draws at a time): the controls stay, with a note saying where the picture is */
+.visualizer-elsewhere{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center}
+.visualizer-elsewhere[hidden]{display:none}
+.visualizer-elsewhere p{max-width:34em;margin:0;font:500 15px/1.5 var(--g);color:#e9e6dc}
+.visualizer-elsewhere .btn[hidden]{display:none}
+.visualizer-stage.drawn-elsewhere .visualizer-canvas{visibility:hidden}
+/* the Stream controls window, in the app's own look (the UI kit, ui-kit.css, loaded last as in the main window): the desk behind two
+   panels with the kit's outline, corners and shadow, a condensed uppercase title, small mono labels, rows like the sidebar's set lists
+   (the yellow sticker for the look showing, with a drag grip on hover as on the songs), Previous and Next as the kit's joined pair, and
+   the mixer's pill switches. No picture and no mixer (the main window's mixer is open beside it while streaming).
+   It fits any window height: the list of looks scrolls, and the whole page scrolls if even that is too tall. */
+.stream-controls-page{height:100vh;margin:0;display:flex;flex-direction:column;overflow:auto;background:var(--desk);color:var(--ink);font:14px/1.45 var(--g)}
+.stream-controls-head{flex:none;display:flex;flex-direction:column;gap:8px;padding:16px 16px 0}
+.stream-controls-head h1{display:flex;align-items:center;gap:8px;margin:0;font:800 24px/0.95 var(--g);font-stretch:78%;text-transform:uppercase;letter-spacing:-.01em}
+.stream-controls-head h1 .ic{width:22px;height:22px}
+/* the note on getting the sound into OBS: open the first time, folded to one line after you close it (stream-controls.js remembers) */
+.stream-sound{margin:0;border:var(--k-bd) dashed var(--k-edge);border-radius:var(--k-r-l)}
+.stream-sound[hidden]{display:none}
+.stream-sound summary{display:flex;align-items:center;gap:8px;padding:6px 10px;list-style:none;cursor:pointer;font:700 10.5px var(--m);letter-spacing:.12em;text-transform:uppercase;color:var(--soft)}
+.stream-sound summary::-webkit-details-marker{display:none}
+.stream-sound summary:hover{color:var(--ink)}
+.stream-sound summary .ic{width:15px;height:15px;flex:none;color:var(--ink)}
+.stream-sound-fold{margin-left:auto;display:flex;transition:transform .2s}
+.stream-sound[open] .stream-sound-fold{transform:rotate(180deg)}
+.stream-sound p{margin:0;padding:0 10px 8px 33px;font:400 11.5px/1.5 var(--m);color:var(--soft)}
+.visualizer-stage.controls-only{flex:1 1 auto;height:auto;min-height:240px;overflow:visible;background:transparent;display:flex;flex-direction:column;gap:12px;padding:10px 16px 18px}
+/* where the picture is: a status light and a short line, like the engine status in the sidebar */
+.controls-only .visualizer-elsewhere{position:static;flex:none;order:-1;flex-direction:row;align-items:baseline;justify-content:flex-start;gap:8px;padding:0 2px;text-align:left}
+.controls-only .visualizer-elsewhere::before{content:'';flex:none;width:9px;height:9px;border-radius:50%;border:var(--k-bd) solid var(--k-edge);background:var(--faint);transform:translateY(1px)}
+.controls-only[data-where="obs"] .visualizer-elsewhere::before{background:#C62828}
+.controls-only[data-where="window"] .visualizer-elsewhere::before{background:var(--a3)}
+.controls-only .visualizer-elsewhere p{margin:0;font:400 11.5px/1.5 var(--m);color:var(--soft)}
+.controls-only .visualizer-toolbar{position:static;width:auto;max-width:none;flex:0 1 auto;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0;border:0;border-radius:0;background:none;box-shadow:none}
+.controls-only .visualizer-grip,.controls-only .visualizer-mixer,.controls-only [data-control="mixer"]{display:none}
+.controls-panel{display:flex;flex-direction:column;gap:8px;padding:var(--k-pad);border:var(--k-bd) solid var(--k-edge);border-radius:var(--k-r-l);background:var(--page);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);min-height:0}
+.controls-panel.controls-looks{flex:0 1 auto}
+.controls-label{display:flex;align-items:baseline;justify-content:space-between;margin:0 2px;font:700 10.5px var(--m);letter-spacing:.12em;text-transform:uppercase;color:var(--soft)}
+.controls-label em{font-style:normal;letter-spacing:0;text-transform:none}
+/* Previous and Next: the kit's joined pair (.seg) */
+.controls-only .visualizer-step.seg button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:4px;border:0;border-radius:0;font:700 12px var(--g);color:var(--ink);background:transparent}
+.controls-only .visualizer-step.seg button:first-child{border-right:var(--k-bd) solid var(--k-edge)}
+.controls-only .visualizer-step.seg button:hover:not(:disabled){background:var(--tint)}
+.controls-only .visualizer-step .ic{width:14px;height:14px}
+/* the looks: rows like the sidebar's set lists (.setlist-item), the one showing in the kit's yellow sticker */
+.controls-only .visualizer-scenes{flex:0 1 auto;min-height:96px;overflow-y:auto;gap:2px;padding:2px 3px 3px 0;margin:0;border:0}
+/* the switches: the kit's buttons, like Edit visuals; one that is on wears the kit's yellow sticker and sits pressed in */
+.controls-panel.controls-switches{flex:none;flex-direction:row;flex-wrap:wrap;align-items:center;gap:var(--k-gap)}
+.controls-switches .controls-label{flex:1 1 100%}
+.controls-only .controls-switches .btn{border-radius:var(--k-r-m);font:800 12px var(--g);color:var(--ink);background:var(--page)}
+.controls-only .controls-switches .btn .ic{width:15px;height:15px}
+.controls-only .controls-switches .btn[aria-pressed="true"]{background:var(--k-sel-bg);color:var(--k-sel-fg);transform:translate(var(--k-sh-press),var(--k-sh-press));box-shadow:var(--k-sh-press) var(--k-sh-press) 0 var(--k-shade)}
+.controls-only .controls-switches .btn[hidden]{display:none}
+.controls-only .controls-switches [data-control="patch"]{margin-left:auto}

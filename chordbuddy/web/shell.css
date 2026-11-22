@@ -320,12 +320,14 @@ dialog{border:var(--bd) solid var(--k-edge);border-radius:16px;background:var(--
 .trash-info{flex:1;min-width:0}.trash-info strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.trash-info small{color:var(--soft);font:400 11px var(--m)}
 .trash-forever{border-color:var(--a1);color:var(--a1t)}
 .trash-open{align-self:flex-start;margin:2px 4px 0}
-/* Keyboard shortcuts: two columns of areas on a wide screen (one on a narrow one), keycaps beside what they do */
-.shortcuts-dialog{width:min(94vw,900px)}
-.shortcuts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:0 28px;align-items:start;max-height:68vh;overflow:hidden auto;padding-right:4px}
-.shortcut-group{break-inside:avoid;margin:0 0 16px}
+/* Keyboard shortcuts: the areas flow down two columns, newspaper style, on a wide screen (one on a narrow one), so a short area never
+   leaves a gap beside a long one; keycaps beside what they do, in a key column of one width so the descriptions line up */
+.shortcuts-dialog{width:min(94vw,960px)}
+.shortcuts{max-height:72vh;overflow:hidden auto;padding-right:4px}
+.shortcut-columns{columns:2 380px;column-gap:32px}
+.shortcut-group{break-inside:avoid;display:inline-block;width:100%;margin:0 0 18px}
 .shortcut-group h3{margin:0 0 6px;font:800 14px/1.2 var(--g);text-transform:uppercase;letter-spacing:.04em}
-.shortcut-group dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 12px;margin:0;align-items:baseline}
+.shortcut-group dl{display:grid;grid-template-columns:minmax(96px,max-content) 1fr;gap:6px 12px;margin:0;align-items:baseline}
 .shortcut-group dt{display:flex;flex-wrap:wrap;gap:3px;align-items:center;max-width:170px}
 .shortcut-group dd{margin:0;font-size:13px;line-height:1.35}
 .shortcut-group kbd{padding:1px 6px;border:1.5px solid var(--k-edge);border-radius:5px;background:var(--page);font:800 11px/1.4 var(--m);box-shadow:1px 1px 0 var(--k-shade);white-space:nowrap}
@@ -474,3 +476,10 @@ button.chip.key.set{border-style:solid}
 .models-other summary{cursor:pointer;font-weight:700;color:var(--ink)}
 .models-path{display:inline-block;padding:2px 6px;border:2px solid var(--k-edge);border-radius:6px;background:var(--tint);font:700 12px var(--m);word-break:break-all}
 .models-folders{margin:0;padding-left:18px;display:grid;gap:6px}
+/* Stream to OBS while a Browser Source is drawing: red, like an on-air light; paused (hidden in OBS) it is quieter. The Visualizer button
+   carries a red dot meanwhile, since its menu is usually closed. */
+#visualizer-obs.on-air{color:#C62828}
+#visualizer-obs.on-air::before{content:'';display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:50%;background:currentColor;vertical-align:1px}
+#visualizer-obs.obs-paused{color:var(--ink)}
+#visual-menu>summary.on-air{position:relative}
+#visual-menu>summary.on-air::after{content:'';position:absolute;top:-4px;right:-4px;width:9px;height:9px;border-radius:50%;background:#C62828;box-shadow:0 0 0 2px var(--page)}

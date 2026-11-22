@@ -215,7 +215,8 @@ export function openTrash({getItems,onRestore,onPurge,host=document.body}){
 // Keyboard shortcuts (shortcuts.js): one table per area, keycaps on the left. Esc or Close shuts it.
 export function openShortcuts({groups,host=document.body}){
   const {dialog,actions,close}=shell(host,'Keyboard shortcuts');dialog.classList.add('shortcuts-dialog');
-  const body=el('div','shortcuts');
+  // the areas flow down two columns like a newspaper, so a short one never leaves a hole beside a long one; the outer box scrolls
+  const body=el('div','shortcuts'),columns=el('div','shortcut-columns');body.append(columns);
   for(const group of groups){
     const section=el('section','shortcut-group');section.append(el('h3','',group.title));
     if(group.note)section.append(el('p','shortcut-note',group.note));
@@ -225,7 +226,7 @@ export function openShortcuts({groups,host=document.body}){
       list.append(term,el('dd','',what));
     }
     section.append(list);if(group.after)section.append(el('p','shortcut-note',group.after));
-    body.append(section);
+    columns.append(section);
   }
   const done=el('button','secondary choice-cancel','Close');done.type='button';done.onclick=close;actions.append(done);
   dialog.append(body,actions);dialog.oncancel=e=>{e?.preventDefault?.();close();};

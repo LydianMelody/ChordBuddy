@@ -509,8 +509,8 @@ test('an OBS viewer says when its link to the app comes up and when it is lost',
 });
 
 test('an OBS viewer only listens, and a publisher reaches both channels', ()=>{
-  const fake=fakeRelay(),viewer=viewerRelay('k e y',fake),got=[];
-  assert.equal(fake.sources[0].url,'/visual-stream?key=k%20e%20y');
+  const fake=fakeRelay(),viewer=viewerRelay('k e y',{...fake,id:'v 1'}),got=[];
+  assert.equal(fake.sources[0].url,'/visual-stream?key=k%20e%20y&id=v%201');
   const scenes=[],clocks=[];
   createVisualReceiver({open:()=>viewer,onScene:m=>scenes.push(m),onClock:m=>clocks.push(m)});   // its hello goes nowhere
   fake.sources[0].onmessage({data:JSON.stringify({type:'scene',songId:'x'})});fake.sources[0].onmessage({data:'not json'});
@@ -562,4 +562,29 @@ test('a cue from the chart reaches visuals as frame.cue, held for the chord it f
   assert.equal(sampleFrame(scene,9.5).cue,null,'gone when the next chord starts');
   assert.deepEqual([sampleFrame(scene,1).cue.text,sampleFrame(scene,1).cue.end],['count-in',2.2],'in silence it shows for 2 s');
   assert.equal(sampleFrame(buildScene({content,music}),6).cue,null,'a chart without cues');
+});
+
+test('an OBS viewer says when it stops and starts drawing, and again after a reconnection while stopped', async()=>{
+  const fake=fakeRelay(),viewer=viewerRelay('key',{...fake,id:'v1'});
+  viewer.setDrawing(true);await tick();assert.equal(fake.posts.length,0);           // unchanged: nothing to say
+  viewer.setDrawing(false);await tick();
+  assert.deepEqual(fake.posts.map(p=>[p.url,p.headers['X-ChordBuddy-Stream'],p.body]),[['/api/visual-relay/viewer-state','key',{viewer:'v1',drawing:false}]]);
+  fake.sources[0].onopen();await tick();assert.equal(fake.posts.length,2);           // reconnected while hidden: said again
+  viewer.setDrawing(true);await tick();assert.deepEqual(fake.posts.at(-1).body,{viewer:'v1',drawing:true});
+});
+
+test('the player hears how many OBS sources are drawing, and visualizers hear who draws', ()=>{
+  const fake=fakeRelay(),relay=playerRelay('tok',fake),heard=[];relay.onmessage=e=>heard.push(e.data);
+  fake.sources[0].onmessage({data:JSON.stringify({type:'viewers',connected:1,drawing:0})});
+  assert.deepEqual(heard,[{type:'viewers',connected:1,drawing:0}]);
+  const channel={postMessage:m=>sent.push(m),close(){}},sent=[],viewers=[],stage=[],orders=[];
+  const publisher=createVisualPublisher({open:()=>channel,onViewers:s=>viewers.push(s),onStage:m=>stage.push(m.type),onOrder:o=>orders.push(o)});
+  channel.onmessage({data:{type:'viewers',connected:2,drawing:1}});
+  for(const type of ['here','take','bye'])channel.onmessage({data:{type,id:'a',kind:'window'}});
+  channel.onmessage({data:{type:'order',order:['b','a']}});channel.onmessage({data:{type:'order',order:'b'}});
+  assert.deepEqual(viewers,[{connected:2,drawing:1}]);assert.deepEqual(stage,['here','take','bye']);assert.deepEqual(orders,[['b','a']]);
+  publisher.stage({type:'stage',drawer:'a',close:[]});assert.deepEqual(sent.at(-1),{type:'stage',drawer:'a',close:[]});
+  const said=[],got=[],receiver=createVisualReceiver({open:()=>({postMessage:m=>said.push(m),close(){}}),onScene(){},onClock(){},onStage:m=>got.push(m)});
+  receiver.here('me','editor');receiver.take('me');receiver.bye('me');receiver.order(['x']);
+  assert.deepEqual(said.slice(1),[{type:'here',id:'me',kind:'editor'},{type:'take',id:'me'},{type:'bye',id:'me'},{type:'order',order:['x']}]);
 });
