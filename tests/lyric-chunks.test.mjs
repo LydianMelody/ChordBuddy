@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {lyricTokens,boundaryOffsetMap,lyricPlacementLosses} from '../chordbuddy/web/lyric-chunks.js';
+import {lyricTokens,boundaryOffsetMap,lyricPlacementLosses,joinsNext,shownPiece,shownLine} from '../chordbuddy/web/lyric-chunks.js';
 
 test('syllable hyphens split a word into separately placeable chunks that keep their spelling and codepoint offsets', () => {
   assert.deepEqual(lyricTokens('u-ni-corn beau-ti-ful'),[{text:'u-',offset:0},{text:'ni-',offset:2},{text:'corn',offset:5},{text:'beau-',offset:10},{text:'ti-',offset:15},{text:'ful',offset:18}]);
@@ -19,6 +19,13 @@ test('turning a word into syllables (or back) keeps every boundary that survives
   const map=boundaryOffsetMap('unicorn tail','u-ni-corn tail');
   assert.equal(map.get(0),0);assert.equal(map.get(8),10);
   assert.equal(boundaryOffsetMap('unicorn','different'),null);
+});
+
+test('a hidden split (soft hyphen) cuts a word like a typed dash, but is shown as nothing, or as a dash at the end of a line', () => {
+  assert.deepEqual(lyricTokens('trou­ble o-own­ing ad­'),[{text:'trou­',offset:0},{text:'ble',offset:5},{text:'o-',offset:9},{text:'own­',offset:11},{text:'ing',offset:15},{text:'ad­',offset:19}]);
+  assert.equal(joinsNext('trou­'),true);assert.equal(joinsNext('o-'),true);assert.equal(joinsNext('ble'),false);
+  assert.equal(shownPiece('trou­'),'trou');assert.equal(shownPiece('ad­',true),'ad-');assert.equal(shownPiece('o-',true),'o-');
+  assert.equal(shownLine('trou­ble o-own­ing and ad­'),'trouble o-owning and ad-');
 });
 
 test('placement losses are the pins that no longer exist', () => {

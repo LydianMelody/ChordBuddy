@@ -26,11 +26,11 @@ test('offscreen current time is explicit and overview interactions never seek',(
  mounted.update({music,projection:null,viewport:{start:10,end:30,follow:false}});
  const seek=root.querySelector('.practice-seek'),navigator=mounted.navigator;
  assert.match(seek.className,/outside/);assert.match(seek.getAttribute('aria-valuetext'),/outside the visible span/);
- assert.match(root.querySelector('.practice-position').textContent,/outside visible span/);
  assert.equal(root.querySelector('.practice-playhead').hidden,true);
  navigator.gesture.start('move',10,100);navigator.gesture.move(20);navigator.gesture.end();
  assert.deepEqual(actions,[{type:'pan-to',start:20,end:40}]);assert.deepEqual(seeks,[]);
- snapshot={...snapshot,seconds:20};paint(snapshot);assert.doesNotMatch(seek.className,/outside/);assert.doesNotMatch(root.querySelector('.practice-position').textContent,/outside visible span/);
+ snapshot={...snapshot,seconds:20};paint(snapshot);assert.doesNotMatch(seek.className,/outside/);assert.doesNotMatch(seek.getAttribute('aria-valuetext'),/outside the visible span/);
+ assert.equal(root.querySelector('.practice-position'),null,'no bar-and-beat tag over the lane: the chart shows it');
  seek.value=22;seek.onchange();assert.deepEqual(seeks,[22]);mounted.dispose();
 });
 

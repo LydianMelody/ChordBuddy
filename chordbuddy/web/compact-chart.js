@@ -115,7 +115,7 @@ export function buildCompactChart(content,music){
     if(new Set(bars.slice(i,i+n).flatMap(b=>b.events.filter(e=>e.kind==='chord').map(e=>e.label))).size<2)continue;
     const starts=bars.slice(i,i+n).reduce((s,b)=>s+b.events.filter(e=>!e.continued).length,0),held=bars[i].events[0]?.continued;
     let count=1;
-    while(i+(count+1)*n<=bars.length){let equal=starts>=2||bars[i+count*n].events[0]?.continued===held;for(let k=0;k<n;k++){if(--budget<0){equal=false;break;}const at=i+count*n+k;const a=bars[i+k].signature,b=bars[at].signature,ending=n>=3&&k===n-1&&a&&b&&same(a.slice(0,2),b.slice(0,2));if(blocked[at]||breaks.has(bars[at].measureId)||!same(a,b)&&!ending){equal=false;break;}}if(!equal)break;count++;}
+    while(i+(count+1)*n<=bars.length){let equal=starts>=2||bars[i+count*n].events[0]?.continued===held;for(let k=0;k<n;k++){if(--budget<0){equal=false;break;}const at=i+count*n+k;const a=bars[i+k].signature,b=bars[at].signature;if(blocked[at]||breaks.has(bars[at].measureId)||!same(a,b)){equal=false;break;}}if(!equal)break;count++;}
     if(count>1&&n*count>best.unit*best.count)best={unit:n,count,fixed:!!fixed};
    }
    return best;
@@ -123,12 +123,11 @@ export function buildCompactChart(content,music){
   for(let i=0;i<bars.length;){let {unit,count,fixed}=candidate(i);
    if(count===1&&!fixed){while(unit<4+(i===0?lead:0)&&i+unit<bars.length&&!breaks.has(bars[i+unit].measureId)&&candidate(i+unit).count===1)unit++;}
    const id=section.id+':'+i,g={id,sectionId:section.id,slots:[],passes:[],folded:count>1,bars:bars.slice(i,i+unit),start:bars[i].start,end:bars[i+unit*count-1].end};
-   const endingSignatures=[],variantAt=[];
-   for(let p=0;p<count;p++){const signature=bars[i+(p+1)*unit-1].signature;let variant=endingSignatures.findIndex(s=>same(s,signature));if(variant<0){variant=endingSignatures.length;endingSignatures.push(signature);}variantAt.push(variant);}
-   g.endingVariants=endingSignatures.length>1?endingSignatures.map((_,v)=>({id:v,passNumbers:variantAt.flatMap((x,p)=>x===v?[p+1]:[])})):[];
+   // Only bars that repeat exactly fold. A repeat whose last bar changes (G C D C, then G C D E) is not a repeat: it is written out, or
+   // folds as the longer stretch that does repeat exactly (8 bars x2 rather than 4 bars x4 with a changed ending).
    for(let p=0;p<count;p++){
     const batch=bars.slice(i+p*unit,i+(p+1)*unit),pass={number:p+1,start:batch[0].start,end:batch.at(-1).end,measureIds:batch.map(b=>b.measureId).filter(Boolean),occurrenceIds:[]};let slot=0;
-    for(const b of batch)for(const e of b.events){const ending=g.endingVariants.length&&b===batch.at(-1),slotId=id+(ending?':ending'+variantAt[p]+':slot':':slot')+slot,oid=id+':p'+(p+1)+':'+slot,o={...e,id:oid,groupId:id,slotId,passNumber:p+1,sectionId:section.id,measureId:b.measureId,ending:!!ending,endingVariant:ending?variantAt[p]:null,partialStart:b.partialStart,partialEnd:b.partialEnd};view.occurrences.push(o);pass.occurrenceIds.push(oid);if(p===0||ending&&!g.slots.some(s=>s.id===slotId))g.slots.push({...o,id:slotId,beatLabel:b.signature?String(1+coordinate(measures.find(m=>m.id===b.measureId),e.start)):'',barNumber:b.number});slot++;}
+    for(const b of batch)for(const e of b.events){const slotId=id+':slot'+slot,oid=id+':p'+(p+1)+':'+slot,o={...e,id:oid,groupId:id,slotId,passNumber:p+1,sectionId:section.id,measureId:b.measureId,partialStart:b.partialStart,partialEnd:b.partialEnd};view.occurrences.push(o);pass.occurrenceIds.push(oid);if(p===0)g.slots.push({...o,id:slotId,beatLabel:b.signature?String(1+coordinate(measures.find(m=>m.id===b.measureId),e.start)):'',barNumber:b.number});slot++;}
     g.passes.push(pass);
    }
    own.groups.push(g);view.groups.push(g);i+=unit*count;
@@ -177,7 +176,7 @@ export function compactFoldChoices(view,group){
  if(!group?.folded||!group.passes?.length)return [];
  const unit=group.bars.length,total=unit*group.passes.length,out=[];
  for(let u=unit;u<=Math.min(total/2,16);u+=unit){
-  if(total%u||(u>unit&&group.endingVariants?.length>1))continue;
+  if(total%u)continue;
   out.push({unit:u,count:total/u,current:u===unit,label:u+(u===1?' bar':' bars')+' ×'+total/u});
  }
  out.push({expanded:true,current:false,label:'Not folded (write out every pass)'});
@@ -221,8 +220,8 @@ export function compactRangeChoices(content,music,fromId,toId){
   let miss=null;const starts=bars.slice(0,u).reduce((s,b)=>s+b.events.filter(e=>!e.continued).length,0);
   for(let p=1;p<L/u&&!miss;p++)for(let k=0;k<u;k++){
    if(!k&&starts<2&&bars[p*u].events[0]?.continued!==bars[0].events[0]?.continued){miss=[span[0].number,span[p*u].number];break;}
-   const x=bars[k].signature,y=bars[p*u+k].signature,ending=u>=3&&k===u-1&&same(x.slice(0,2),y.slice(0,2));
-   if(!same(x,y)&&!ending){miss=[span[k].number,span[p*u+k].number];break;}
+   const x=bars[k].signature,y=bars[p*u+k].signature;
+   if(!same(x,y)){miss=[span[k].number,span[p*u+k].number];break;}
   }
   if(!miss)out.choices.push({unit:u,count:L/u,label:u+(u===1?' bar':' bars')+' ×'+L/u});
   else if(!firstMiss||u===L/2)firstMiss=miss;

@@ -556,11 +556,22 @@ function createView(container){
       analysis=analyzeScore(content.abc,abcjs);baseNotes=analysis.notes;shownAbc=content.abc;shownChords=content.chords||[];
       // The chords and section names follow the chord chart (or what it said when this copy was frozen); an older frozen copy keeps its own.
       const f=frozen();
-      if(f?.abc){shownAbc=f.abc;shownChords=f.chords||[];const sections=f.sections;analysis=analyzeScore(shownAbc,abcjs);if(Array.isArray(sections))analysis.sections=sections;}
+      if(f?.abc){shownAbc=f.abc;shownChords=f.chords||[];const sections=f.sections;analysis=analyzeScore(shownAbc,abcjs);if(Array.isArray(sections))analysis.sections=sections;
+        // a frozen copy sent while the chart was moved remembers by how much, so it follows the pitch control like everything else
+        const shift=(options.transpose||0)-(f.transpose||0);
+        if(shift){const moved=abcjs.strTranspose?.(shownAbc,abcjs.parseOnly(shownAbc),shift);if(moved){shownAbc=moved;shownChords=shownChords.map(({abc_index,...c})=>c);analysis=analyzeScore(shownAbc,abcjs);if(Array.isArray(sections))analysis.sections=sections;}}
+      }
       else{
         // written in the song's key (the key chip; the score can be in the model's own), every pitch as it was
         const keyed=options.musicKey?rekeyAbc(content.abc,options.musicKey):null;
         if(keyed){shownAbc=keyed.abc;shownChords=shownChords.map(c=>Number.isInteger(c.abc_index)?{...c,abc_index:keyed.map[c.abc_index]}:c);analysis=analyzeScore(shownAbc,abcjs);}
+        // The pitch control's Chart switch: the score is written again that many half steps up or down (notes and key signature), as a view.
+        // The notes keep their order, so edits still land on the right note of the saved score. The chord chart's chords are placed below,
+        // already moved by spellChord. Without a chart, the score's own chord symbols move with it but can't be retyped here.
+        if(options.transpose){
+          const moved=abcjs.strTranspose?.(shownAbc,abcjs.parseOnly(shownAbc),options.transpose);
+          if(moved){shownAbc=moved;analysis=analyzeScore(shownAbc,abcjs);shownChords=options.chart?.content?shownChords:shownChords.map(({abc_index,...c})=>c);}
+        }
         if(!f&&options.chart?.content){
         const placed=placeChartOnScore(shownAbc,analysis,effectiveMeasures(options.chart.music,options.chart.content.layout),options.chart.content,spellChord);
         shownAbc=placed.abc;shownChords=placed.chords;analysis=analyzeScore(shownAbc,abcjs);analysis.sections=placed.sections;
@@ -671,13 +682,15 @@ function createView(container){
       const tune=abcjs.parseOnly(shownAbc)[0];
       const chordsFor=item=>{
         const own=shownChords.filter(c=>Number.isInteger(c.abc_index)&&c.abc_index>=item.startChar&&c.abc_index<item.endChar).map(c=>c.label);
-        return (own.length?own:(item.chord||[]).filter(isChordSymbol).map(c=>c.name)).filter(name=>name&&!isNoChordLabel(name)).map(spellChord);   // as the chart spells them for the key
+        // as the chart spells them for the key; names read from a moved score are already moved, so they're only respelled when it isn't
+        if(own.length)return own.filter(name=>name&&!isNoChordLabel(name)).map(name=>spellChord(name));
+        return (item.chord||[]).filter(isChordSymbol).map(c=>c.name).filter(name=>name&&!isNoChordLabel(name)).map(name=>options.transpose?name:spellChord(name));
       };
       const chosen=options.getMeter?.(),meter=Array.isArray(chosen)?{num:chosen[0],den:chosen[1]}:null;
       const xml=tuneToMusicXml(tune,{title:options.title,artist:options.artist,staffIndex:analysis.staffIndex,voiceIndex:analysis.voiceIndex,lyrics:synced||new Map(),chordsFor,meter,tempo:options.music?.timing?.bpm});
-      const result=await options.onExternal?.({xml,filename:exportFileName(options.title)});
+      const result=await options.onExternal?.({xml,filename:exportFileName(options.title+(options.pitchSuffix||''))});
       // From now on the lead sheet is a frozen copy: what the chord chart said when it was sent.
-      if(!frozen())options.onFreeze?.({at:new Date().toISOString(),lyrics:[...(synced||new Map())].map(([index,w])=>[index,w.syllable,w.divider]),abc:shownAbc,chords:shownChords,sections:analysis.sections});
+      if(!frozen())options.onFreeze?.({at:new Date().toISOString(),transpose:options.transpose||0,lyrics:[...(synced||new Map())].map(([index,w])=>[index,w.syllable,w.divider]),abc:shownAbc,chords:shownChords,sections:analysis.sections});
       if(result?.message)say(result.message);
     }finally{busy=false;}
   }

@@ -31,7 +31,7 @@ function drawDiagnostic(g,frame,w,h,status,fps,chords=true){
   const lyric=frame.lyric,ly=top+Math.min(w,h)*0.17;
   if(lyric.line){
     g.font=`600 ${Math.round(Math.min(w,h)*0.04)}px system-ui`;
-    const widths=lyric.words.map(x=>g.measureText(x.text+' ').width),total=widths.reduce((a,b)=>a+b,0);let x=cx-total/2;
+    const widths=lyric.words.map(x=>g.measureText(x.text+(x.joined?'':' ')).width),total=widths.reduce((a,b)=>a+b,0);let x=cx-total/2;
     g.textAlign='left';
     lyric.words.forEach((word,i)=>{g.fillStyle=word.state==='now'?'#ffe066':word.state==='sung'?'#e9e6dc':'#5d6275';g.fillText(word.text,x,ly);x+=widths[i];});
     g.textAlign='center';

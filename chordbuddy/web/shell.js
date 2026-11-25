@@ -1,4 +1,4 @@
-import {hydrateIcons,icon} from './icons.js';
+import {hydrateIcons} from './icons.js';
 import {prefs as remember} from './prefs.js';
 
 // Theme and folded panels are remembered with the library (see prefs.js), not in the browser.
@@ -24,8 +24,8 @@ function setScheme(choice, save = true) {
   root.dataset.scheme = scheme;
   const button = $('scheme-toggle');
   if (button) {
-    button.innerHTML = icon(scheme === 'dark' ? 'sun' : 'moon') + `<em>${scheme === 'dark' ? 'Light mode' : 'Dark mode'}</em>`;
-    button.title = scheme === 'dark' ? 'Switch to the light look' : 'Switch to the dark look';
+    // a setting with a tick box (ui-kit.css draws it from aria-pressed), so its words stay put and the box says whether it is on
+    button.title = scheme === 'dark' ? 'Chord Buddy is in dark colors. Untick it for the light look.' : 'Show Chord Buddy in dark colors, easier on the eyes in a dim room.';
     button.setAttribute('aria-pressed', String(scheme === 'dark'));
   }
   if (save) remember.set('cb-scheme', scheme);

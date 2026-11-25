@@ -69,8 +69,9 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
  const loop=node('div','practice-loop'),loopStart=node('i','practice-loop-handle start'),loopEnd=node('i','practice-loop-handle end'),tag=node('span','practice-loop-tag'),tagText=node('span','practice-loop-text','Loop'),clear=node('button','practice-loop-clear','×'),magnet=node('button','practice-loop-magnet');
  clear.type='button';clear.title='Clear loop';clear.setAttribute('aria-label','Clear loop');loopStart.setAttribute('aria-label','Loop start');loopEnd.setAttribute('aria-label','Loop end');magnet.type='button';magnet.innerHTML=icon('magnet');
  tag.append(tagText,magnet,clear);loop.append(loopStart,loopEnd,tag);
- const playhead=node('div','practice-playhead'),grip=node('i','practice-playhead-grip'),position=node('span','practice-position');playhead.setAttribute('aria-label','Playhead');playhead.append(grip);
- surface.append(band,sections,wave,loop,playhead,position);container.append(surface);
+ const playhead=node('div','practice-playhead'),grip=node('i','practice-playhead-grip');playhead.setAttribute('aria-label','Playhead');playhead.append(grip);
+ // (The bar and beat aren't drawn over the lane: the chart shows them. The playback slider still says them to a screen reader.)
+ surface.append(band,sections,wave,loop,playhead);container.append(surface);
 
  // ----- the navigator ("the cassette"): which part of the song is in view. It sits right against the lane above, as one instrument.
  //       Drag the window to move, its grips to zoom, the caps to step. Under it: the ruler, with Follow and TIME / BARS at its right end.
@@ -112,12 +113,6 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
  // bar (before the first, after the last) shows the time, so the label always says something useful.
  function positionAt(t){const p=musicalPosition(numbered(),t);return p?(p.bar<1?'Before bar 1':'Bar '+p.bar)+(Number.isFinite(p.beat)?' · Beat '+p.beat.toFixed(2):''):clock(Math.max(0,t));}
  const percentOf=(t,axis)=>100*(t-axis.start)/Math.max(.001,axis.end-axis.start);
- // The bar-and-beat label rides above the playhead but always stays wholly inside the scrubber, however narrow the window is.
- function placeLabel(percent){
-  const lane=position.parentElement?.clientWidth||0,width=position.offsetWidth||0;
-  if(!lane||!width){position.style.left=Math.max(12,Math.min(88,percent))+'%';return;}
-  const half=width/2+4;position.style.left=Math.max(half,Math.min(lane-half,lane*percent/100))+'px';
- }
  const timeAt=(clientX,axis,element=seek)=>{const rect=element.getBoundingClientRect();return axis.start+Math.max(0,Math.min(1,(clientX-rect.left)/Math.max(1,rect.width)))*(axis.end-axis.start);};
  // The loop's magnet: on, its edges snap to bars (or beats when zoomed in); off, they go exactly where they are dropped.
  let snapping=prefs.get('cb-loop-snap','1')!=='0';
@@ -174,8 +169,8 @@ export function mountPracticeTimeline(container,{transport,onViewportChange,onEr
   const b=bounds(),v=visible(),t=draggingSeek?Number(seek.value):s.seconds;
   seek.min=v.start;seek.max=v.end;seek.disabled=!s.ready;if(!draggingSeek)seek.value=s.seconds;
   const outside=t<v.start||t>v.end;seek.classList.toggle('outside',outside);seek.setAttribute('aria-valuetext',positionAt(t)+(outside?' · outside the visible span':''));
-  position.textContent=positionAt(t)+(outside?' · outside visible span':'');position.classList.toggle('outside',outside);playhead.hidden=outside;
-  const percent=percentOf(t,v);playhead.style.left=percent+'%';placeLabel(percent);
+  playhead.hidden=outside;
+  const percent=percentOf(t,v);playhead.style.left=percent+'%';
   played.style.clipPath='inset(0 '+Math.max(0,Math.min(100,100-percent))+'% 0 0)';
   cassette.refresh();paintRuler();overviewHead.style.left=percentOf(t,b)+'%';
   cassette.setValueText(clock(v.start)+' – '+clock(v.end)+' · '+(v.end-v.start>=60?Math.round((v.end-v.start)/6)/10+' min':Math.round(v.end-v.start)+' s')+' visible');

@@ -303,7 +303,7 @@ export function mountPrepare(root,deps){
     if(!perf()){makeNew();return;}
     const value=beat.n/beat.d,at={measure:measure.id,beat};
     openActionEditor({title:`What should happen at bar ${measure.number}${value?`, beat ${value+1}`:''}?`,ctx:editorContext(position(at)*44100),
-      onAdd:action=>{if(disposed)return;if(scope.kind==='shared'&&isLoopFlag(action)){addLoopAt(measure,action);return;}const id=uid();programEdit(scope,cues=>cues.push({id,at,action}));selection={kind:'cue',id};paint();}});
+      onAdd:action=>{if(disposed)return;if(scope.kind==='shared'&&isLoopFlag(action)){addLoopAt(measure,action);return;}const id=uid();programEdit(scope,cues=>cues.push({id,at,action}));selection={kind:'cue',id};paint();if(action.type==='pitch.set')deps.onPitchFlag?.(position(at));}});
   }
   /** A loop chosen in the Action picker, for every play: a planned loop (the purple band) from the start of this bar, over its number of bars
    *  or this whole section. A pass's own loop action stays a flag, pressed as L or R would be when the music gets there. */

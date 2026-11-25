@@ -4,7 +4,7 @@
 import {chartPresentation} from './chart-presentation.js';
 import {BARLINE_SLACK} from './compact-chart.js';
 import {usualBeats,isOddBar} from './bar-lengths.js';
-import {buildCompactChart} from './compact-chart.js';
+import {buildCompactChart,applyCompactGroupPreference} from './compact-chart.js';
 import {effectiveMeasures} from './chart-layout.js';
 import {layoutLine} from './word-layout.js';
 import {musicalPosition,secondsAtMusicalPosition} from './musical-grid.js';
@@ -14,22 +14,39 @@ const EPS=1e-7;
 
 // trueTiming: every word is drawn in the row where it is sung, so a pickup (words sung in the last bar of the row before) lands there.
 // Without it each word stays with its own lyric line: a pickup is drawn at the start of its line's row, whatever the timing says.
-export function buildChartModel(content,music,{onsets=null,trueTiming=false}={}){
-  const projection=buildCompactChart(content,music);
+// unfoldAt: moments (seconds) where a show changes the chart's pitch. A repeat folded over one of them (G C D C (×2) with the change in its
+// second pass) can't show both keys at once, so it is drawn written out, one row per pass, through the chart's own "Not folded" choice,
+// applied to a copy: the saved chords, words and layout are never changed. Words and pickups go with their pass as in any written-out repeat.
+// pastEnd: how many of the bars after the chart's end to include as well (each marked pastEnd), so the Edit tool can draw them faded and
+// the end cap can be dragged back over them. chartEnd is where the chart really ends.
+export function buildChartModel(content,music,{onsets=null,trueTiming=false,unfoldAt=[],pastEnd=0}={}){
+  let projection=buildCompactChart(content,music);
+  if(unfoldAt.length){
+    for(let guard=0;guard<32;guard++){
+      const group=projection.sections.flatMap(s=>s.groups).find(g=>g.folded&&g.passes?.length>1&&unfoldAt.some(t=>t>g.passes[0].start+EPS&&t<g.passes.at(-1).end-EPS));
+      if(!group)break;
+      try{content=applyCompactGroupPreference(content,projection,group,'expanded');projection=buildCompactChart(content,music);}catch{break;}
+    }
+  }
   let measures=[];try{measures=effectiveMeasures(music,content.layout||{});}catch{measures=[];}
-  const presentation=chartPresentation(content,measures,music?.sound_start,music?.sound_end);
+  let presentation=chartPresentation(content,measures,music?.sound_start,music?.sound_end);
+  const chartEnd=presentation.end;
+  if(pastEnd>0){
+    const after=measures.filter(m=>m.start>=chartEnd-BARLINE_SLACK),last=after[Math.min(pastEnd,after.length)-1];
+    if(last)presentation=chartPresentation(content,measures,music?.sound_start,music?.sound_end,{chartEnd:last.end});
+  }
   // Silence before the song starts is not a bar: bar 1 is the first bar with music in it. (Numbers stored with the bars never change; this is only what is shown.)
   // A bar that only reaches a few ms into the music (the same wobble as compact-chart.js allows at barlines) is still silence.
   const barOffset=measures.filter(m=>m.end<=presentation.start+BARLINE_SLACK).length;
   const usual=usualBeats(measures);
-  const ctx={content,music,projection,measures,presentation,onsets,barOffset,usual,trueTiming,layouts:new Map()};
+  const ctx={content,music,projection,measures,presentation,chartEnd,onsets,barOffset,usual,trueTiming,layouts:new Map()};
   // A section that lies wholly in the hidden silence before or after the music is not shown either (nor counted).
   const audible=section=>section.end>presentation.start+BARLINE_SLACK&&section.start<presentation.end-BARLINE_SLACK;
   const sections=projection.sections.filter(audible).map((section,index)=>({
     id:section.id,name:section.name,number:index+1,start:section.start,end:section.end,
     groups:section.groups.map(group=>buildGroup(ctx,section,group)).filter(Boolean),
   }));
-  return {projection,measures,presentation,sections,barOffset,usualBeats:usual,warnings:projection.warnings};
+  return {projection,measures,presentation,chartEnd,sections,barOffset,usualBeats:usual,warnings:projection.warnings};
 }
 
 function barsOf(ctx,section,group,rep){
@@ -62,7 +79,7 @@ function buildGroup(ctx,section,group){
     return {
       id:m.id,measure:m,number:m.number-ctx.barOffset,meter:m.meter||null,beatCount:m.beats.length,odd:isOddBar(m,ctx.usual),
       meterChange:!!(m.meter&&previousMeasure&&!(previousMeasure===measures[0]&&previousMeasure.beats.length<ctx.usual)&&JSON.stringify(m.meter)!==JSON.stringify(previousMeasure.meter)),   // a short first bar (a pickup) is not a meter the song changed from
-      start,end,mapped:!String(m.id).startsWith('unmapped:'),chunks,previous:previous?.id??null,
+      start,end,mapped:!String(m.id).startsWith('unmapped:'),chunks,previous:previous?.id??null,pastEnd:start>=ctx.chartEnd-BARLINE_SLACK,
     };
   });
   const lanes=groupLanes(ctx,section,group,rep,bars);
@@ -79,7 +96,7 @@ function buildGroup(ctx,section,group){
   return {
     id:group.id,sectionId:section.id,folded:!!group.folded,passCount:group.passes.length,passes:group.passes,
     start:group.start,end:group.end,bars,lanes,
-    endings:endingsOf(ctx,group),repeat:group.folded?group.passes.length:0,
+    repeat:group.folded?group.passes.length:0,
   };
 }
 
@@ -156,6 +173,20 @@ function groupLanes(ctx,section,group,rep,bars){
   // to the pass most of its words are sung in (a tie goes to the later pass). With true timing, an early word is drawn in the lane of the
   // pass it is sung in, so it shows in the bar where it is heard; line by line it is drawn at the start of its own lane.
   if(group.passes.length>1){
+    // A line that runs on from one pass into the next is split there: the words sung in each pass go in that pass's lane, so the words of
+    // two passes are never drawn over one another. Words sung only in the last bar of a pass, just before the rest of the line (a pickup),
+    // stay with the pass they lead into.
+    for(let i=lanes.length-1;i>=0;i--){
+      const lane=lanes[i];if(lane.flow||!lane.tokens.length)continue;
+      const runs=[];
+      for(const t of lane.tokens){const run=runs.at(-1);if(run&&run.pass===t.passNumber)run.tokens.push(t);else runs.push({pass:t.passNumber,tokens:[t]});}
+      for(let k=runs.length-2;k>=0;k--){
+        const pass=group.passes.find(p=>p.number===runs[k].pass),lastBar=pass&&measures.find(m=>pass.end-1e-6>=m.start&&pass.end-1e-6<m.end);
+        if(lastBar&&runs[k].tokens.every(t=>finite(t.seconds)&&t.seconds>=lastBar.start-1e-6)){runs[k+1].tokens.unshift(...runs[k].tokens);runs.splice(k,1);}
+      }
+      if(runs.length<2)continue;
+      lanes.splice(i,1,...runs.map(r=>({...lane,passNumber:r.pass,tokens:r.tokens})));
+    }
     for(const lane of lanes){
       if(lane.flow||!lane.tokens.length)continue;
       const count=new Map();for(const t of lane.tokens)count.set(t.passNumber,(count.get(t.passNumber)||0)+1);
@@ -187,19 +218,6 @@ function groupLanes(ctx,section,group,rep,bars){
     });
   }
   return [...lanes,...foreign];
-}
-
-// Changed endings: the other passes' final chords, shown once beside the folded line.
-function endingsOf(ctx,group){
-  const {projection,measures,presentation}=ctx,result=[];
-  if(!group.endingVariants?.length)return result;
-  for(const variant of group.endingVariants){
-    const other=group.passes.find(p=>p.number===variant.passNumbers[0]),measure=other&&measures.find(m=>m.id===other.measureIds.at(-1));
-    if(!measure)continue;
-    const chords=projection.occurrences.filter(o=>o.groupId===group.id&&o.passNumber===other.number&&o.ending&&presentation.visible(o));
-    result.push({variant:variant.id,passNumbers:variant.passNumbers,measureNumber:measure.number-ctx.barOffset,chords});
-  }
-  return result;
 }
 
 // Which chunk and pass is playing right now, for highlighting. Playback decides the pass; the page never moves under the reader.

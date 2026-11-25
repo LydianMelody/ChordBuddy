@@ -101,6 +101,40 @@ test('Timing: a word cannot be dragged more than one bar before its section', as
   for(const c of s.commits)assert.notEqual(wordsOf(c.candidate,'c')[0][1],'m2');
 });
 
+// The Chorus line with only "so" pinned: "And" (not pinned) sits at the line's start, so it comes along when "so" goes earlier
+function unpinnedFirst(){
+  const f=chart(),line=f.content.layout.lines.find(p=>p.section_id==='c');line.words=line.words.filter(w=>w.offset!==0);return f;
+}
+const dragTo=(s,text,barId,at)=>{
+  const chip=chipOf(s,text),r=s.bars.find(b=>b.dataset.bar===barId).getBoundingClientRect(),x=r.left+r.width*at;
+  chip.setPointerCapture=()=>{};chip.releasePointerCapture=()=>{};
+  chip.onpointerdown({button:0,pointerId:1,clientX:r.right+40,clientY:50,shiftKey:true,preventDefault(){}});
+  chip.onpointermove({pointerId:1,clientX:x,clientY:50});
+  return ()=>chip.onpointerup({pointerId:1,clientX:x,clientY:50});
+};
+
+test('Timing: a later word dragged into the pickup bar pulls the unpinned words before it along, across rows, like along a line', async () => {
+  const s=setup(unpinnedFirst());
+  const drop=dragTo(s,'so','m3',.75);                                       // beat 4 of bar 4, the bar before the Chorus
+  // while dragging, "And" is already drawn in that bar of the row above, before "so"
+  const and=chipOf(s,'And');assert.equal(and.parent.parent.dataset.bar,'m3');
+  assert.ok(parseFloat(and.style.left)<s.bars.find(b=>b.dataset.bar==='m3').getBoundingClientRect().width*.75);
+  drop();await tick();await tick();
+  assert.equal(s.errors.length,0);assert.equal(s.commits.length,1);
+  const saved=s.commits[0].candidate,line=saved.layout.lines.find(p=>p.section_id==='c');
+  assert.deepEqual(wordsOf(saved,'c'),[[4,'m3',3]]);
+  assert.equal(line.start_measure,'m3');                                    // so "And" is sung at the start of that bar, before "so"
+  const {layoutLine}=await import('../chordbuddy/web/word-layout.js');
+  const times=layoutLine(saved,measures(chart()),'c',0).tokens.map(t=>t.seconds);
+  assert.deepEqual(times.slice(0,2),[6,7.5]);
+});
+
+test('Timing: a pinned word before it still stops a word at its section\'s start', async () => {
+  const s=setup(chart());                                                   // "And" is pinned on the Chorus's first beat
+  const drop=dragTo(s,'so','m3',.75);drop();await tick();await tick();
+  for(const c of s.commits){const w=wordsOf(c.candidate,'c');assert.ok(w.every(([,bar])=>bar!=='m3'),'nothing lands before "And"');}
+});
+
 test('the Words switch: line by line keeps a pickup under its own row, true timing moves it to the row before, and Timing ignores the switch', () => {
   const f=withPickup(chart());
   const rows=root=>byClass(root,'row'),andIn=row=>all(row).filter(n=>has(n,'w')&&n.textContent.trim()==='And').length;

@@ -23,6 +23,7 @@ class StemProcessor extends AudioWorkletProcessor{
    if(m.type==='mix')this.mixer.setMix(m.value);
    if(m.type==='mode')this.mixer.setMode(m.value);
    if(m.type==='rate')this.player.setRate(m.value);
+   if(m.type==='pitch')this.player.setPitch(m.value);
    if(m.type==='error'){this.mixer.setPlaying(false);this.port.postMessage(m);}
   }catch(error){this.mixer.setPlaying(false);this.port.postMessage({type:'error',generation:this.mixer.generation,runId:this.mixer.runId,error:error.message});}
  }
@@ -33,7 +34,7 @@ class StemProcessor extends AudioWorkletProcessor{
   if(wait<left.length)this.player.render(wait?left.subarray(wait):left,wait?right.subarray(wait):right);
   if(wait){left.fill(0,0,wait);if(right!==left)right.fill(0,0,wait);}
   this.tick+=left.length;
-  if(this.tick>=2048){this.tick=0;const m={type:'position',hold:Math.max(0,(this.holdUntil||0)-currentFrame),generation:this.mixer.generation,runId:this.mixer.runId,sourceFrame:this.player.sourceFrame,played:this.mixer.played,levels:this.mixer.takeLevels(),contextFrame:currentFrame,state:this.player.state,stretcher:this.player.stretcher,queuedFrames:this.mixer.queuedFrames};this.port.postMessage(m);this.stream?.postMessage(m);}
+  if(this.tick>=2048){this.tick=0;const m={type:'position',hold:Math.max(0,(this.holdUntil||0)-currentFrame),generation:this.mixer.generation,runId:this.mixer.runId,sourceFrame:this.player.sourceFrame,played:this.mixer.played,levels:this.mixer.takeLevels(),contextFrame:currentFrame,state:this.player.state,stretcher:this.player.stretcher,pitchPending:this.player.pitchPending,queuedFrames:this.mixer.queuedFrames};this.port.postMessage(m);this.stream?.postMessage(m);}
   return true;
  }
 }
@@ -65,6 +66,7 @@ class PathProcessor extends AudioWorkletProcessor{
   const {player}=this.slots[slot];
   if(payload.kind==='mix')player.mixer.setMix(payload.mix);
   else if(payload.kind==='rate')player.setRate(payload.percent/100);
+  else if(payload.kind==='pitch')player.setPitch(payload.pitch);
   else if(payload.kind==='hold')player.mixer.setPlaying(false);
  }
  command(m){
@@ -77,6 +79,7 @@ class PathProcessor extends AudioWorkletProcessor{
     case 'mode':mixer.setMode(m.value);break;
     case 'mix':mixer.setMix(m.value);break;
     case 'rate':s.player.setRate(m.value);break;
+    case 'pitch':s.player.setPitch(m.value);break;
     case 'schedule':mixer.schedule(m.atPlayed,()=>this.apply(m.slot,m.payload),m.id);break;
     case 'cancel':mixer.cancel(a=>String(a.id).startsWith(m.prefix));break;
     case 'cancel-from':mixer.cancel(a=>a.atPlayed>=m.atPlayed);break;
@@ -116,7 +119,7 @@ class PathProcessor extends AudioWorkletProcessor{
    const mixer=s.player.mixer;if(mixer.runId===null||mixer.runId===undefined)continue;
    const heard=s.player.sourceFrame,lag=s.player.stretching?mixer.frame-heard:0;
    if(lag>=0&&lag<44100*2)s.lastLag=lag;
-   const m={type:'position',slot,active:slot===this.active,generation:mixer.generation,runId:mixer.runId,sourceFrame:mixer.frame,heardFrame:heard,played:mixer.played,heardPlayed:mixer.played-s.lastLag,levels:mixer.takeLevels(),contextFrame:currentFrame,state:s.player.state,stretcher:s.player.stretcher,queuedFrames:mixer.queuedFrames,gap:slot===this.active?this.gap:0};
+   const m={type:'position',slot,active:slot===this.active,generation:mixer.generation,runId:mixer.runId,sourceFrame:mixer.frame,heardFrame:heard,played:mixer.played,heardPlayed:mixer.played-s.lastLag,levels:mixer.takeLevels(),contextFrame:currentFrame,state:s.player.state,stretcher:s.player.stretcher,pitchPending:s.player.pitchPending,queuedFrames:mixer.queuedFrames,gap:slot===this.active?this.gap:0};
    this.port.postMessage(m);s.stream?.postMessage(m);
   }}
   return true;

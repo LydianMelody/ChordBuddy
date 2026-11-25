@@ -3,6 +3,7 @@ import bisect
 from collections import defaultdict, deque
 import io
 import math
+import re
 
 import mido
 
@@ -145,3 +146,23 @@ def split_tracks(data):
         out.save(file=stream)
         files.append((friendly_track_name(track.name, index), stream.getvalue()))
     return files
+
+
+DRUM_CHANNEL=9
+_DRUM_NAME=re.compile(r'\b(drums?|percussion|drum ?kit)\b',re.I)
+
+
+def transpose_midi(data,semitones):
+    """MIDI file bytes with every note moved by `semitones` (-6..+6), except drums: notes on channel 10 (9 counting from 0) and every
+    note on a track named for drums. Used by the pitch control's exports; the saved MIDI is never changed."""
+    if not isinstance(semitones,int) or isinstance(semitones,bool) or not -6<=semitones<=6:raise ValueError('Pitch must be a whole number of half steps from -6 to +6')
+    if semitones==0:return data
+    midi=mido.MidiFile(file=io.BytesIO(data))
+    for track in midi.tracks:
+        drum_track=bool(_DRUM_NAME.search(track.name or ''))
+        for index,msg in enumerate(track):
+            if msg.type in ('note_on','note_off','polytouch') and msg.channel!=DRUM_CHANNEL and not drum_track:
+                track[index]=msg.copy(note=max(0,min(127,msg.note+semitones)))
+    stream=io.BytesIO()
+    midi.save(file=stream)
+    return stream.getvalue()

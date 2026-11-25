@@ -56,7 +56,7 @@ export async function createPcmSession({token,onPosition,onError}){
    if(!(stamp?.performanceTime>0)){send('play',true);return false;}
    const frame=Math.round((seconds-stamp.performanceTime/1000+stamp.contextTime)*context.sampleRate);
    node.port.postMessage({type:'play',value:true,at:frame,generation:version,runId});return true;
-  },mix:value=>send('mix',value),mode:value=>send('mode',value),rate:value=>send('rate',value),
+  },mix:value=>send('mix',value),mode:value=>send('mode',value),rate:value=>send('rate',value),pitch:value=>send('pitch',value),
   dispose(){if(disposed)return;disposed=true;rejectPending();worker.terminate();clockNode.port.postMessage({type:'dispose'});clockNode.disconnect();node.disconnect();context.close().catch(()=>{});}
  };
 }

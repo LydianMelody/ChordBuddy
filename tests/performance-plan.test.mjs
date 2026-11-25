@@ -44,7 +44,7 @@ test('every item makes a good action, and that action finds its way back to the 
   if(!['visual.input','visual.trigger'].includes(action.type))assert.equal(checkAction(action),null,item.id);
   assert.ok(typeof describeAction(action)==='string'&&describeAction(action)!=='Unknown action',item.id);
   assert.ok(['tracks','control','visuals','midi','markers'].includes(laneOf(action)),item.id);
-  if(item.id!=='speed-normal')assert.equal(itemFor(action)?.id,item.id);
+  if(!['speed-normal','pitch-normal'].includes(item.id))assert.equal(itemFor(action)?.id,item.id);   // a reset reopens as the setter it is
  }
 });
 test('search finds actions by what they do', () => {

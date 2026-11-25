@@ -43,7 +43,7 @@ export function mountDeskFollow(stage,desk,{active=()=>true}={}){
   stage.addEventListener('pointerdown',onDown);
   button.addEventListener('click',()=>{
     h.held=false;h.paint();
-    const now=desk.querySelector('.chunk.now, .ending-chord.now, .current-beat');
+    const now=desk.querySelector('.chunk.now, .current-beat');
     now?.scrollIntoView?.({block:'center',behavior:'smooth'});
   });
   return {

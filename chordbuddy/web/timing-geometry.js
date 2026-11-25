@@ -58,6 +58,35 @@ export function previewTimes(times,fixed,index,time,lineStart,lineEnd){
   f[index]=time;if(f[0]===null)f[0]=lineStart;
   return spreadBetween(f,lineEnd);
 }
+// ---- the lines before and after ----
+// A dragged word pushes the words of the neighbouring lines too, the way it pushes the words of its own line: lyrics never overlap
+// and never change order. `prev` and `next` are the lines sung just before and after ({times, fixed, end}). Their pinned words are
+// walls, and so is the first word of the line before (where that line starts).
+export function neighbourWalls(prev,next){
+  let left=null,right=null;
+  if(prev?.times.length){let k=prev.times.length-1;while(k>0&&!prev.fixed[k])k--;left=prev.times[k];}
+  if(next?.times.length){const k=next.fixed.findIndex(Boolean);right=k<0?next.end:next.times[k];}
+  return {left,right};
+}
+// `own` holds the times of the dragged line (previewTimes) with word `index` at `time`. When its words would reach the next line,
+// the free words between the dragged word and the next line's first wall are spread evenly between the two, its own and the next
+// line's alike; the same for the line before. Returns the new times of all three lines (prev and next unchanged when not reached).
+export function pushNeighbours(own,ownFixed,index,time,prev,next,walls=neighbourWalls(prev,next)){
+  const times=[...own],before=prev?[...prev.times]:null,after=next?[...next.times]:null;let pushedPrev=false,pushedNext=false;
+  if(after?.length&&walls.right!==null&&!ownFixed.slice(index+1).some(Boolean)&&times.at(-1)>=next.times[0]-EDGE){
+    const k=next.fixed.findIndex(Boolean),lead=k<0?after.length:k,mine=times.length-1-index,count=mine+lead;
+    const spot=j=>time+(j+1)*(walls.right-time)/(count+1);pushedNext=true;
+    for(let j=0;j<mine;j++)times[index+1+j]=spot(j);
+    for(let j=0;j<lead;j++)after[j]=spot(mine+j);
+  }
+  if(before?.length&&walls.left!==null&&!ownFixed.slice(0,index).some(Boolean)&&times[0]<=prev.times.at(-1)+EDGE){
+    let k=before.length-1;while(k>0&&!prev.fixed[k])k--;
+    const trail=before.length-1-k,count=trail+index,spot=j=>walls.left+(j+1)*(time-walls.left)/(count+1);pushedPrev=true;
+    for(let j=0;j<trail;j++)before[k+1+j]=spot(j);
+    for(let j=0;j<index;j++)times[j]=spot(trail+j);
+  }
+  return {own:times,prev:before,next:after,pushedPrev,pushedNext};
+}
 // Where every word would be with word `index` released.
 export function releasedTimes(times,fixed,index,lineStart,lineEnd){
   const f=times.map((t,i)=>fixed[i]&&i!==index?t:null);

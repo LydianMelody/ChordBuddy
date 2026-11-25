@@ -5,6 +5,7 @@ import {effectiveMeasures} from './chart-layout.js';
 import {chartPresentation} from './chart-presentation.js';
 import {spellChord} from './spelling.js';
 import {layoutLine,onsetsFromNotes} from './word-layout.js';
+import {joinsNext,shownPiece,shownLine} from './lyric-chunks.js';
 
 // The mixer's seven channels, in the player's order (pcm-mixer-core.js). Never reorder.
 export const STEM_ORDER=['bass','drums','other','vocals','piano','lead','rhythm'];
@@ -79,6 +80,8 @@ function extraParts(extras){
     controls:Object.fromEntries(Object.entries(x.controls||{}).map(([k,points])=>[k,[...points].sort((a,b)=>a.time-b.time)]))}));
 }
 
+// Words are shown as typed: a dash typed in a word stays. A word cut into syllables for timing (a hidden split) comes as pieces whose
+// `joined` is true: draw the next piece right after it, with no space. A line that ends in a cut piece shows a dash there.
 // Every placed lyric line with each word's time, exactly as the chart places them (pins, spreading, and the melody guess when the
 // chart uses it). Lines never placed on the chart have no times and are left out (counted in `unplaced`).
 function lyricLines(content,measures,onsets){
@@ -88,10 +91,10 @@ function lyricLines(content,measures,onsets){
       if(!text.trim())return;
       const layout=layoutLine(content,measures,section.id,line,{onsets});
       if(!layout?.placed||!layout.tokens.length){unplaced++;return;}
-      const words=layout.tokens.filter(t=>Number.isFinite(t.seconds)).map((t,i,all)=>({text:t.text,start:t.seconds,
+      const words=layout.tokens.filter(t=>Number.isFinite(t.seconds)).map((t,i,all)=>({text:shownPiece(t.text,i===all.length-1),joined:i<all.length-1&&joinsNext(t.text),start:t.seconds,
         end:i+1<all.length?all[i+1].seconds:Math.min(layout.end,t.seconds+LONGEST_WORD)}));
       if(!words.length){unplaced++;return;}
-      lines.push({text:text.trim(),section:section.name||'',start:words[0].start,end:Math.max(words.at(-1).end,words[0].start),words});
+      lines.push({text:shownLine(text.trim()),section:section.name||'',start:words[0].start,end:Math.max(words.at(-1).end,words[0].start),words});
     });
   }
   return {lines:lines.sort((a,b)=>a.start-b.start),unplaced};
@@ -192,7 +195,7 @@ function lyricAt(lyrics,t){
   const w=lastStartingBy(line.words,t),word=w>=0?line.words[w]:null;
   result.line={text:line.text,section:line.section,start:line.start,end:line.end,progress:(t-line.start)/(line.end-line.start||1),index:i};
   result.word=word&&t<word.end?{text:word.text,index:w,start:word.start,end:word.end,progress:(t-word.start)/(word.end-word.start||1)}:null;
-  result.words=line.words.map((x,n)=>({text:x.text,start:x.start,end:x.end,state:n<w||(n===w&&t>=x.end)?'sung':n===w?'now':'ahead'}));
+  result.words=line.words.map((x,n)=>({text:x.text,joined:!!x.joined,start:x.start,end:x.end,state:n<w||(n===w&&t>=x.end)?'sung':n===w?'now':'ahead'}));
   return result;
 }
 // The value of a [{time,value}] curve at t (the last point at or before it), or `fallback` before the first.

@@ -24,7 +24,7 @@ from .separation import SeparationManager
 from .inference_jobs import InferenceGate
 from .stem_audio import wire_chunk,read_frames
 from .separation_checks import waveform_peaks
-from .mix_export import parse_levels,encode_mix,export_stems
+from .mix_export import parse_levels,encode_mix,export_stems,mix_blocks,mix_pcm_size,PitchRenders,stem_levels,STEM_FILE_NAMES
 from . import visual_features
 from .model_downloads import ModelManager
 from .analysis import AnalysisCoordinator,TERMINAL
@@ -358,7 +358,7 @@ class Handler(BaseHTTPRequestHandler):
             return False
         if path.startswith('/api/'):
             token=self.headers.get('X-ChordBuddy-Token','')
-            if path.startswith(('/api/audio/','/api/export/','/api/mix-export/','/api/stems-export/','/api/export-midi/','/api/export-outputs/','/api/song-export/','/api/visual-relay/player')):
+            if path.startswith(('/api/audio/','/api/export/','/api/mix-export/','/api/stems-export/','/api/export-midi/','/api/pitch-export/','/api/export-outputs/','/api/song-export/','/api/visual-relay/player')):
                 token=token or query.get('token',[''])[0]
             if secrets.compare_digest(token,self.app.token):return True
             # A visualizer in OBS holds only the stream key, never the session token: the key opens just the reads that draw a song.
@@ -559,6 +559,37 @@ class Handler(BaseHTTPRequestHandler):
         root,manifest=self.app.separation_store.get_published_run(run_id)
         self._attachment('audio/mpeg',_download_name(query,'Chord Buddy mix',120)+'.mp3')
         encode_mix(PROJECT,root,manifest,levels,master,self.wfile.write)
+
+    # Pitch control's exports (mix_export.py, PitchRenders): the page reads the plain mix as float PCM, moves its pitch with Signalsmith (as
+    # playback does), uploads each part as 16-bit PCM, then downloads the MP3 (or the stems' zip) through an ordinary link.
+    def _pitch_renders(self):
+        renders=getattr(self.app,'pitch_renders',None)
+        if renders is None:
+            import tempfile
+            renders=self.app.pitch_renders=PitchRenders(PROJECT,Path(tempfile.gettempdir())/'chordbuddy-pitch-exports')
+        return renders
+
+    def _mix_pcm(self,query,run_id):
+        stem=_first(query,'stem','')
+        if stem:
+            if stem not in STEM_FILE_NAMES:raise ValueError('Unknown stem')
+            levels,master=stem_levels(stem),1.0
+        else:levels,master=parse_levels(_first(query,'levels'),_first(query,'master','1'))
+        root,manifest=self.app.separation_store.get_published_run(run_id)
+        if stem and stem not in {asset['role'] for asset in manifest['assets']}:raise KeyError('This song has no '+stem+' stem')
+        self.send_response(200)
+        self.send_header('Content-Type','application/octet-stream')
+        self.send_header('Content-Length',str(mix_pcm_size(manifest)))
+        self.close_connection=True
+        self.end_headers()
+        for block in mix_blocks(root,manifest,levels,master):self.wfile.write(block)
+
+    def _pitch_export_part(self,query):
+        return self._pitch_renders().put(_first(query,'job'),_first(query,'part'),self._read(600*1024*1024))
+
+    def _pitch_export(self,query,job):
+        kind=_first(query,'kind','mix')
+        self._pitch_renders().send(job,kind,_download_name(query,'Chord Buddy',120),self._attachment,self.wfile.write)
 
     def _stems_export(self,query,run_id):
         root,manifest=self.app.separation_store.get_published_run(run_id)
@@ -763,6 +794,18 @@ def _revision(query):
     return int(revision) if revision is not None else None
 
 
+def _pitch(query):
+    # the pitch control's half steps for an export: a whole number from -6 to +6, 0 when absent
+    text=_first(query,'transpose','0')
+    if not re.fullmatch(r'[+-]?[0-6]',text):raise ValueError('Pitch must be a whole number of half steps from -6 to +6')
+    return int(text)
+
+
+def _pitch_args(query):
+    # the pitch control's extra arguments for a MIDI export, only when it asks for a pitch: (half steps, the key shown)
+    return (_pitch(query),_first(query,'key','')) if 'transpose' in query else ()
+
+
 def _download_name(query,default,limit):
     # the name a download is saved under: nothing Windows refuses in a file name, and never empty
     return re.sub(r'[\\/:*?"<>|\x00-\x1f]+',' ',_first(query,'name',default)).strip()[:limit] or default
@@ -809,6 +852,8 @@ GET_ROUTES=_routes([
     ('/api/waveform/{rest}',JSON,Handler._waveform),
     ('/api/mix-export/{rest}',OWN,Handler._mix_export),
     ('/api/stems-export/{rest}',OWN,Handler._stems_export),
+    ('/api/mix-pcm/{rest}',OWN,Handler._mix_pcm),
+    ('/api/pitch-export/{rest}',OWN,Handler._pitch_export),
     ('/api/song-export/{rest}',OWN,Handler._song_export),
     ('/api/separation-audio/{rest}',OWN,Handler._separation_audio),
     ('/api/visual-features/{rest}',JSON,lambda h,q,run:visual_features.load_or_compute(*h._run_files(run))),
@@ -822,7 +867,7 @@ GET_ROUTES=_routes([
     ('/api/document/{rest}',JSON,lambda h,q,document:h.app.documents.get(document)),
     ('/api/audio/{rest}',OWN,lambda h,q,song:h._audio(h.app.library.source_path(song))),
     ('/api/export/{rest}',OWN,lambda h,q,document:h._download(*h.app.documents.export(document))),
-    ('/api/export-midi/{rest}',OWN,lambda h,q,document:h._download(*h.app.documents.midi_download(document,_first(q,'mode','single')))),
+    ('/api/export-midi/{rest}',OWN,lambda h,q,document:h._download(*h.app.documents.midi_download(document,_first(q,'mode','single'),*_pitch_args(q)))),
     ('/api/export-outputs/{rest}',OWN,lambda h,q,document:h._download(*h.app.documents.outputs_zip(document))),
 ])
 
@@ -832,6 +877,7 @@ POST_ROUTES=_routes([
     ('/api/import',UPLOAD,lambda h,q:h.app.library.import_audio(_first(q,'filename'),h._read(250*1024*1024),_first(q,'setlist','default'))),
     ('/api/cue-track/upload',UPLOAD,lambda h,q:h.app.cue_tracks.add(_first(q,'song'),_first(q,'name'),h._read(250*1024*1024))),
     ('/api/user-midi/upload',UPLOAD,Handler._user_midi_upload),
+    ('/api/pitch-export/part',UPLOAD,Handler._pitch_export_part),
     ('/api/visual-relay/send',JSON,lambda h,b:{'viewers':h.app.visual_relay.send(b.get('messages'))}),
     # a visualizer in OBS (with its stream key: _allowed) says whether it is drawing; it stops while its source is hidden
     ('/api/visual-relay/viewer-state',JSON,lambda h,b:{'known':h.app.visual_relay.set_drawing(b.get('viewer'),b.get('drawing'))}),

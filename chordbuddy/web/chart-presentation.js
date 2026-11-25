@@ -8,7 +8,9 @@ const INTO_SOUND=.1;
 // The same at the other end (soundEnd, from sound_start.py): the model keeps its beat grid and its last chord going to the very end of the file,
 // so after a fade-out the chart would show bars of the last chord over silence. Bars that begin after the sound has ended are left out, unless
 // a word is sung in them. The bar the sound ends in stays.
-export function chartPresentation(content,measures=[],soundStart=null,soundEnd=null){
+// The chart's own end (layout.chart_end, set by dragging the end cap in the Edit tool, or `chartEnd` here) wins over that: the chart ends at
+// the barline nearest to it, earlier (a chord left ringing) or later (a quiet ending taken for silence). A bar with a word in it still stays.
+export function chartPresentation(content,measures=[],soundStart=null,soundEnd=null,{chartEnd=content?.layout?.chart_end}={}){
  const chords=content.chords||[],anchors=[];
  for(const line of content.layout?.lines||[])for(const word of line.words||[]){const m=measures.find(m=>m.id===word.measure_id),i=Math.floor(word.beat);if(!m)continue;const points=[...m.beats,m.end];if(Number.isFinite(points[i+1]))anchors.push(points[i]+(word.beat-i)*(points[i+1]-points[i]));}
  const anchored=c=>Number.isInteger(c.line)&&Number.isInteger(c.offset)||anchors.some(t=>t>=c.start&&t<c.end);
@@ -21,8 +23,12 @@ export function chartPresentation(content,measures=[],soundStart=null,soundEnd=n
   for(const m of [...measures].sort((a,b)=>a.start-b.start)){if(!(m.end<soundStart+INTO_SOUND)||anchors.some(t=>t>=m.start&&t<m.end))break;start=Math.max(start,m.end);}
  }
  let finish=end,trimmed=false;
- if(Number.isFinite(soundEnd)&&soundEnd>start+INTO_SOUND&&soundEnd<end-1e-6){
-  const lastWord=anchors.length?Math.max(...anchors):-Infinity,bar=measures.find(m=>soundEnd>=m.start&&soundEnd<m.end);
+ const lastWord=anchors.length?Math.max(...anchors):-Infinity;
+ const barline=Number.isFinite(chartEnd)&&measures.length?measures.reduce((best,m)=>Math.abs(m.end-chartEnd)<Math.abs(best.end-chartEnd)?m:best).end:null;
+ if(barline!==null&&barline>start+INTO_SOUND){
+  finish=Math.max(barline,lastWord+1e-3);trimmed=finish<end-1e-6;
+ }else if(Number.isFinite(soundEnd)&&soundEnd>start+INTO_SOUND&&soundEnd<end-1e-6){
+  const bar=measures.find(m=>soundEnd>=m.start&&soundEnd<m.end);
   finish=Math.min(end,Math.max(bar?bar.end:soundEnd,lastWord+1e-3));trimmed=true;
  }
  const visible=event=>!hidden.has(event.chordId??event.id)&&!(placeholder(event.label)&&(event.end<=start||event.start>=end))&&!(trimmed&&event.start>=finish-1e-6);

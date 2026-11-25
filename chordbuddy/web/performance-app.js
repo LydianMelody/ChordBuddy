@@ -104,7 +104,7 @@ export function createPerformanceApp(deps){
   function makeController(){
     const visual=createVisualOut({timeOf:epochOf,post:message=>visuals.perform(message)});
     visuals.setPerformState(visual.current);controllerVisual=visual;
-    const planned=createCommandOut({timeOf:epochOf,run:(action,{frame}={})=>{try{runCommand(action.command,action.params,{inShow:true,frame,controller:c,view,transport,practice:deps.practice,speedForBpm,visual:visualCtx,tapTempo:params=>tapNow(null,params)});view?.paint?.();}catch(error){showError(error);}}});
+    const planned=createCommandOut({timeOf:epochOf,run:(action,{frame}={})=>{try{runCommand(action.command,action.params,{inShow:true,frame,controller:c,view,transport,practice:deps.practice,speedForBpm,pitch:pitchCtx(),visual:visualCtx,tapTempo:params=>tapNow(null,params)});view?.paint?.();}catch(error){showError(error);}}});
     const midi=createMidiBridge({api,timeOfPlayed:p=>(epochOf(p)-performance.timeOrigin)/1000,onLog:entry=>c?.note?.('midi',entry),known:midiSent});
     midi.calibrate().catch(()=>{});
     bridge=midi;
@@ -135,7 +135,7 @@ export function createPerformanceApp(deps){
     transport.performerReport({seconds:(now?.source??0)/RATE,playing,playIntent:RUNNING.includes(snapshot.status)&&snapshot.status!=='paused',buffering:snapshot.status==='buffering',
       loop:looped?{enabled:true,start:looped.start/RATE,end:looped.end/RATE,implicit:true,kind:looped.kind||'bars',left:r.loopShown?.()?.left??null}:{enabled:false,start:null,end:null,implicit:false},
       mix,visualMix,rate:r.rate,levels:playing&&Array.isArray(m?.levels)?m.levels:null,duration:(r.grid.frames)/RATE,ready:true});
-    paintRunning();deps.onMonitorPlan?.(planned);notesChanged();
+    paintRunning();deps.onMonitorPlan?.(planned);notesChanged();pitchChanged();
     if(snapshot.status==='finished')transport.ranOut=true;   // Play starts it over
     if(snapshot.status==='finished'||snapshot.status==='stopped'||snapshot.status==='error')release();
   }
@@ -149,6 +149,29 @@ export function createPerformanceApp(deps){
     return {songId:controller.current?.songId??null,notes};
   }
   let notesKey='';
+  // ---- pitch in a show: what the plan says now, and the flags ahead in this pass, for the chart, the card and the visuals
+  /** {songId, sound, chart, steps:[{at (song seconds), offset}]} while a show (or a preview) plays, or null. The chart's pitch in a later
+   *  stretch that goes back over the same bars (a loop's next pass) isn't listed ahead: it shows when that pass begins. */
+  function pitchPlan(){
+    const r=controller&&(previewing||showRunning())?controller.runner:null;if(!r)return null;
+    const state=r.withOverrides(r.plannedThrough(r.played)),steps=[];
+    const ahead=[r.current,r.boundary?.segment].filter(seg=>seg?.kind==='music');
+    let last=-Infinity;
+    for(const seg of ahead){
+      if(seg.start<last)break;last=seg.end;
+      for(const a of seg.actions||[])if(a.action?.type==='pitch.set'&&(a.action.applyTo??'both')!=='sound'&&a.frame>(r.source??0)&&!r.isOverridden('pitch.chart'))steps.push({at:a.frame/RATE,offset:a.action.semitones});
+    }
+    return {songId:controller.current?.songId??null,sound:state['pitch.sound']??0,chart:state['pitch.chart']??0,steps:steps.sort((a,b)=>a.at-b.at)};
+  }
+  let pitchKey='';
+  function pitchChanged(){const now=pitchPlan(),key=now?JSON.stringify(now):'';if(key!==pitchKey){pitchKey=key;deps.onPlanPitch?.();}}
+  function pitchCtx(){
+    const live=inShow()&&controller;
+    if(!live)return deps.pitch||null;
+    const now=()=>pitchPlan()||{sound:0,chart:0};
+    const put=n=>{controller.setLive('pitch.sound',n);controller.setLive('pitch.chart',n);pitchChanged();};
+    return {step:direction=>{const p=now(),n=p.sound+(direction>0?1:-1);put(n>6?n-12:n<-6?n+12:n);},set:put};
+  }
   function notesChanged(){const now=planNotes(),key=now?JSON.stringify(now):'';if(key!==notesKey){notesKey=key;deps.onPlanNotes?.();}}
   function release(){
     clearInterval(deviceTimer);
@@ -216,7 +239,7 @@ export function createPerformanceApp(deps){
   /** A press from a taught switch. While MIDI setup is open it only lights up its row there, so you can test a switch without setting anything off. */
   function pressed(command,mapping){
     if(setupOpen)return;
-    try{runCommand(command,mapping?.params,{inShow:inShow(),controller,view,transport,practice:deps.practice,speedForBpm,visual:visualCtx,tapTempo:params=>tapNow(mapping,params)});view?.paint?.();}catch(error){showError(error);}
+    try{runCommand(command,mapping?.params,{inShow:inShow(),controller,view,transport,practice:deps.practice,speedForBpm,pitch:pitchCtx(),visual:visualCtx,tapTempo:params=>tapNow(mapping,params)});view?.paint?.();}catch(error){showError(error);}
   }
   let setupOpen=false,heard=null;
   const letGo=new Set();
@@ -245,7 +268,7 @@ export function createPerformanceApp(deps){
     if(!song){showError(Error('Open a song first, then choose Prepare.'));return;}
     let grid;try{grid=await loadSongGrid(api,song.id);}catch(error){showError(error);return;}
     await scenesLoaded;
-    show('prepare',root=>mountPrepare(root,{api,songId:song.id,grid,scenes:()=>scenes,devices,showError,onClose:closePage,onHistory:()=>deps.onHistory?.(),onStepped:step=>deps.onStepped?.(step),currentMix:()=>transport.getSnapshot().mix,onMidiSetup:()=>midiSetup(),
+    show('prepare',root=>mountPrepare(root,{onPitchFlag:seconds=>deps.onPitchFlag?.(song.id,seconds),api,songId:song.id,grid,scenes:()=>scenes,devices,showError,onClose:closePage,onHistory:()=>deps.onHistory?.(),onStepped:step=>deps.onStepped?.(step),currentMix:()=>transport.getSnapshot().mix,onMidiSetup:()=>midiSetup(),
       performSet:{name:()=>deps.setlists().find(l=>l.id===setlist.listId)?.name??null,run:performChosen},
       // the one place an arrangement is chosen for a set list: this page's Performance dropdown (performance-setlist.js keeps what it says)
       setArrangement:()=>setlist.arrangementOf(song.id),onChooseArrangement:id=>setlist.chooseArrangement(song.id,id),
@@ -457,7 +480,7 @@ export function createPerformanceApp(deps){
     /** The Perform tab's undo history, for the top bar's Undo, Redo and History while it's open; null on other pages. */
     get history(){return kind==='prepare'?open?.history??null:null;},
     /** The song the running show is on, or null. Prepare playing its plan isn't a show. */
-    planNotes,
+    planNotes,pitchPlan,pitchCtx,
     ownsSong:()=>controller&&!previewing&&RUNNING.includes(controller.status)?controller.current?.songId??null:null,
     /** A song was chosen while a show runs: the show goes to it. */
     goToSong(id){controller.goToSong(id).then(()=>view?.paint?.()).catch(showError);},

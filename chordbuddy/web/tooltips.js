@@ -1,6 +1,7 @@
 // Slow, friendly tooltips. Rest the mouse on anything with a data-tip for about a second and a sticker appears next to it.
 //   data-tip="What it does"   data-tip-title="Name"   data-tip-key="W"   data-tip-art="<svg …>" (a tiny how-it-works picture)
 //   data-tip-keys="ctrl" (or "shift"): only while that key is held, for what a click does with it (the chart's Ctrl and Shift places)
+//   data-tip-side="right" (beside a rail) or "above" (over a word being cut or joined, so it never hides the word)
 // It never shows while a button is held, and goes away on click, scroll, a key press (holding Ctrl or Shift is not one) or when the mouse leaves.
 const DELAY=1000;
 let installed=false;
@@ -30,8 +31,11 @@ export function installTooltips(root=document){
       tip.style.setProperty('--nub',Math.round(Math.max(16,Math.min(size.height-16,box.top+box.height/2-top)))+'px');
       tip.dataset.side='right';
     }else{
+      // data-tip-side="above": over the thing, clear of a cursor drawn above the pointer, so the words it works on stay readable
+      const over=node.dataset.tipSide==='above',lift=over?40:gap;
       let left=box.left+box.width/2-size.width/2,top=box.bottom+gap,above=false;
-      if(top+size.height>innerHeight-8){top=box.top-gap-size.height;above=true;}
+      if(over&&box.top-lift-size.height>=8){top=box.top-lift-size.height;above=true;}
+      else if(top+size.height>innerHeight-8){top=box.top-gap-size.height;above=true;}
       left=Math.max(8,Math.min(left,innerWidth-size.width-8));
       tip.style.left=Math.round(left)+'px';tip.style.top=Math.round(Math.max(8,top))+'px';
       tip.style.setProperty('--nub',Math.round(Math.max(14,Math.min(size.width-14,box.left+box.width/2-left)))+'px');

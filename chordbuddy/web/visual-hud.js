@@ -19,8 +19,9 @@ export const FONTS={
   typewriter:'"Courier Prime",ui-monospace,Consolas,monospace',           // 400, 700 and italic
 };
 
-// Lyric syllables split for timing ("ex-" "pected") belong together when shown: "expected". For whole line texts (lyric.next.text).
-export function joinSyllables(text){return String(text??'').replace(/(\S)-\s*(?=\S)/g,'$1');}
+// A whole line text, ready to show (lyric.line.text, lyric.next.text). Frames already give lines as they are shown: a dash typed in a word
+// stays ("o-owning"), and a word cut into syllables only for timing reads whole. This only removes a leftover hidden split (U+00AD).
+export function joinSyllables(text){return String(text??'').replace(/­(?=\s*$)/u,'-').replace(/­/gu,'');}
 
 /** The two reserved bands, in CSS pixels. Scenes may use them for backgrounds, but should keep their focal points out. */
 export function hudZones(w,h,lyrics){
@@ -118,14 +119,14 @@ function stepLayout(g,words,maxWidth,size,style){
 }
 
 /**
- * Lay out the line being sung (frame.lyric.words) to fit `maxWidth`, the way the shared overlay does: syllables split for timing are joined
- * back into one word (each part keeps its own state, so the highlight still moves syllable by syllable); one row while the text stays at
+ * Lay out the line being sung (frame.lyric.words) to fit `maxWidth`, the way the shared overlay does: a word cut into syllables for timing
+ * (pieces with `joined`) is drawn as one word (each part keeps its own state, so the highlight still moves syllable by syllable); one row while the text stays at
  * least `readable` px, otherwise two rows split between words where they balance best; the font shrinks only as far as `minSize`.
  * Returns {size, font, lineHeight, rows:[{width, parts:[{text, x (from the row's left edge), width, state, index}]}]}; draw each row
  * centred (or aligned) wherever the visualization wants it. No words (no line, or an unplaced one): rows is empty.
  */
 export function layoutLyricLine(g,words,{maxWidth,size,minSize=size*0.4,readable=size*0.68,weight=700,family=FONTS.ui}={}){
-  const parts=(words||[]).map((x,i,all)=>{const joined=x.text.endsWith('-')&&i<all.length-1;return {text:joined?x.text.slice(0,-1):x.text,joined,state:x.state,index:i};});
+  const parts=(words||[]).map((x,i,all)=>({text:String(x.text??''),joined:!!x.joined&&i<all.length-1,state:x.state,index:i}));   // joined: the next piece is the same word
   const fontAt=px=>`${weight} ${px}px ${family}`;
   const rowWidth=(list,px)=>{g.font=fontAt(px);const space=g.measureText(' ').width;
     return list.reduce((sum,x,i)=>sum+g.measureText(x.text).width+(!x.joined&&i<list.length-1?space:0),0);};

@@ -27,6 +27,18 @@
 .bars{display:flex;flex-wrap:wrap;align-items:flex-start;row-gap:24px;padding-top:12px}
 .bar{position:relative;display:flex;gap:16px;padding:0 18px 4px 12px;border-left:3px solid var(--k-edge);min-height:38px}
 .bar.last{border-right:3px solid var(--k-edge)}
+/* The end of the chart: a final barline (thin, then thick) after its last bar. In the Edit tool it is a handle that moves the end (chart-page.js
+   endCap); the bars just past the end are shown faded there, and while it is dragged the bars it would leave out fade too. */
+.bar.final{border-right:0;margin-right:9px}
+.end-cap{position:absolute;top:0;bottom:0;right:-9px;width:9px;padding:0;margin:0;min-width:0;min-height:0;border:0;border-left:2px solid var(--k-edge);border-right:5px solid var(--k-edge);border-radius:0;background:none;cursor:inherit;z-index:3}
+.end-cap::after{content:'';position:absolute;inset:-4px -7px}   /* a bigger place to grab than the lines themselves */
+[data-acts~="edit"] .end-cap{cursor:ew-resize}
+[data-acts~="edit"] .end-cap:hover,[data-acts~="edit"] .end-cap:focus-visible{background:color-mix(in srgb,var(--hl) 70%,transparent)}
+.end-cap:focus-visible{outline:2px solid var(--a1);outline-offset:3px}
+.end-cap.lifted{opacity:.35}
+.bar.end-aim{box-shadow:inset -3px 0 0 var(--a1)}
+.bar.past-end,.bar.end-cut{opacity:.32}
+.bar.past-end>:not(.bar-no){pointer-events:none}
 .row:not(.has-lyrics) .bar{min-width:128px}
 .bar-no{position:absolute;top:-13px;left:6px;font:700 10px var(--m);color:var(--faint);line-height:1}
 .bar-meter{position:absolute;top:-15px;left:30px;font:800 11px var(--m);padding:0 5px;border:1.5px solid var(--k-edge);border-radius:5px;background:var(--hl)}
@@ -84,12 +96,6 @@
 .pass-pick button{min-width:0;min-height:0;width:22px;height:20px;padding:0;border:1.5px solid var(--faint);border-radius:5px;font:700 11px var(--m);color:var(--faint);background:none}
 .pass-pick button.on{background:var(--a1);color:var(--onA1);border-color:var(--k-edge)}
 
-/* ---------- changed endings ---------- */
-.alt-endings{display:flex;flex-direction:column;gap:6px;margin:10px 0 0 14px}
-.alt-ending{display:flex;align-items:center;gap:10px}
-.ending-label{font:700 11px var(--m);text-transform:uppercase;color:var(--soft)}
-.ending-chord{font-size:20px}
-.ending-chord.now{background:linear-gradient(100deg,transparent 2%,var(--hl) 6%,var(--hl) 94%,transparent 98%)}
 
 /* ---------- Timing: the same chart, drawn true to time, with draggable words ---------- */
 [data-mode="timing"] .trow{overflow-x:auto;padding-top:16px;padding-bottom:4px}
@@ -217,6 +223,13 @@
 .tmelody[data-slot="1"]{--pc:var(--a2)}.tmelody[data-slot="2"]{--pc:var(--a1)}.tmelody[data-slot="3"]{--pc:var(--a3)}.tmelody[data-slot="4"]{--pc:var(--hl)}
 .trow:is(.now,.positioning) .tmelody i{opacity:.12}
 .trow:is(.now,.positioning) .tmelody.cur i{opacity:.7}
+/* while a word is dragged, the melody is drawn over the words, see-through, the pass the word will land in strongest; the dragged word
+   rides just above the note where it would land (chart-timing.js rideMelody). On release it goes back behind the words. */
+.trow.word-drag .tmelody{z-index:4}
+.trow.word-drag .tmelody i{opacity:.3;height:6px;margin-top:-3px}
+.trow.word-drag .tmelody.target i{opacity:.75}
+.wchip.ghost.riding{transform:none;transition:top .08s ease-out}
+@media (prefers-reduced-motion:reduce){.wchip.ghost.riding{transition:none}}
 /* the words of the passes not being played step back, until you reach for one */
 .tlane.dim .wchip{opacity:.4;transition:opacity .2s}
 .tlane.dim:hover .wchip,.tlane.dim .wchip:focus-visible{opacity:1}

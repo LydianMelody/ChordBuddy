@@ -88,6 +88,14 @@ input[type=checkbox]:focus,input[type=checkbox]:focus-visible{box-shadow:var(--k
 .history-pop .text-button{align-items:baseline;padding-top:6px;padding-bottom:6px}
 .more-pop .text-button:not(:disabled):hover{border-color:var(--k-edge);background:var(--page);color:var(--ink);transform:translateX(2px)}
 .more-pop .text-button.danger,.more-pop .text-button.danger:hover{color:var(--a1t,var(--a1))}
+/* a menu item that stays on or off (aria-pressed) shows a tick box in front of its words, drawn like the shared one
+   (press-room.base.css), so it reads as a setting rather than an action */
+.more-pop .text-button[aria-pressed]{position:relative}
+.more-pop .text-button[aria-pressed]::before{content:'';flex:none;box-sizing:border-box;width:16px;height:16px;border:2px solid var(--k-edge);border-radius:var(--k-r-s);background:var(--page);transition:background-color .15s}
+.more-pop .text-button[aria-pressed="true"]::before{background:var(--a1)}
+.more-pop .text-button[aria-pressed]::after{content:'';position:absolute;left:calc(var(--k-row-px) + 8px);top:50%;width:7px;height:3.5px;border:solid var(--onA1,#fff);border-width:0 0 2.5px 2.5px;
+  transform:translate(-50%,-50%) translateY(-1px) rotate(-45deg) scale(0);transition:transform .3s var(--k-spring)}
+.more-pop .text-button[aria-pressed="true"]::after{transform:translate(-50%,-50%) translateY(-1px) rotate(-45deg) scale(1)}
 .more-pop .more-label{margin:6px var(--k-row-px) 2px}
 .more-pop .more-sep{margin:var(--k-gap) 0;border-top:var(--k-bd) dotted var(--faint)}
 .themes{padding:4px;gap:5px;border-width:var(--k-bd)}
@@ -170,7 +178,7 @@ dialog[open]{animation:k-dialog .32s var(--k-spring)}
 @media (prefers-reduced-motion:reduce){
   :is(.btn,.primary,.secondary,.hist button,.side .fold,.fold-open,.fold-open-right,.side .label button,.more-pop .text-button){transition:none}
   :is(.btn,.primary,.secondary,.hist button,.side .fold,.fold-open,.fold-open-right,.side .label button,.more-pop .text-button):hover{transform:none}
-  input[type=checkbox],input[type=checkbox]::after,:is(.seg,.presets,.mi-seg,.pf-shows,.pass-pick,.ruler-toggle,.pf-count,.tool-controls) button,.tab,.document-tab,.tool-btn,.tool-tile,.tl-btn,.setlist-item{transition:none}
+  input[type=checkbox],input[type=checkbox]::after,.more-pop .text-button[aria-pressed]::before,.more-pop .text-button[aria-pressed]::after,:is(.seg,.presets,.mi-seg,.pf-shows,.pass-pick,.ruler-toggle,.pf-count,.tool-controls) button,.tab,.document-tab,.tool-btn,.tool-tile,.tl-btn,.setlist-item{transition:none}
   input[type=checkbox]:active,:is(.seg,.presets,.mi-seg,.pf-shows,.pass-pick,.ruler-toggle,.pf-count,.tool-controls) button:active,.tab:active,.document-tab:active,.tl-btn:active,.setlist-item:active,.tool-btn:active .tool-tile{transform:none}
   details[open]>.more-pop,.info-pop,dialog[open],.history-note,.alert,.lock-banner{animation:none!important}
 }

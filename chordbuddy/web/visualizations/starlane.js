@@ -41,7 +41,7 @@ const mk=(W,H)=>{const cv=document.createElement('canvas');cv.width=Math.max(1,M
 const noChord=l=>!l||/^(N|N\.?C\.?|X)$/i.test(String(l).trim());
 const PCN={C:0,D:2,E:4,F:5,G:7,A:9,B:11};
 const pcOf=s=>{const m=/^([A-G])([#b♯♭]?)/.exec(String(s||''));if(!m)return null;return (PCN[m[1]]+(m[2]==='#'||m[2]==='♯'?1:m[2]==='b'||m[2]==='♭'?-1:0)+12)%12;};
-const dehyph=s=>String(s||'').replace(/([A-Za-z\u00C0-\u024F'])-(?=[A-Za-z\u00C0-\u024F])/g,'$1');
+const dehyph=s=>String(s||'').replace(/\u00AD/gu,''); // a dash typed in the lyrics is shown; only a leftover hidden syllable split (U+00AD) is dropped
 const fmt=s=>{s=Math.max(0,Math.ceil(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
 
 function sceneOf(name,i){
@@ -622,7 +622,7 @@ export default {
     }
     function lyricLayout(g,words,line,R){
       const key=line.index+'|'+line.text+'|'+R.w+'|'+R.h;if(lyr.key===key)return lyr;
-      const toks=words.map(wd=>{const s=String(wd.text||'');const join=s.length>1&&s.endsWith('-');return {text:join?s.slice(0,-1):s,join};});
+      const toks=words.map(wd=>{const s=String(wd.text||'');const join=!!wd.joined;return {text:s,join};});
       const groups=[];let cur=[];toks.forEach((tk,i)=>{cur.push(i);if(!tk.join){groups.push(cur);cur=[];}});if(cur.length)groups.push(cur);
       const fs0=Math.min(R.h*0.38,R.w*0.055),maxW=R.w*0.92;
       const measure=fs=>{g.font=`700 ${fs}px ${DISPLAY}`;return {ws:toks.map(tk=>g.measureText(tk.text).width),sp:g.measureText(' ').width};};

@@ -2,8 +2,9 @@
 // chart's Edit mode: type a line, press Enter to go on to the next one, paste several lines to flow them down the page.
 // The words belong to the chart, so every edit is a chart edit (planPageEdit.fragmentText) and both views always agree.
 import {planPageEdit} from './chart-edits.js';
+import {joinsNext} from './lyric-chunks.js';
 
-const joinWords=words=>words.map((w,i)=>w.text+(i<words.length-1&&!w.text.endsWith('-')?' ':'')).join('');
+const joinWords=words=>words.map((w,i)=>w.text+(i<words.length-1&&!joinsNext(w.text)?' ':'')).join('');
 
 // What can be edited, from the layout of the rendered score. `systems` is [{key, notes:[{index,left,right,top,bottom,sectionId}], lyricTop, lyricBottom}]
 // (positions in pixels inside the score). A system can cross from one section of the song into the next, so each system is cut at section

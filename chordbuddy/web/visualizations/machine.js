@@ -26,7 +26,7 @@ const rng=seed=>{let s=seed;return()=>(s=s*16807%2147483647)/2147483647;};
 const mkCanvas=(w,h)=>{const c=document.createElement('canvas');c.width=Math.max(1,Math.ceil(w));c.height=Math.max(1,Math.ceil(h));return c;};
 const TRACKS=[{name:'melody',hue:188},{name:'vocal',hue:36},{name:'instrumental',hue:280}];
 const LYR={sung:'hsl(42,92%,80%)',now:'hsl(50,100%,93%)',ahead:'hsl(36,26%,58%)',next:'hsl(36,22%,50%)',glow:'hsla(38,100%,60%,0.22)'};
-const dehyph=s=>String(s).replace(/([A-Za-z\u00C0-\u024F'])-(?=[A-Za-z\u00C0-\u024F])/g,'$1'); // syllable hyphens from timed lyrics
+const dehyph=s=>String(s).replace(/\u00AD/gu,''); // a dash typed in the lyrics is shown; only a leftover hidden syllable split (U+00AD) is dropped
 const BRASS=[40,46,42],COPPER=[20,50,40],IRON=[24,8,24];
 
 function analyze(song){
@@ -498,7 +498,7 @@ export default {
     function lyricLayout(g,words,line,R){
       const key=line.index+'|'+line.text+'|'+R.w+'|'+R.h;
       if(lyr.key===key)return lyr;
-      const toks=words.map(wd=>{const s=String(wd.text||'');const join=s.length>1&&s.endsWith('-');return {text:join?s.slice(0,-1):s,join};});
+      const toks=words.map(wd=>{const s=String(wd.text||'');const join=!!wd.joined;return {text:s,join};});
       const groups=[];let cur=[];toks.forEach((t,i)=>{cur.push(i);if(!t.join){groups.push(cur);cur=[];}});if(cur.length)groups.push(cur);
       const fs0=Math.min(R.h*0.34,R.w*0.05),maxW=R.w*0.92;
       const measure=fs=>{g.font=`600 ${fs}px ${SANS}`;return {ws:toks.map(t=>g.measureText(t.text).width),sp:g.measureText(' ').width};};

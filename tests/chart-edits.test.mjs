@@ -127,3 +127,16 @@ test('fragmentText that removes every word of a fragment removes the words, not 
   const r=planPageEdit.fragmentText({content:withLine,music,sectionId:'s',line:0,fragment:frag,text:'',anchorAddress:null});
   assert.equal(r.candidate.sections[0].lyrics,'one four');
 });
+
+test('cutting a word into syllables adds a hidden split, keeps every pin, and cutting the dot joins it back', () => {
+  const s=setup('trouble owning',[{section_id:'s',line:0,start_measure:'m0',end_measure:'m3',words:[{offset:0,measure_id:'m0',beat:0},{offset:8,measure_id:'m2',beat:0}]}]);
+  const cut=planPageEdit.cutWord({content:s.content,sectionId:'s',line:0,offset:4});
+  assert.equal(cut.label,'Cut into syllables');assert.equal(cut.candidate.sections[0].lyrics,'trou­ble owning');
+  assert.deepEqual(cut.candidate.layout.lines[0].words.map(w=>w.offset),[0,9]);       // "owning" keeps its pin, one character later
+  const tokens=placed(cut.candidate,s.music);
+  assert.deepEqual(tokens.map(t=>t[0]),['trou­','ble','owning']);assert.equal(tokens[1][2],false);   // the new piece spreads
+  const joined=planPageEdit.cutWord({content:cut.candidate,sectionId:'s',line:0,offset:5});
+  assert.equal(joined.label,'Join syllables');assert.equal(joined.candidate.sections[0].lyrics,'trouble owning');
+  assert.deepEqual(joined.candidate.layout.lines[0].words.map(w=>w.offset),[0,8]);
+  assert.throws(()=>planPageEdit.cutWord({content:s.content,sectionId:'s',line:0,offset:7}),/between two letters/);   // not at a space
+});

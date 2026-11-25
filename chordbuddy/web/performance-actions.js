@@ -66,6 +66,14 @@ export const ACTIONS=Object.freeze({
     check:a=>Number.isFinite(a.bpm)&&!(Number.isFinite(a.base)&&a.base>0)?'This song’s tempo isn’t known yet, so a tempo can’t be set. Use a speed instead.':!(Number.isFinite(a.percent)&&a.percent>=RATE_MIN&&a.percent<=RATE_MAX)?(Number.isFinite(a.bpm)?`The song is at ${Math.round(a.base)} BPM here, so the speed can play it from ${Math.ceil(a.base*RATE_MIN/100)} to ${Math.floor(a.base*RATE_MAX/100)} BPM.`:`Speed must be between ${RATE_MIN}% and ${RATE_MAX}%.`):null,
     writes:a=>[['rate',a.percent]],
     describe:a=>Number.isFinite(a.bpm)?`Set the tempo to ${a.bpm} BPM`:`Set the speed to ${a.percent}%`},
+  // Pitch control: half steps (-6..+6) for what you hear (sound), what you see (chart), or both. It sits with the speed (domain 'rate'), so a
+  // pitch change by hand in a show takes over from later planned ones as a speed change does. key: the key it reaches, when known, to read.
+  'pitch.set':{domain:'rate',kind:'state',label:'Change the pitch',
+    check:a=>!int(a.semitones,-6,6)?'Pitch must be a whole number of half steps from −6 to +6.':!['both','sound','chart'].includes(a.applyTo??'both')?'Choose what the pitch change applies to: the sound, the chart, or both.':a.key!==undefined&&!text(a.key,20)?'That key name isn’t one Chord Buddy knows.':null,
+    writes:a=>{const to=a.applyTo??'both',out=[];if(to!=='chart')out.push(['pitch.sound',a.semitones]);if(to!=='sound')out.push(['pitch.chart',a.semitones]);return out;},
+    describe:a=>{const n=a.semitones,steps=Math.abs(n)===1?'half step':'half steps',to=a.applyTo??'both';
+      const what=n===0?'Put the pitch back to normal':`${n>0?'Raise':'Lower'} the pitch ${Math.abs(n)} ${steps}`;
+      return what+(a.key&&n?` (to ${a.key})`:'')+(to==='sound'?', sound only':to==='chart'?', chart only':'');}},
   'visual.scene':{domain:'visuals',kind:'state',label:'Change the visualization',
     check:a=>!text(a.scene,40)?'Choose a visualization.':null,
     writes:a=>[['visual.scene',a.scene]],
@@ -143,7 +151,7 @@ export const domainOf=action=>actionDef(action)?.domain??null;
 /** Which control domain a property belongs to, for the override policy. */
 export function domainOfProperty(property){
   if(property==='master'||property.startsWith('track.'))return 'tracks';
-  if(property==='rate')return 'rate';
+  if(property==='rate'||property.startsWith('pitch.'))return 'rate';
   if(property.startsWith('visual.'))return 'visuals';
   if(property.startsWith('midi.'))return 'midi';
   if(property.startsWith('monitor.'))return 'control';

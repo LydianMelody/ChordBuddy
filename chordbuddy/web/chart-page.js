@@ -2,23 +2,25 @@
 //   Play (V)    a click plays from there: any chord, word, bar number or section name.
 //   Edit (E)    a click edits what is written. The chords of a row (type them like words), its lyrics, a section name; the strip above a
 //               line to start a new section at that bar, the strip above a section to join it to the one before; a barline to join two
-//               bars, a beat to split a bar there.
+//               bars, a beat to split a bar there; a repeat count (×4) to regroup the repeat, as in Timing.
 //   Timing (T)  the same chart drawn true to time. Drag a word or a chord to another beat, click a pin to let a word go, click a repeat
-//               count to regroup it; Fold a repeat (or Shift+click two bar numbers) folds a part that repeats. A click still plays.
+//               count to regroup it, the top edge of a word to cut it into syllables (the small dot a cut leaves joins them again); Fold a repeat (or Shift+click two bar numbers) folds a part that repeats. A click still plays.
 //   Cue (Q)     a click on a chord writes a short note above it for that moment ("pick scratch"), in its own lane; the chord is left alone
 //               (chart-cues.js). A click on a cue retypes it.
 // Esc puts the tool down (back to Play). The keys help on top of any tool: Ctrl swaps Play and Edit while it is held, and holding Shift
 // shows Timing until it is let go.
 // Every place that does something shows its own cursor and, after a moment's rest, a tooltip that says what it does.
 // Playback decides which repeat pass is highlighted; the page itself never rearranges while it plays.
-import {buildChartModel,playbackTarget} from './chart-model.js';
+import {buildChartModel,playbackTarget,sourceMeasureFor} from './chart-model.js';
+import {chartPresentation} from './chart-presentation.js';
 import {isNoChordLabel} from './chart-layout.js';
 import {currentWordIndex} from './word-layout.js';
+import {joinsNext,shownPiece,SPLIT} from './lyric-chunks.js';
 import {planChartChordEdit,planSectionEdit} from './practice-edit.js';
 import {chartSlivers} from './section-slivers.js';
 import {addressAtSeconds} from './musical-grid.js';
 import {addChartChord,deleteChartChord,editChartChord,validateChart} from './editor.js';
-import {spellChord} from './spelling.js';
+import {spellChord,unspellChord,chartMoved,shownKey,songKeyForSpelling,spellingSignature} from './spelling.js';
 import {applyCompactFold,applyCompactRange,compactRangeChoices,compactEditTargets,compactFoldChoices,compactJumpTargets,hasCompactPreferences,resetCompactPreferences} from './compact-chart.js';
 import {planPageEdit} from './chart-edits.js';
 import {copyTargets,copyGroup,copySectionLyrics,chordCopyTargets,copySectionChords} from './chart-copy.js';
@@ -38,8 +40,9 @@ const pad2=n=>String(n).padStart(2,'0');
 const clock=s=>finite(s)?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'):'';
 export const CHORD_SUGGESTIONS=['C','Cm','C7','Cmaj7','D','Dm','D7','Dsus4','E','Em','E7','F','Fm','F#','F#m','G','G7','Gsus4','A','Am','A7','Asus4','B','Bm','Bb','Eb','Ab','Db','C/E','D/F#','G/B','Am7','Dm7','Em7','Bm7','Cadd9','N'];
 const nameKey=name=>String(name||'').toLowerCase().replace(/[^a-z]/g,'');
-const joinWords=tokens=>tokens.map((t,i)=>t.text+(i<tokens.length-1&&!t.text.endsWith('-')?' ':'')).join('');
-const SHIFT_DELAY=150;    // holding Shift shows Timing after this long, so Shift+key shortcuts never flash it
+const joinWords=tokens=>tokens.map((t,i)=>t.text+(i<tokens.length-1&&!joinsNext(t.text)?' ':'')).join('');
+const SHIFT_DELAY=150;
+const PAST_END=4;        // bars after the chart's end the Edit tool shows faded, so its end cap can be dragged back out over them    // holding Shift shows Timing after this long, so Shift+key shortcuts never flash it
 
 // What each place on the chart does, for its tooltip (shown only while the chart does that: see zone()).
 const ZONES={
@@ -55,6 +58,9 @@ const ZONES={
   fold:{title:'Fold a repeat',art:'repeat',tip:'Click the first and last bar of a part that repeats, then choose how it folds: 2 bars ×4, 4 bars ×2, or written out.'},
   regroup:{title:'Regroup the repeat',art:'repeat',tip:'Choose how this repeating part is grouped, or write it out in full.'},
   cue:{title:'Write a cue',art:'cue',tip:'Type a short note for this moment, like “pick scratch” or “count-in”. It sits above the chord and leaves the chord as it is.'},
+  syllable:{title:'Cut into syllables',art:'syllable',tip:'Cut the word here, between two letters, so each part can be dragged onto its own beat (to-ge-ther). The word still reads whole on screen, and no dash is added.'},
+  unsplit:{title:'Join the syllables',art:'unsplit',tip:'This small dot is where the word was cut into syllables. Click it to join the two parts back into one word.'},
+  end:{title:'Move the end',art:'end',tip:'Drag the end of the chart back onto an earlier barline to leave out the last bars, like a chord ringing out. The recording still plays to the end. Drag it out again to bring them back.'},
   cueEdit:{title:'Retype the cue',art:'cue',tip:'Change the words of this cue, or empty it to remove it.'},
 };
 // acts: 'edit', 'time' or 'fold', when the place only does this while the chart does (its data-acts, tooltips.js)
@@ -93,17 +99,19 @@ export function mountChartPage(root,handlers={}){
   let fixSel={ids:new Set()},foldGroup=null;
   let data=null,model=null,key=null,mode='nav',scope='occurrence',wordView='line',snapping=true,zoom=DEFAULT_ZOOM,draft=null,saving=false,last=null;
   let editing=null;                                  // the one row being typed into: {groupId, kind:'chords'|'words', focus}
+  let finalBar=null;                                 // the chart's last bar: its end cap moves the end of the chart
   // Timing: the pass whose words are being placed ({groupId, pass}, set by clicking a word). Its melody is drawn strongest, whatever the
   // playhead is playing, so a word is always lined up against its own notes. It stays until another word is clicked or Timing is left.
   let positioning=null;
   const held={ctrl:false,shift:false};let tool='play',folding=false,shiftTimer=null;   // folding: Fold a repeat was pressed, so bar numbers pick
   const targetPass={},seekPass={};let pendingName=null;
-  let refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[],repeats:[],cues:[]},occById=new Map(),cueMap=new Map();
+  let refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],repeats:[],cues:[]},occById=new Map(),cueMap=new Map();
   // The note bar and the status line live outside the chart (the app hands in elements for them); on its own the page makes its own.
   const page=el('div','chart-flow'),notices=el('div','chart-notices'),message=el('p','chart-message'),dock=handlers.dock||el('div','tool-dock'),noteHost=handlers.note||el('div','tool-note'),statusHost=handlers.status||el('div','tool-status');message.setAttribute('role','status');
   root.replaceChildren(...(handlers.dock?[]:[dock]),...(handlers.note?[]:[noteHost]),...(handlers.status?[]:[statusHost]),notices,page);root.dataset.mode=mode;root.dataset.acts='';root.dataset.tool=tool;
   for(const name of Object.keys(TOOL_ART))root.style?.setProperty?.('--cur-'+name,toolCursor(name));
   root.style?.setProperty?.('--cur-glue-bars',toolCursor('glue',90));
+  root.style?.setProperty?.('--cur-snip',toolCursor('snip'));root.style?.setProperty?.('--cur-glue-up',toolCursor('glue',0,[16,31]));   // drawn above a word, never on it
   root.onwheel=e=>{
     if(mode!=='timing'||!e.ctrlKey)return;e.preventDefault?.();e.stopPropagation?.();     // the page's own zoom must not zoom as well
     if(handlers.onZoomWheel)handlers.onZoomWheel(e);else api.zoomBy(e.deltaY<0?1:-1);
@@ -197,15 +205,16 @@ export function mountChartPage(root,handlers={}){
   }
   // no chord (a break in the music) is simply a gap
   // a chord that is still held from the bar before is left blank, like a written chart; a silence shows the rest symbol
-  function chordLabel(chunk){if(isNoChordLabel(chunk.label)||chunk.continued)return '';return spellChord(chunk.label);}
+  function chordLabel(chunk){if(isNoChordLabel(chunk.label)||chunk.continued)return '';return spellChord(chunk.label,chunk.start);}   // at its own time: a show can change the pitch partway
   function renderChord(g,bar,chunk){
     const holder=el('span','chord-line'),b=el('button','chord'+(isNoChordLabel(chunk.label)?' rest':chunk.continued?' held':''),chordLabel(chunk));b.type='button';b.dataset.chunk=chunk.key;
-    if(chunk.continued&&!isNoChordLabel(chunk.label)){const held='Still holding '+spellChord(chunk.label);b.title=held;b.setAttribute('aria-label',held);}
+    if(chunk.continued&&!isNoChordLabel(chunk.label)){const held='Still holding '+spellChord(chunk.label,chunk.start);b.title=held;b.setAttribute('aria-label',held);}
     if(isNoChordLabel(chunk.label)){const r=restSymbols(chunk,bar);if(r){b.append(el('span','rest-glyph',r.glyphs));b.setAttribute('aria-label',r.name);b.title=r.name;}}
     zone(b,'chords','edit');
     b.onclick=e=>{if(isCue(e))startCue(g,chunk);else if(isEdit(e))startChords(g,chunk);else seekChunk(g,chunk);};
     holder.append(b);
-    if(chunk.repeat>1){const r=el('span','repeat','(×'+chunk.repeat+')');r.title='Played '+chunk.repeat+' times';holder.append(r);refs.repeats.push({node:r,chunk,group:g,text:r.textContent});}
+    if(chunk.repeat>1){const r=el('span','repeat','(×'+chunk.repeat+')');r.setAttribute('aria-label','Played '+chunk.repeat+' times');zone(r,'regroup','edit');   // with the Edit tool, choose how the repeat folds (as in Timing)
+      r.onclick=e=>{if(isEdit(e)){e.stopPropagation?.();openFold(g);}};holder.append(r);refs.repeats.push({node:r,chunk,group:g,text:r.textContent});}
     refs.chords.push({node:b,chunk,group:g});return holder;
   }
   // Lyric lines whose words in a chunk follow one another in time share one line of text (the words in the order they are sung); only lines that
@@ -238,9 +247,10 @@ export function mountChartPage(root,handlers={}){
     if(!lane.pickup)slot.onclick=e=>{if(isEdit(e)){e.stopPropagation?.();startWords(g,lane.passNumber);}};   // a pickup here belongs to another section's line
     holder.append(slot);refs.slots.push({node:slot,group:g,lane});
     tokens.forEach((t,i)=>{
-      const w=el('span','w',t.text+(i<tokens.length-1&&!t.text.endsWith('-')?' ':''));
+      const w=el('span','w',shownPiece(t.text)+(i<tokens.length-1&&!joinsNext(t.text)?' ':''));
       w.dataset.line=String(t.line);w.dataset.offset=String(t.offset);
       w.onclick=e=>{if(isEdit(e))return;if(finite(t.seconds)){seekPass[g.id]=t.passNumber;seek(t.seconds);}};
+      if(t.text.endsWith(SPLIT)){w.classList.add('cut');w.append(el('span','split-mark'));}   // a word cut into syllables (Timing tool): a small dot, nothing in the words
       refs.words.push({node:w,token:t,group:g,lane});slot.append(w);
     });
     return holder;
@@ -273,7 +283,7 @@ export function mountChartPage(root,handlers={}){
     }
   }
   function renderBar(g,bar,index,edit){
-    const n=el('div','bar'+(index===g.bars.length-1?' last':''));n.dataset.bar=bar.id;
+    const n=el('div','bar'+(index===g.bars.length-1?' last':'')+(bar.pastEnd?' past-end':''));n.dataset.bar=bar.id;n._bar={g,bar};
     const no=el('span','bar-no',String(bar.number));no.title='Jump to bar '+bar.number;
     no.onclick=e=>{if(isEdit(e))return;const o=g.bars&&occurrenceFor(g.id,bar.chunks[0]?.slotId,passForSeek(g));seek(o?.start??bar.start);};
     n.append(no);
@@ -283,8 +293,61 @@ export function mountChartPage(root,handlers={}){
     if(!edit)barZones(n,g,bar);
     for(const chunk of bar.chunks)n.append(renderChunk(g,bar,chunk,edit));
     if(!bar.chunks.length&&edit?.kind!=='words')for(const [i,lane] of g.lanes.entries())if(!lane.pickup)n.append(renderLaneSlot(g,bar,{key:null,slotId:null,lanes:{}},lane,i,false));
+    if(bar===finalBar){n.classList.add('final');n.append(endCap());}
     return n;
   }
+  // ---------------- the end of the chart ----------------
+  // The last bar ends with a final barline (thin, then thick). In the Edit tool it is a handle: drag it onto another barline and the chart
+  // ends there (layout.chart_end, chart-presentation.js). The bars after the end are only hidden: the Edit
+  // tool shows the next few of them faded, so the end can be dragged back out over them. The recording always plays to its own end.
+  function lastBar(m){let found=null;for(const sec of m.sections)for(const g of sec.groups)for(const b of g.bars)if(!b.pastEnd&&b.mapped)found=b;return found;}
+  // a bar's barline on the right, as a time in the recording: in a folded repeat, the bar of its last pass
+  function endOf(g,bar){
+    const id=g.passes?.length>1?sourceMeasureFor(g.passes[0],g.passes.at(-1),bar.id):bar.measure?.id;
+    return model.measures.find(m=>m.id===id)?.end??bar.end;
+  }
+  const barNodes=()=>[...page.querySelectorAll?.('.bar')||[]].filter(n=>n._bar?.bar?.mapped);
+  // where the chart would really end with its end set to `seconds` (a bar with a word sung in it is never left out)
+  const endFor=seconds=>chartPresentation(data.content,model.measures,data.music?.sound_start,data.music?.sound_end,{chartEnd:seconds}).end;
+  async function moveEnd(seconds){
+    if(blocked())return;
+    if(Math.abs(seconds-model.chartEnd)<1e-3)return;
+    if(endFor(seconds)>seconds+2e-3){message.textContent='A word is sung after that barline. Move or release it first.';return;}
+    try{const plan=planPageEdit.endChartAt({content:data.content,seconds});await commitPlain(plan.candidate,plan.label);}catch(e){fail(e);}
+  }
+  function endCap(){
+    const cap=zone(el('button','end-cap'),'end','edit');cap.type='button';cap.tabIndex=-1;cap.setAttribute('aria-label','End of the chart');   // a mouse handle, like the Edit tool's other places (← and → stay previous and next bar)
+    let drag=null;
+    const clear=()=>{for(const n of barNodes())n.classList.remove('end-aim','end-cut');};
+    // the barline nearest the pointer, in the row under it
+    const aim=e=>{
+      let best=null;
+      for(const n of barNodes()){
+        const r=n.getBoundingClientRect(),dy=e.clientY<r.top?r.top-e.clientY:e.clientY>r.bottom?e.clientY-r.bottom:0,dx=Math.abs(e.clientX-r.right),score=dy*4+dx;
+        if(!best||score<best.score)best={n,score};
+      }
+      return best?.n||null;
+    };
+    cap.onpointerdown=e=>{
+      if(e.button!==0||!isEdit(e)||blocked())return;
+      e.preventDefault?.();e.stopPropagation?.();drag={pointer:e.pointerId,target:null};cap.setPointerCapture?.(e.pointerId);cap.classList.add('lifted');
+    };
+    cap.onpointermove=e=>{
+      if(!drag||e.pointerId!==drag.pointer)return;
+      const n=aim(e);if(!n||n===drag.target)return;
+      drag.target=n;clear();n.classList.add('end-aim');
+      const nodes=barNodes(),at=nodes.indexOf(n);nodes.forEach((x,i)=>{if(i>at)x.classList.add('end-cut');});
+    };
+    const end=e=>{
+      if(!drag||e.pointerId!==drag.pointer)return;
+      const target=drag.target;drag=null;cap.releasePointerCapture?.(e.pointerId);cap.classList.remove('lifted');clear();
+      if(target)moveEnd(endOf(target._bar.g,target._bar.bar));
+    };
+    cap.onpointerup=end;cap.onpointercancel=cap.onlostpointercapture=e=>{if(!drag)return;drag=null;cap.classList.remove('lifted');clear();};
+    cap.onclick=e=>e?.stopPropagation?.();
+    return cap;
+  }
+
   // A repeat sign is drawn from plain shapes (a rule and two dots), not gradients: gradients turn into grey blocks in a PDF.
   function repeatSign(side){const sign=el('span','rep-sign '+side);sign.append(el('i','rep-dot a'),el('i','rep-dot b'));return sign;}
   function renderGroup(section,g){
@@ -317,15 +380,6 @@ export function mountChartPage(root,handlers={}){
       // a row with no words yet: Edit shows a line to type them on
       const add=zone(el('div','lane-add',g.passCount>1?'Click and type the lyrics for pass '+passForEdit(g):'Click and type the lyrics'),'words');
       add.onclick=e=>{e?.stopPropagation?.();startWords(g,passForEdit(g));};row.append(add);
-    }
-    if(g.endings.length){
-      const alts=el('div','alt-endings');
-      for(const e of g.endings.filter(e=>!e.passNumbers.includes(1))){
-        const item=el('div','alt-ending');item.append(el('span','ending-label',(e.passNumbers.length===1?'Ending ':'Endings ')+e.passNumbers.join(', ')),el('span','bar-no',String(e.measureNumber)));
-        for(const o of e.chords){const rest=isNoChordLabel(o.label);const b=el('button','chord ending-chord'+(rest?' rest':''),rest?'':o.label);b.type='button';b.dataset.occurrence=o.id;b.onclick=ev=>{if(isEdit(ev)){targetPass[g.id]=o.passNumber;startChords(g);}else seek(o.start);};refs.endings.push({node:b,occurrence:o});item.append(b);}
-        alts.append(item);
-      }
-      if(alts.children.length)row.append(alts);
     }
     return row;
   }
@@ -431,8 +485,9 @@ export function mountChartPage(root,handlers={}){
   function draw(){
     if(!data)return;
     // the Timing tool always shows true timing; typing lyrics always goes line by line
-    model=buildChartModel(data.content,data.music,{onsets:data.suggest?data.onsets:null,trueTiming:(mode==='timing'||wordView==='true')&&editing?.kind!=='words'});
-    refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],endings:[],repeats:[],cues:[]};
+    model=buildChartModel(data.content,data.music,{onsets:data.suggest?data.onsets:null,trueTiming:(mode==='timing'||wordView==='true')&&editing?.kind!=='words',unfoldAt:handlers.pitchSteps?.()||[],pastEnd:tool==='edit'&&mode!=='timing'?PAST_END:0});
+    finalBar=lastBar(model);
+    refs={chunks:[],groups:[],sections:[],lanes:[],words:[],chords:[],slots:[],editors:[],repeats:[],cues:[]};
     occById=new Map(model.projection.occurrences.map(o=>[o.id,o]));cueMap=placeCues(model,[...(data.content.cues||[]),...(handlers.planNotes?.()||[])]);   // plus the notes of the arrangement playing now (they're its, not the song's)
     notices.replaceChildren();for(const w of model.warnings)notices.append(el('p','chart-notice',w));
     for(const sliver of chartSlivers(data.content.sections,model.measures))notices.append(sliverNotice(sliver));
@@ -548,9 +603,8 @@ export function mountChartPage(root,handlers={}){
   function updatePlayback(transport){
     if(!data)return;data.transport=transport;if(!model)return;
     const seconds=transport.seconds,target=playbackTarget(model,seconds);
-    const occ=target?occById.get(target.occurrenceId):null,first=occ?model.projection.occurrences.find(o=>o.groupId===occ.groupId&&o.slotId===occ.slotId&&o.passNumber===1):null;
-    const alt=!!occ&&!!occ.ending&&!!first&&first.endingVariant!==occ.endingVariant;      // the changed ending is playing, not the displayed one
-    const sig=JSON.stringify([target?.chunkKey,target?.passNumber,target?.sectionId,alt,occ?.id]);
+    const occ=target?occById.get(target.occurrenceId):null;
+    const sig=JSON.stringify([target?.chunkKey,target?.passNumber,target?.sectionId,occ?.id]);
     const wordIndexes=new Map();
     for(const r of refs.groups)for(const [i,lane] of r.model.lanes.entries()){
       const live=!lane.flow&&lane.span&&seconds>=lane.span.start-1e-6&&seconds<lane.span.end&&(r.model.passCount===1||target?.groupId===r.model.id&&target.passNumber===lane.passNumber);
@@ -587,12 +641,11 @@ export function mountChartPage(root,handlers={}){
     }
     // a chord held over from the bar before has an empty spot in this bar: the chord where it began stays lit instead (the nearest one
     // before it, in reading order, that is not itself held)
-    let litKey=target&&!alt?target.chunkKey:null;
+    let litKey=target?target.chunkKey:null;
     if(litKey){const at=refs.chunks.findIndex(r=>r.chunk.key===litKey);
       if(at>=0&&refs.chunks[at].chunk.continued)for(let i=at-1;i>=0;i--){const c=refs.chunks[i].chunk;
         if(!c.continued){if(c.label===refs.chunks[at].chunk.label)litKey=c.key;break;}}}
     for(const r of refs.chunks)r.node.classList.toggle('now',!!litKey&&r.chunk.key===litKey);
-    for(const r of refs.endings)r.node.classList.toggle('now',!!occ&&r.occurrence.id===occ.id);
     for(const r of refs.slots)r.node.classList.toggle('dim',!!target&&target.groupId===r.group.id&&r.group.passCount>1&&target.passNumber!==r.lane.passNumber);
     // the words being sung, whichever line of text draws them (a pickup shares the row's own line when they follow one another)
     const sungNow=new Set();
@@ -731,7 +784,7 @@ export function mountChartPage(root,handlers={}){
     const seen=new Set(),items=[];
     for(const bar of g.bars)for(const chunk of bar.chunks){
       if(!chunk.chordId||chunk.continued||seen.has(chunk.key))continue;seen.add(chunk.key);
-      items.push({chunk,text:isNoChordLabel(chunk.label)?'N':spellChord(chunk.label)});
+      items.push({chunk,text:isNoChordLabel(chunk.label)?'N':spellChord(chunk.label,chunk.start)});
     }
     return items;
   }
@@ -740,6 +793,8 @@ export function mountChartPage(root,handlers={}){
     if(blocked()||!canEdit())return;
     if(!rowChords(g).length){message.textContent='This row has no chords to type over.';return;}
     editing={groupId:g.id,kind:'chords',focus:g.id+'|chords',chordId:clicked?.chordId??null};foldGroup=null;keepPlace(render);
+    // with the chart moved by the pitch control, say plainly which key you're typing in and where the chords are saved
+    if(chartMoved())message.textContent=songKeyForSpelling()?`Typing in ${shownKey()}. Saved in ${songKeyForSpelling()}.`:'Typing in the key shown. Saved in the song’s own key.';
   }
   function renderChordEditor(g,row){
     const items=rowChords(g),text=items.map(i=>i.text).join(' '),line=el('div','lane-edit chord-edit'),editor=el('span','lyr chord-type');
@@ -755,7 +810,7 @@ export function mountChartPage(root,handlers={}){
       try{
         const next=planChordLine(g,items,chordTokens(raw));
         draft=null;editing=null;render();                             // the row closes at once; the save follows
-        if(next)await commitPlain(next,'Edit chords');
+        if(next){await commitPlain(next,'Edit chords');handlers.onChordsTyped?.(chordTokens(raw));}
       }catch(e){fail(e);}
       stopEditing();
     };
@@ -783,7 +838,7 @@ export function mountChartPage(root,handlers={}){
     const beatsInside=c=>(data.music?.measures||[]).flatMap(m=>m.beats||[]).filter(t=>t>c.start+1e-6&&t<c.end-1e-6);
     const restAt=(c,side)=>{const beats=beatsInside(c);return beats.length?(side==='start'?beats[0]:beats.at(-1)):splitTime(c,data.music);};
     for(const [k,op] of ops.entries()){
-      const label=op.to!==undefined?tokens[op.to]:null;
+      const label=op.to!==undefined?unspellChord(tokens[op.to],items[0]?.chunk.start):null;   // typed in the key shown, saved in the song's own key
       if(op.type==='insert'&&isNoChordLabel(label)){
         const following=ops.slice(k+1).find(o=>o.from!==undefined&&o.type!=='delete');
         if(following){
@@ -831,7 +886,7 @@ export function mountChartPage(root,handlers={}){
   // Each pass of a row has one editable line under it. It is separate from the chords, so typing never moves them; the words are
   // spread between whatever pins exist when you leave the line. A new line starts at the chord you click and ends with the row.
   function laneItems(g){
-    const items=g.lanes.filter(lane=>!lane.pickup).map(lane=>({group:g,lane,passNumber:lane.passNumber,id:g.id+'|'+lane.line}));
+    const items=g.lanes.filter(lane=>!lane.pickup).map(lane=>({group:g,lane,passNumber:lane.passNumber,id:g.id+'|'+lane.line+'|'+lane.passNumber}));   // one line can be split between passes (chart-model.js)
     const have=new Set(g.lanes.filter(l=>!l.flow).map(l=>l.passNumber));
     const wanted=g.passCount>1?g.passes.map(p=>p.number).filter(n=>!have.has(n)):(g.lanes.length?[]:[1]);
     for(const n of wanted)items.push({group:g,lane:null,passNumber:n,id:g.id+'|new'+n});
@@ -1104,8 +1159,8 @@ export function mountChartPage(root,handlers={}){
     setTool(next){
       if(!CHART_TOOLS.includes(next)||next===tool||locked(next))return tool;
       if(blocked())return tool;
-      tool=next;folding=false;fixing.a=fixing.b=null;
-      if((tool==='timing')===(mode==='timing'))keepPlace(paintActs);      // the same view: only the Edit tool's word lines come and go
+      const wasEdit=tool==='edit';tool=next;folding=false;fixing.a=fixing.b=null;
+      if((tool==='timing')===(mode==='timing'))keepPlace(wasEdit!==(tool==='edit')&&mode!=='timing'?render:paintActs);   // the Edit tool also shows the bars just past the end      // the same view: only the Edit tool's word lines come and go
       refreshView();renderTools();handlers.onToolChange?.(tool);return tool;
     },
     // Fold a repeat (in time): the next bar numbers clicked pick the part. Again to stop.
@@ -1147,7 +1202,7 @@ export function mountChartPage(root,handlers={}){
     updatePlayback,
     update(value){
       if(draft?.node&&draft.node.isConnected===false)draft=null;          // a line that is no longer on the page is not being typed in
-      const nextKey=JSON.stringify([value.documentId,value.revision,value.content,value.music,!!value.suggest,value.onsets?.length||0,value.onsets?.[0],value.melody?.length||0,value.key||null,value.waveform?.run??null,value.waveform?.duration??null,handlers.planNotes?.()||null]);   // the playing arrangement's notes redraw it too
+      const nextKey=JSON.stringify([value.documentId,value.revision,value.content,value.music,!!value.suggest,value.onsets?.length||0,value.onsets?.[0],value.melody?.length||0,value.key||null,value.waveform?.run??null,value.waveform?.duration??null,handlers.planNotes?.()||null,spellingSignature()]);   // ...and a pitch or spelling change   // the playing arrangement's notes redraw it too
       if(data?.documentId!==value.documentId){if(draft?.dirty)return;key=null;editing=null;fixing.a=fixing.b=null;foldGroup=null;for(const k of Object.keys(targetPass))delete targetPass[k];for(const k of Object.keys(seekPass))delete seekPass[k];}
       data=value;
       if(nextKey!==key&&!draft&&!saving){key=nextKey;render();}else updatePlayback(value.transport);

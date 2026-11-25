@@ -3,6 +3,7 @@
 // note each word sits on: a pinned word goes to the note nearest its pin, and the words between pins take the notes between them, in
 // order. If there are more words than notes, some notes carry two words; nothing is left over.
 import {layoutLine} from './word-layout.js';
+import {joinsNext,SPLIT} from './lyric-chunks.js';
 import {addressAtSeconds} from './musical-grid.js';
 
 const finite=Number.isFinite;
@@ -92,6 +93,6 @@ export function placeLyricsOnNotes(content,measures,notes){
 // The syllable abcjs prints under a note: words on one note share it, and a trailing hyphen on the last one joins it to the next note.
 export function lyricForNote(words){
   if(!words?.length)return null;
-  const last=words.at(-1).text,joined=words.map((w,i)=>i===words.length-1?w.text.replace(/-$/u,''):w.text).join(' ');
-  return {syllable:joined,divider:last.endsWith('-')?'-':' '};
+  const last=words.at(-1).text,joined=words.map((w,i)=>(i===words.length-1?w.text.replace(/[-­]$/u,''):w.text).split(SPLIT).join('')).join(' ');
+  return {syllable:joined,divider:joinsNext(last)?'-':' '};   // a cut word (a hidden split) is written with the usual hyphen between notes, as scores are
 }

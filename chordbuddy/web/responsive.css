@@ -29,7 +29,7 @@
 .rack input[type=range]{min-width:0}   /* a slider's built-in width is about 130px: without this the volume rows push past the mixer's edge */
 
 /* ---- the player bar: its columns share the width, and on a short window it gets shorter ---- */
-@media (min-width:901px){.nav-grid{grid-template-columns:clamp(200px,18vw,250px) minmax(0,1fr) clamp(120px,11vw,170px);gap:var(--gap)}}
+@media (min-width:901px){.nav-grid{grid-template-columns:clamp(200px,18vw,250px) minmax(0,1fr) clamp(178px,12.5vw,188px);gap:var(--gap)}}   /* the right column fits the Tempo/Pitch table and its Pitch affects line */
 @media (max-height:860px){
   .nav-left{gap:6px}
   .nowchord{height:44px;min-width:52px;font-size:24px}
@@ -37,7 +37,8 @@
   .cbtn.play{width:46px;height:46px}
   .cbtn.play .ic{width:22px;height:22px}
   .practice-timeline{gap:5px}
-  .practice-scrubber{height:88px}   /* the waveform under the section names gives up the height; the names and playhead keep theirs */
+  .practice-scrubber{height:62px}   /* the waveform under the section names gives up the height; the names and playhead keep theirs */
+  .nav-right,.tune{gap:4px}.tune-row{height:28px}.tune-read,.tune-read .tempo-read{line-height:1.02}   /* the Tempo and Pitch rows shrink with it, so they never make the bar taller */
 }
 
 /* ---- the same on the narrow layout the other stylesheets already have ---- */

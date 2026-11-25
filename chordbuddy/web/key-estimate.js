@@ -5,8 +5,9 @@ import {displayChordLabel} from './editor.js';
 const SHARP=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const FLAT=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
 const PITCH={C:0,D:2,E:4,F:5,G:7,A:9,B:11};
-// Keys that are usually written with flats; the rest use sharps.
-const FLAT_MAJOR=new Set([5,10,3,8,1]),FLAT_MINOR=new Set([2,7,0,5,10]);
+// Keys written with flats; the rest use sharps. Each key takes the name with fewer sharps or flats, which never needs a double sharp
+// or flat (Ab major, not G# major with its F##). The two ties, six either way, go to flats: Gb major (not F#) and Eb minor (not D#).
+const FLAT_MAJOR=new Set([5,10,3,8,1,6]),FLAT_MINOR=new Set([2,7,0,5,10,3]);
 
 export function parseChord(label){
   const shown=displayChordLabel(label);
@@ -75,6 +76,14 @@ export function chooseKey(modelKey,chords){
 
 // Every key a player can pick, for the chip's menu.
 export const KEY_CHOICES=[...Array(12).keys()].flatMap(tonic=>[keyName(tonic,'major'),keyName(tonic,'minor')]);
+
+// A saved key choice in today's spelling. Choices saved before the ties went to flats ('F# major', 'D# minor') read as the same key
+// ('Gb major', 'Eb minor'); any other spelling of a real key does too. Anything that isn't a key -> ''.
+export function savedKeyName(text){
+  const match=/^([A-G])([#b]?)\s+(major|minor)$/.exec(String(text||'').trim());if(!match)return '';
+  let tonic=PITCH[match[1]];for(const c of match[2])tonic+=c==='#'?1:-1;
+  return keyName(((tonic%12)+12)%12,match[3]);
+}
 
 // The analysis model's own key (key.lab: "start<TAB>end<TAB>F:minor" per line) -> {tonic,mode,label}, the key it holds longest, or null.
 export function parseKeyLab(text){

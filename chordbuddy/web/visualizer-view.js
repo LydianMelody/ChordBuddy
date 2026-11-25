@@ -27,7 +27,8 @@ import {SceneClock} from './visual-clock.js';
 import {buildScene,sampleFrame,withFeatures} from './visual-scene.js';
 import {loadSongFiles,songParts} from './midi-user.js';
 import {effectiveMeasures} from './chart-layout.js';
-import {setKeySpelling} from './spelling.js';
+import {setKeySpelling,setChartPitch,shownKey,chartOffsetAt,setSpellingPreference} from './spelling.js';
+import {shiftMidiContent} from './pitch-midi.js';
 import {hudZones,drawChordHud,drawLyricHud} from './visual-hud.js';
 import {mountMixerDrawer} from './visual-mixer.js';
 import {pickScene,panelPlace,ID_TEXT,orderScenes,stepScene,moveScene} from './visual-setup.js';
@@ -203,15 +204,18 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
 
   // ---- the song ----
   async function loadSong(m){
-    const key=JSON.stringify([m.songId,m.runId,m.revision,m.key,m.lyricGuess,m.userMidi]);if(key===songKey)return;songKey=key;
+    const key=JSON.stringify([m.songId,m.runId,m.revision,m.key,m.spelling,m.pitch,m.lyricGuess,m.userMidi]);if(key===songKey)return;songKey=key;
     if(!m.songId){song=null;status='No song is open in Chord Buddy.';return;}
-    setKeySpelling(m.key||'');
-    const base={content:m.content,music:m.music,title:m.title,key:m.key,lyricGuess:!!m.lyricGuess};
+    // pitch control: chord names, the key and melody notes follow the Chart switch (spelling.js, pitch-midi.js); drums, and your MIDI
+    // that only drives a visual (extras), never move
+    setSpellingPreference(m.spelling||'key');setKeySpelling(m.key||'');setChartPitch(m.pitch?.chart||0,m.pitch?.steps||[]);
+    const base={content:m.content,music:m.music,title:m.title,key:shownKey()||m.key,lyricGuess:!!m.lyricGuess};
+    const moved=notes=>shiftMidiContent({notes,tracks:[]},chartOffsetAt).notes;
     song=buildScene(base);status='';previous=null;
     const midi={};
     await Promise.all((m.midiDocs||[]).map(async doc=>{
       const name=midiName(doc.name);if(!name)return;
-      try{midi[name]=(await getJson('/api/document/'+encodeURIComponent(doc.id),credentials(m.token,streamKey))).content?.notes||[];}catch{}
+      try{midi[name]=moved((await getJson('/api/document/'+encodeURIComponent(doc.id),credentials(m.token,streamKey))).content?.notes||[]);}catch{}
     }));
     // your own MIDI files: parts that replace the model's melodies, and extras (midi-user.js)
     let user=[],extras=[];
@@ -219,7 +223,7 @@ export function mountVisualizer(container,{open,stream=false,streamKey='',editor
       const files=await loadSongFiles(m.songId,m.userMidi,path=>fetch(path,{headers:credentials(m.token,streamKey)}).then(r=>{if(!r.ok)throw Error(r.status);return r.arrayBuffer();}),userFiles);
       const measures=effectiveMeasures(m.music,m.content?.layout||{});
       const parts=songParts(files,measures,{duration:m.content?.duration||m.music?.duration||0,firstBar:firstBarOf(measures,song)});
-      for(const [name,notes] of Object.entries(parts.replace)){midi[name]=notes.map(n=>({...n,mine:true}));user.push(name);}
+      for(const [name,notes] of Object.entries(parts.replace)){midi[name]=moved(notes).map(n=>({...n,mine:true}));user.push(name);}
       // the combined melody follows a replaced part (your notes in it keep their dynamics; the model's are measured as before)
       if(user.length&&midi.melody)midi.melody=[...(midi.vocal||[]),...(midi.instrumental||[])];
       extras=parts.extras;

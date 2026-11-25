@@ -68,6 +68,7 @@ export async function createPathSession({token,onPosition,onError,onHandoff=()=>
     },
     mix(slot,value){send({type:'mix',slot,value});},
     rate(slot,percent){send({type:'rate',slot,value:percent/100});},
+    pitch(slot,value){send({type:'pitch',slot,value});},
     /** The song in `slot` ends at its output frame atPlayed; after `gap` frames of silence the song in slot `to` starts on the next sample. */
     handoff(slot,{to,atPlayed,gap=0}){send({type:'handoff',slot,to,atPlayed,gap});},
     cancelHandoff(){send({type:'cancel-handoff'});},

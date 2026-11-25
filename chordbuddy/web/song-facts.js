@@ -1,7 +1,7 @@
 // Tempo and key of every song, for the badges in the song lists (the sidebar and All songs) and a set list's total length.
 // A song's facts come from its chart and the model's key (key.lab), worked out as the open song's are (chooseKey); a key picked from
 // the key chip wins. They are read once per analysis, one song at a time, and the open song's are kept up to date from its page.
-import {chooseKey,parseKeyLab,KEY_CHOICES} from './key-estimate.js';
+import {chooseKey,parseKeyLab,KEY_CHOICES,savedKeyName} from './key-estimate.js';
 import {isNoChordLabel} from './chart-layout.js';
 
 // "C# minor" -> "C♯m", "Eb major" -> "E♭": short enough for a badge
@@ -15,7 +15,7 @@ export function totalLabel(seconds){
   return h?`${h}:${String(m).padStart(2,'0')}:${r}`:`${m}:${r}`;
 }
 export function keyLabelFor(modelKey,chords,saved){
-  if(KEY_CHOICES.includes(saved))return saved;
+  saved=savedKeyName(saved);if(KEY_CHOICES.includes(saved))return saved;
   return chooseKey(modelKey,(chords||[]).filter(c=>!isNoChordLabel(c.label))).key?.label||null;
 }
 

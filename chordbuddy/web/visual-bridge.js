@@ -72,11 +72,11 @@ export function createVisualPublisher({open=()=>new BroadcastChannel(CHANNEL),on
       lastClock=clockMessage(snapshot);
       if(listening)channel.postMessage(lastClock);
     },
-    // value: {songId, runId, title, key, content, music, midiDocs:[{id,name}], userMidi:[{id,name,mtime,settings}] (your own MIDI files,
+    // value: {songId, runId, title, key, pitch:{chart, sound, steps?} (pitch control: half steps for what you see and hear), content, music, midiDocs:[{id,name}], userMidi:[{id,name,mtime,settings}] (your own MIDI files,
     // midi-user.js), token, lyricGuess}; resent only when something in it changed
     scene(value){
       const message=value?{type:'scene',...value}:{type:'scene',songId:null};
-      const signature=JSON.stringify([message.songId,message.runId,message.key,message.title,message.revision,message.midiDocs,message.userMidi,message.lyricGuess]);
+      const signature=JSON.stringify([message.songId,message.runId,message.key,message.spelling,message.pitch,message.title,message.revision,message.midiDocs,message.userMidi,message.lyricGuess]);
       if(lastScene&&lastScene.signature===signature)return;
       lastScene={...message,signature};
       if(listening)channel.postMessage(lastScene);

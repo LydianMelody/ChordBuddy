@@ -1,7 +1,7 @@
 import {commitPracticeDocument} from './practice-save.js';
 import {planChartChordEdit} from './practice-edit.js';
 import {retryDocumentExport} from './export-retry.js';
-import {reconcileCompactPreferences} from './compact-chart.js';
+import {reconcileCompactPreferences,buildCompactChart} from './compact-chart.js';
 import {installTooltips} from './tooltips.js';
 import {mountChartPage} from './chart-page.js';
 import {ZOOM_LEVELS} from './timing-geometry.js';
@@ -31,9 +31,12 @@ import {openSongTiming,openReprocess,openModelAttribution} from './settings-view
 import {effectiveMeasures, isNoChordLabel} from './chart-layout.js';
 import {icon} from './icons.js';
 import {prefs} from './prefs.js';
+import {createPitchState} from './pitch-state.js';
 import {usualMeter,parseMeter,METER_CHOICES} from './bar-lengths.js';
-import {chooseKey,parseKeyLab,KEY_CHOICES} from './key-estimate.js';
-import {setKeySpelling,spellChord,spellAbc} from './spelling.js';
+import {chooseKey,parseKeyLab,KEY_CHOICES,savedKeyName} from './key-estimate.js';
+import {setKeySpelling,setChartPitch,chartOffsetAt,shownKey,unspellChord,spellChord,spellAbc,setSpellingPreference,spellingPreference,shownSpelling,SPELLINGS} from './spelling.js';
+import {shiftMidiContent} from './pitch-midi.js';
+import {pitchSuffix,intervalFor,stepOffset} from './transpose.js';
 import {onsetsFromNotes} from './word-layout.js';
 import {mountModelsPanel,mountChordModelPanel} from './models-view.js';
 import {mountDeskBars,combinedZoom} from './desk-bars.js';
@@ -80,6 +83,20 @@ const modelsPanel=mountModelsPanel($('models-panel'),{
   onFile:async file=>{await api('/api/models/import?name='+encodeURIComponent(file.name),undefined,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});await refreshState();},
 });
 const transport=new Transport({audio:$('audio'),token});
+// The open song's pitch (pitch-state.js): what you hear goes to the transport, what you see is drawn through spelling.js. Once a song's pitch
+// has been changed at all in this session, its stretcher keeps running even back at 0, so later changes are smooth.
+const pitchState=createPitchState({prefs}),pitchTouched=new Set();
+// In a show (or a preview) the pitch comes from the arrangement's flags and live presses, not the song's own setting: {sound, chart, steps}.
+let showPitchOf=()=>null;
+const showPitchNow=()=>{const p=showPitchOf();return p&&p.songId===model.song?p:null;};
+// The pitch you hear (Sound switch), for the sound exports: half steps and what the file name says, ' (+3, C minor)'.
+const soundPitchNow=()=>{const show=showPitchNow();if(show)return {semitones:show.sound,suffix:pitchSuffix(show.sound,intervalFor(model.song?songKey().label:null,show.sound).key)};const p=pitchState.get(),semitones=p.sound?p.offset:0;return {semitones,suffix:pitchSuffix(semitones,intervalFor(model.song?songKey().label:null,semitones).key)};};
+const chartPitchNow=()=>{const show=showPitchNow();if(show)return {offset:show.chart,key:shownKey()};const p=pitchState.get();return {offset:p.chart?p.offset:0,key:shownKey()};};
+function applyPitch(){
+ if(transport.performer)return;               // a show sets the pitch you hear itself (performance-runner.js)
+ const p=pitchState.get(),song=pitchState.songId;if(song&&p.offset!==0)pitchTouched.add(song);
+ try{transport.setPitch({semitones:p.sound?p.offset:0,keep:!!song&&p.sound&&pitchTouched.has(song)});}catch(error){showError(error);}
+}
 let separationDetail=null;
 const playbackGate=new PlaybackGate(transport,id=>api('/api/playback/'+encodeURIComponent(id)));
 // Whether to split the stems is remembered from the last time (off until chosen). The chart and lead sheet never wait for the stems.
@@ -101,7 +118,7 @@ async function splitStems(){
  if(model.song!==songId)return;
  await api('/api/separate',{song_id:songId});await refreshState();
 }
-const mixer=mountMixer($('rack'),{transport,onError:showError,onSplit:()=>splitStems().catch(showError),exportTarget:()=>{const runId=separationDetail?.active?.run_id,song=currentSong();return runId&&song?{title:song.title||'Chord Buddy',stemsUrl:name=>mediaUrl(`/api/stems-export/${encodeURIComponent(runId)}`)+`&name=${encodeURIComponent(name)}`,url:(query,name)=>mediaUrl(`/api/mix-export/${encodeURIComponent(runId)}`)+`&${query}&name=${encodeURIComponent(name)}`}:null;}});
+const mixer=mountMixer($('rack'),{transport,onError:showError,onSplit:()=>splitStems().catch(showError),exportTarget:()=>{const runId=separationDetail?.active?.run_id,song=currentSong();return runId&&song?{title:song.title||'Chord Buddy',runId,token,pitch:soundPitchNow(),stemsUrl:name=>mediaUrl(`/api/stems-export/${encodeURIComponent(runId)}`)+`&name=${encodeURIComponent(name)}`,url:(query,name)=>mediaUrl(`/api/mix-export/${encodeURIComponent(runId)}`)+`&${query}&name=${encodeURIComponent(name)}`}:null;}});
 // ---- Parts of the page that live in modules of their own. They are made here, before anything can call them; each one's buttons and
 // listeners are attached further down, where that code used to stand (its wire…() calls). ----
 // Tempo and key badges for a song in the lists (song-facts.js), and what a list adds up to.
@@ -118,9 +135,17 @@ let practiceViewport=null,practiceData=null;
 // The waveform's peak outline also tells the chart whether the recording fades out (fade-out.js).
 // The open song's tempo, for the player's tempo, Set tempo and a Helix that follows it: {id, bpm, measures, constant}, or null before it's loaded.
 function songTempoNow(){const song=currentSong();if(!song||model.detail?.song?.id!==song.id)return null;const music=(chartRecord()||currentRecord())?.doc?.music;return {id:song.id,bpm:music?.timing?.bpm??null,measures:practiceData?.music?.measures||music?.measures||[],constant:!!model.detail?.metadata?.timing?.constant_tempo};}
-const player=mountPlayer($('player'),transport,showError,{songTempo:()=>songTempoNow(),onViewportChange:updatePracticeViewport,loadWaveform:run=>{const song=model.song;return api('/api/waveform/'+encodeURIComponent(run)).then(value=>{
+const player=mountPlayer($('player'),transport,showError,{pitch:pitchState,showPitch:()=>showPitchNow(),onShowPitch:n=>performanceApp.pitchCtx()?.set(n),songKey:()=>model.song?songKey().label:null,songTempo:()=>songTempoNow(),onViewportChange:updatePracticeViewport,loadWaveform:run=>{const song=model.song;return api('/api/waveform/'+encodeURIComponent(run)).then(value=>{
  if(value&&song===model.song){model.waveform={song,run,peaks:value.peaks,duration:value.duration};if(currentRecord()?.doc.kind==='chart')renderChart();}
  return value;});}});
+// A pitch change: the sound follows at once; the chart, lead sheet and other views are drawn again in the shown key (spelling.js).
+pitchState.subscribe(()=>{applyPitch();renderPitchedViews();});
+function renderPitchedViews(){
+ const p=pitchState.get(),show=showPitchNow();
+ if(show)setChartPitch(show.chart,show.steps.map(({at,offset})=>({at,offset})));else setChartPitch(p.chart?p.offset:0);
+ publishVisualScene();renderChips();const kind=currentRecord()?.doc.kind;if(kind==='chart')renderChart();else if(kind==='abc')renderAbc();else if(kind==='midi')renderMidi();
+ updatePlayback();   // the Now and next chords under the player
+}
 const practiceView=mountChartPage($('chart-sections'),{
  onSeek:seconds=>transport.seek(seconds),onCommit:commitPracticeEdit,onBarEdit:editBars,onError:showChartError,onReload:reloadPracticeChart,canEdit:()=>!currentRecord()?.practiceConflict&&!currentRecord()?.saving,
  onViewportChange:updatePracticeViewport,onRhythm:()=>rhythmButton.click(),onTimingSettings:()=>$('song-timing').click(),
@@ -129,11 +154,13 @@ const practiceView=mountChartPage($('chart-sections'),{
  isActive:()=>currentRecord()?.doc.kind==='chart'&&!$('chart-editor').classList.contains('hidden'),onZoomWheel:event=>zoomChartAt(event.deltaY<0?1.15:1/1.15,event.clientX),
  dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),
  planNotes:()=>{const p=performanceApp.planNotes();return p&&p.songId===model.song?p.notes:[];},
+ onChordsTyped:tokens=>offerSpelling(tokens).catch(showError),
+ pitchSteps:()=>showPitchNow()?.steps.map(s=>s.at)||[],
  performing:()=>performanceApp.page==='perform',   // a show's controls are open: the chart is for reading, so only Play and Cue   // a playing arrangement's notes show with the song's cues
 });
 // (these two need the chart page above; the show system is built further down, so its history is read through a getter)
 const historyUi=createHistoryUi({$,model,practiceView,performanceApp:{get history(){return performanceApp.history;}},currentSong,currentRecord,historyAction}),{noteHistory,syncPrepareHistory,notePrepareStep}=historyUi;
-const exportFlow=createExportFlow({$,model,prefs,api,mediaUrl,practiceView,getLeadView:()=>leadView,currentSong,currentRecord,chartDoc,loadChartRecord,selectDocument,songContext:id=>midiSongContext(id),showError}),{renderExportMenu,exportChartPdf}=exportFlow;
+const exportFlow=createExportFlow({chartPitch:chartPitchNow,$,model,prefs,api,mediaUrl,practiceView,getLeadView:()=>leadView,currentSong,currentRecord,chartDoc,loadChartRecord,selectDocument,songContext:id=>midiSongContext(id),showError}),{renderExportMenu,exportChartPdf}=exportFlow;
 // The chart's tools (Play, Edit, Timing) sit in the rail beside it, with Ctrl and Shift as quick shortcuts on top (chart-page.js).
 // In time, the chart is drawn on a beat grid wider than the desk: it gets cassette bars (scroll and zoom) instead of scroll bars.
 // The bottom bar's grips and Ctrl+wheel share one zoom: the beat grid's own, and past either end of it the page shrinking (to 50%) or
@@ -356,7 +383,7 @@ function publishVisualScene(){
   publishVisualSetup();
   if(!song||!model.detail){visuals.scene(null);return;}
   const playing=transport.getSnapshot();                          // without split stems, the recording it plays (orig-…) gives the sound data
-  visuals.scene({songId:song.id,title:song.title,key:songKey().label,runId:separationDetail?.active?.run_id||(playing.ready&&playing.sourceRunId)||null,token,
+  visuals.scene({songId:song.id,title:song.title,key:songKey().label,spelling:prefs.get('cb-spelling:'+song.id,'key'),pitch:{chart:chartPitchNow().offset,sound:soundPitchNow().semitones},runId:separationDetail?.active?.run_id||(playing.ready&&playing.sourceRunId)||null,token,
     lyricGuess:prefs.get('cb-suggest','1')!=='0',                  // the chart's "guess from melody" setting, so words land where the chart puts them
     revision:record?`${record.doc.revision}:${record.version}`:null,content:record?.draft||record?.doc.content||null,music:record?.doc.music||null,
     midiDocs:(model.detail.documents||[]).filter(doc=>doc.kind==='midi').map(doc=>({id:doc.id,name:doc.name})),
@@ -454,7 +481,26 @@ function closeVisualEditor(){
 $('visual-editor-open').onclick=openVisualEditor;
 // The show system (performance-app.js): the Prepare, Show and Perform pages, and the one running show.
 let lastNow=null;{const setNow=player.setNow;player.setNow=value=>{lastNow=value;setNow(value);};}
-const performanceApp=createPerformanceApp({api,token,transport,visuals,$,showError,prefs,onHistory:()=>syncPrepareHistory(),onStepped:step=>notePrepareStep(step),onPlanNotes:()=>{if(currentRecord()?.doc.kind==='chart')renderChart();},onMonitorPlan:state=>monitorStrips.paint()||monitorStrips.setPlanned(state&&{click:state['monitor.click'],cue:state['monitor.cue']}),
+showPitchOf=()=>performanceApp.pitchPlan();
+// A pitch flag inside a folded repeat (G C D C (×2), changing on the second time): the chart can't show both keys in one row, so while the
+// arrangement plays, that repeat is written out, one row per time through. Said once, the first time; Settings can bring it back.
+const UNFOLD_NOTICE='cb-unfold-notice';
+async function explainUnfold(songId,seconds){
+  if(prefs.get(UNFOLD_NOTICE,'1')==='0'||songId!==model.song)return;
+  const chart=chartRecord();if(!chart)return;
+  const projection=buildCompactChart(chart.draft||chart.doc.content,chart.doc.music);
+  const inside=projection.sections.flatMap(x=>x.groups).some(g=>g.folded&&g.passes?.length>1&&seconds>g.passes[0].start+1e-6&&seconds<g.passes.at(-1).end-1e-6);
+  if(!inside)return;
+  let quiet=false;
+  await askChoice({title:'Each time through will be shown separately',
+    message:['Changing the pitch here means each time through this repeat is written out on its own row while this arrangement plays, so every chord can be shown in its own key.','Your chart stays as it is everywhere else.'],
+    checkbox:{label:'Don’t show this again',hint:'Settings can turn this explanation back on.',checked:false,onChange:value=>{quiet=value;}},cancel:'OK',choices:[]});
+  if(quiet){prefs.set(UNFOLD_NOTICE,'0');paintUnfoldNotice();}
+}
+function paintUnfoldNotice(){$('unfold-notice')?.setAttribute('aria-pressed',String(prefs.get(UNFOLD_NOTICE,'1')!=='0'));}
+$('unfold-notice')?.addEventListener('click',()=>{prefs.set(UNFOLD_NOTICE,prefs.get(UNFOLD_NOTICE,'1')==='0'?'1':'0');paintUnfoldNotice();});
+paintUnfoldNotice();prefs.onLoad(paintUnfoldNotice);
+const performanceApp=createPerformanceApp({api,token,transport,visuals,$,showError,prefs,onHistory:()=>syncPrepareHistory(),onStepped:step=>notePrepareStep(step),onPlanNotes:()=>{if(currentRecord()?.doc.kind==='chart')renderChart();},onPlanPitch:()=>renderPitchedViews(),onPitchFlag:(songId,seconds)=>explainUnfold(songId,seconds).catch(showError),pitch:{step:direction=>pitchState.set({offset:stepOffset(pitchState.get().offset,direction)}),set:n=>pitchState.set({offset:n})},onMonitorPlan:state=>monitorStrips.paint()||monitorStrips.setPlanned(state&&{click:state['monitor.click'],cue:state['monitor.cue']}),
   songs:()=>(model.state?.songs||[]).filter(song=>song.active_run),allSongs:()=>model.state?.songs||[],setlists:()=>model.state?.setlists||[],currentSong,
   refresh:()=>refreshState(),onPageChange:()=>{practiceView.refreshTools?.();leadView?.refreshTools?.();if(performanceApp.page==='perform')showChosenView();renderTabs();if(performanceApp.history)syncPrepareHistory();else if(model.document)renderDocument();},redrawLibrary:()=>{if(model.state)renderLibrary({force:true});},setHost:()=>$('songs'),
   tapDevice:()=>prefs.get('cb-midi-tap',''),setTapDevice:name=>prefs.set('cb-midi-tap',name||''),
@@ -721,10 +767,10 @@ function openMeterMenu(chip){
   pop.replaceChildren(element('label','','Time signature'),select);
   placePop(pop,chip);select.focus();
 }
-function renderChips(){renderKeyBoxes();}   // the song's details live in each page's banner now; there are no pills in the header
+function renderChips(){renderKeyBoxes();player.repaintPitch();}   // the song's details live in each page's banner now; there are no pills in the header
 // The key sits in each page's banner, beside the time signature. Click it to choose another.
 function renderKeyBoxes(){
-  const key=songKey();setKeySpelling(key.label);
+  const key=songKey();setSpellingPreference(model.song?prefs.get('cb-spelling:'+model.song,'key'):'key');setKeySpelling(key.label);
   const song=currentSong(),bpm=(chartRecord()||currentRecord())?.doc?.music?.timing?.bpm;if(song?.active_run&&model.detail?.song?.id===song.id)songFacts.set(song.id,song.active_run,bpm,key.label);
   for(const head of document.querySelectorAll('.jhead')){
     let box=head.querySelector('.key-box');
@@ -733,10 +779,13 @@ function renderKeyBoxes(){
       box.onclick=event=>{event.stopPropagation();openKeyMenu(box);};
       const meter=head.querySelector('.meter-box');meter?head.insertBefore(box,meter):head.append(box);
     }
-    box.hidden=!key.label;
-    box.querySelector('b').textContent=key.label||'';
-    box.title=key.custom?'Key set by you. Click to change it.':key.fromModel?'Found by the analysis. Click to change it.':key.overruled?`Estimated from the chords (the analysis said ${key.overruled.label}, but many chords do not fit that key). Click to change it.`:'Estimated from the chords. Click to change it.';
-    box.setAttribute('aria-label','Key of this song: '+(key.label||'unknown')+'. Click to change it.');
+    // With the chart moved by the pitch control, the chip shows the key you're reading in, and says where the song really is.
+    const shown=shownKey()||key.label,moved=!!key.label&&shown!==key.label;
+    box.hidden=!key.label;box.classList.toggle('moved',moved);
+    box.querySelector('b').textContent=shown||'';
+    const source=key.custom?'Key set by you.':key.fromModel?'Found by the analysis.':key.overruled?`Estimated from the chords (the analysis said ${key.overruled.label}, but many chords do not fit that key).`:'Estimated from the chords.';
+    box.title=(moved?`Shown in ${shown} by the pitch control. The song itself is in ${key.label}. `:'')+source+' Click to change the song’s key.';
+    box.setAttribute('aria-label','Key of this song: '+(key.label||'unknown')+(moved?', shown in '+shown:'')+'. Click to change it.');
   }
 }
 // The key is the analysis model's own (its key.lab); a song without one gets a guess from its chords. The player's own choice is remembered
@@ -744,7 +793,7 @@ function renderKeyBoxes(){
 function songKey(){
   const found=model.modelKey?.song===model.song?model.modelKey.key:null;
   const chords=(currentContent()?.chords||chartRecord()?.doc.content?.chords||[]).filter(chord=>!isNoChordLabel(chord.label)),chosen=chooseKey(found,chords),estimate=chosen.key;
-  const saved=prefs.get('cb-key:'+model.song,''),custom=KEY_CHOICES.includes(saved);
+  const saved=savedKeyName(prefs.get('cb-key:'+model.song,'')),custom=KEY_CHOICES.includes(saved);
   return {estimate,custom,fromModel:chosen.source==='model',overruled:chosen.overruled,label:custom?saved:estimate?.label||null};
 }
 async function loadModelKey(detail,songId){
@@ -768,9 +817,48 @@ function openKeyMenu(chip){
   for(const name of KEY_CHOICES){const option=element('option','',name);option.value=name;select.append(option);}
   select.value=key.custom?key.label:'';
   select.onchange=()=>{prefs.set('cb-key:'+model.song,select.value);closeInfo();renderChips();renderChart();if(currentRecord()?.doc.kind==='abc')renderAbc();};
-  pop.replaceChildren(element('label','','Key of this song'),select);
+  const spelling=element('select');spelling.setAttribute('aria-label','Chord spelling for this song');
+  for(const [value,label] of [['key','Follow the key'],['sharps','Sharps'],['flats','Flats']]){const option=element('option','',label);option.value=value;spelling.append(option);}
+  spelling.value=prefs.get('cb-spelling:'+model.song,'key');
+  spelling.title='How chord names are written: Follow the key uses sharps or flats as the key does. Sharps or Flats writes every chord that way (F# or Gb). Your saved chords don’t change, only how they’re written.';
+  spelling.onchange=()=>{setSongSpelling(spelling.value);closeInfo();};
+  const hint=element('small','key-pop-hint','Only how chords are written changes. Your saved chords stay as they are.');
+  pop.replaceChildren(element('label','','Key of this song'),select,element('label','','Chord spelling'),spelling,hint);
   placePop(pop,chip);select.focus();
 }
+// ---- the song's chord spelling (spelling.js): Follow the key, Sharps or Flats. Per song, so it travels in the song's zip. ----
+function setSongSpelling(value){
+  if(!model.song||!SPELLINGS.includes(value))return;
+  prefs.set('cb-spelling:'+model.song,value);renderPitchedViews();publishVisualScene();
+}
+const ASK_SPELLING='cb-ask-spelling',SPELLING_ANSWER='cb-spelling-answer';
+// A chord just typed with a sharp in a song shown with flats (or the reverse): offer to write the whole song that way. Not asked when the
+// song already has a chosen spelling, for natural notes, when the song already writes it that way, or for deliberate spellings (Fb, E#,
+// Cb, B#, double sharps and flats). The chord stays as typed either way. "Don't ask again" remembers the answer; Settings undoes it.
+async function offerSpelling(tokens){
+  if(!model.song||spellingPreference()!=='key')return;
+  const shown=shownSpelling();if(!shown)return;
+  const kinds=new Set();
+  for(const token of tokens||[])for(const note of String(token).match(/(?:^|\/)[A-G](#{1,2}|b{1,2})?/g)||[]){
+    const n=note.replace('/',''),mark=n.slice(1);
+    if(mark.length!==1||/^(Fb|E#|Cb|B#)$/.test(n))continue;
+    kinds.add(mark==='#'?'sharps':'flats');
+  }
+  const wanted=[...kinds].find(k=>k!==shown);if(!wanted||kinds.size>1)return;
+  if(prefs.get(ASK_SPELLING,'1')==='0'){if(prefs.get(SPELLING_ANSWER,'')==='use')setSongSpelling(wanted);return;}
+  const typed=tokens.find(t=>/[#b]/.test(String(t).slice(1)))||tokens[0];
+  const other=wanted==='flats'?'flats':'sharps',keep=shown==='flats'?'flats':'sharps';
+  let quiet=false;
+  const answer=await askChoice({title:`Spell the whole song with ${other}?`,
+    message:[`You typed ${typed}. Show every chord in this song with ${other}, so the others match?`,'Your saved chords don’t change, only how they’re written. The key chip’s menu can change it back.'],
+    checkbox:{label:'Don’t ask again',hint:'Remembers the button you choose. Settings can turn the question back on.',checked:false,onChange:value=>{quiet=value;}},
+    cancel:`Keep ${keep}`,choices:[{id:'use',label:`Use ${other}`,kind:'primary'}]});
+  if(quiet){prefs.set(ASK_SPELLING,'0');prefs.set(SPELLING_ANSWER,answer==='use'?'use':'keep');paintSpellingAsk();}
+  if(answer==='use')setSongSpelling(wanted);
+}
+function paintSpellingAsk(){$('spelling-ask')?.setAttribute('aria-pressed',String(prefs.get(ASK_SPELLING,'1')!=='0'));}
+$('spelling-ask')?.addEventListener('click',()=>{const on=prefs.get(ASK_SPELLING,'1')!=='0';prefs.set(ASK_SPELLING,on?'0':'1');if(!on)prefs.set(SPELLING_ANSWER,'');paintSpellingAsk();});
+paintSpellingAsk();prefs.onLoad(paintSpellingAsk);
 // The line under a song's name: the artist (read from the recording's tags when the song was imported, and yours to change) then the details.
 function setSub(node,details){
   const song=currentSong();let artist=node.querySelector('.jartist');
@@ -836,7 +924,7 @@ async function selectSong(id,{forShow=false}={}){
   model.view='song';renderView();
   playbackGate.block('Checking analysis.');player.setWaveformRun(null);practiceViewport=null;practiceData=null;player.setPractice({music:{measures:[]},projection:null,viewport:null});separationDetail=null;model.readinessChecked=false;model.song=id;model.detail=null;model.document=null;
   clearError();renderLibrary();renderControls();renderDocument();renderLock();
-  await transport.loadSong({songId:id,originalUrl:mediaUrl('/api/audio/'+encodeURIComponent(id)),separation:null});player.setNow({chord:'—',next:''});await refreshSeparation();if(request!==model.loadingSong)return;
+  await transport.loadSong({songId:id,originalUrl:mediaUrl('/api/audio/'+encodeURIComponent(id)),separation:null});pitchState.setSong(id);applyPitch();player.setNow({chord:'—',next:''});await refreshSeparation();if(request!==model.loadingSong)return;
   try{const detail=await api(`/api/song/${encodeURIComponent(id)}`);if(request!==model.loadingSong)return;model.detail=detail;renderTabs();loadMelody(detail,id);refreshUserMidi(id);loadModelKey(detail,id);if(shownDocs(detail).length)await selectDocument(showDocFor(detail)?.id||shownDocs(detail)[0].id);else renderDocument();showSongError(detail.song,true);}catch(error){if(request===model.loadingSong)showError(error);}
 }
 // The vocal melody (a MIDI output of the analysis): its notes are drawn faintly behind the Time tool's bars, and their starts are
@@ -885,7 +973,7 @@ function renderTabs(){
   for(const [kind,label] of TAB_KINDS){
     const list=docs.filter(doc=>doc.kind===kind);if(!list.length)continue;
     const target=selected?.kind===kind?selected:list.find(doc=>doc.kept)||list.find(doc=>doc.name==='transcription.mid')||list.find(doc=>/melody\.mid$/.test(doc.name))||list[0];
-    const button=element('button',`document-tab${selected?.kind===kind?' selected':''}`,label+(kind==='chart'&&target.kept?' · kept edits':''));
+    const button=element('button',`document-tab${selected?.kind===kind?' selected':''}`,label);   // the chart edited before a newer transcription is chosen without saying so: that was decided when it ran
     button.role='tab';button.setAttribute('aria-selected',selected?.kind===kind?'true':'false');button.title=TAB_TIPS[kind]||target.name;button.onclick=()=>{performanceApp.leavePrepare();performanceApp.leavePerform();selectDocument(target.id);};tabs.append(button);
     // Perform comes after the lead sheet: where a song is planned for the stage, and its set list is run
     if(kind==='abc'||(kind==='chart'&&!docs.some(doc=>doc.kind==='abc'))){
@@ -955,7 +1043,7 @@ function renderAbc(){
   setSub($('score-sub'),[record.doc.music?.timing?.bpm?`♩ = ${Math.round(record.doc.music.timing.bpm)}`:null,'arranged in Chord Buddy']);
   paintMeter($('score-meter'));
   setKeySpelling(songKey().label);
-  leadView=renderLeadSheet($('score'),{key:model.document,musicKey:songKey().label,content:{...content,abc:spellAbc(content.abc,content.chords)},music:record.doc.music,getMeter:()=>songMeter().meter,title:song?.title,artist:song?.artist,settings:model.state.settings,
+  leadView=renderLeadSheet($('score'),{key:model.document,musicKey:songKey().label,transpose:chartPitchNow().offset,pitchSuffix:pitchSuffix(chartPitchNow().offset,shownKey()),content:{...content,abc:spellAbc(content.abc,content.chords)},music:record.doc.music,getMeter:()=>songMeter().meter,title:song?.title,artist:song?.artist,settings:model.state.settings,
     dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),frozen:readFrozen(song?.id),performing:()=>performanceApp.page==='perform',
     onSeek:seconds=>transport.seek(seconds),onExternal:sendToExternalEditor,
     onFreeze:snapshot=>{writeFrozen(song.id,snapshot);renderAbc();},onUnfreeze:()=>{writeFrozen(song.id,null);renderAbc();},
@@ -983,6 +1071,9 @@ async function commitChartFromLeadSheet(next,label,expected){
 // A chord typed on the lead sheet goes to the chord chart, where the lead sheet's chords come from. (A frozen copy is never edited; a lead
 // sheet whose chart has not loaded yet saves it to itself and confirms it, as the old Apply button did.)
 async function commitChordLabel(id,text){
+  const asTyped=String(text||'').trim();
+  text=unspellChord(asTyped);   // typed in the key shown: saved in the song's own key
+  queueMicrotask(()=>offerSpelling([asTyped]).catch(showError));
   const chart=chartRecord(),typed=String(text||'').trim();
   if(chart&&!readFrozen(currentSong()?.id)){
     const content=chart.draft||chart.doc.content,old=content.chords.find(c=>c.id===id);
@@ -1017,7 +1108,7 @@ function renderMidi(){
   const bars=chart?effectiveMeasures(chart.doc.music,chart.doc.content?.layout).map(m=>({start:m.start,end:m.end,number:m.number-offset,beats:m.beats||[]})):[];
   if(document.activeElement!==$('midi-title'))$('midi-title').textContent=song?.title||'';
   renderKeyBoxes();
-  midiRoll=renderMidiRoll($('roll'),midiView,{songId:song?.id,content,bars,sections:chart?.doc.content?.sections||[],seconds:transport.getSnapshot().seconds,dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),
+  midiRoll=renderMidiRoll($('roll'),midiView,{songId:song?.id,content:shiftMidiContent(content,chartOffsetAt),bars,sections:chart?.doc.content?.sections||[],seconds:transport.getSnapshot().seconds,dock:$('tool-rail'),note:$('tool-note'),status:$('tool-status'),
     onSeek:seconds=>transport.seek(seconds),onExternal:()=>api('/api/midi/external',{song_id:model.song,document_id:record.doc.id}),onError:showError,
     onYourMidi:()=>midiImport.openManager(model.song)});
   setSub($('midi-sub'),[]);
@@ -1126,7 +1217,7 @@ $('banner-export').onclick=exportChartPdf;$('banner-reanalyze').onclick=()=>$('t
 // No song open: the views are emptied and the player lets go of the recording and stems.
 async function leaveSong(){
  model.song=null;model.detail=null;model.document=null;practiceData=null;practiceViewport=null;player.setWaveformRun(null);player.setPractice({music:{measures:[]},projection:null,viewport:null});
- await transport.loadSong({songId:null});
+ await transport.loadSong({songId:null});pitchState.setSong(null);
 }
 trashFlow.wire();     // Delete song and the Trash (trash-flow.js)
 lockPanel.wire();     // the locked panel's button (lock-panel.js)

@@ -116,3 +116,95 @@ class _Sink:
 
     def flush(self):
         pass
+
+
+# ---- Pitch control's exports ----
+# The pitch you hear is moved by Signalsmith Stretch, which runs in the browser (the same engine as playback, so an export sounds like
+# what you heard). So a pitched export takes three steps: the page reads the plain mix (mix_pcm, the same weighted sum as an MP3 mix),
+# moves its pitch, and uploads the result as 16-bit PCM (PitchRenders.put), which is encoded to MP3 here; then a normal download link
+# fetches the MP3, or for stems a zip of one MP3 per stem (PitchRenders.send). Finished or abandoned renders are removed.
+
+def mix_pcm_size(manifest):
+    """Bytes of mix_blocks for the whole song: float32 stereo."""
+    return int(manifest['frames']) * 8
+
+
+def encode_pcm(project, pcm, out_path, bitrate='192k'):
+    """16-bit little-endian stereo PCM at 44.1 kHz -> an MP3 file."""
+    ffmpeg = Path(project) / 'tools' / 'ffmpeg.exe'
+    if not ffmpeg.is_file():
+        raise OSError('The audio encoder (tools/ffmpeg.exe) is missing')
+    if not pcm or len(pcm) % 4:
+        raise ValueError('The rendered audio is empty or cut short')
+    argv = [str(ffmpeg), '-nostdin', '-v', 'error', '-y', '-f', 's16le', '-ar', str(SAMPLE_RATE), '-ac', '2', '-i', 'pipe:0',
+            '-c:a', 'libmp3lame', '-b:a', bitrate, '-id3v2_version', '3', '-f', 'mp3', str(out_path)]
+    flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    result = subprocess.run(argv, input=pcm, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, creationflags=flags, timeout=600)
+    if result.returncode:
+        Path(out_path).unlink(missing_ok=True)
+        raise OSError('The audio encoder failed')
+
+
+class PitchRenders:
+    """Encoded parts of pitched exports, kept in a folder of their own (never the song library) until they're downloaded."""
+    PART = ('mix',) + tuple(STEM_FILE_NAMES)
+    MAX_AGE = 3600
+
+    def __init__(self, project, folder):
+        self.project = Path(project)
+        self.folder = Path(folder)
+        self.lock = threading.Lock()
+
+    def _job(self, job):
+        if not isinstance(job, str) or not job.isalnum() or not 8 <= len(job) <= 40:
+            raise ValueError('Unknown export')
+        return self.folder / job
+
+    def _sweep(self):
+        import time, shutil
+        if not self.folder.is_dir():
+            return
+        for old in self.folder.iterdir():
+            try:
+                if time.time() - old.stat().st_mtime > self.MAX_AGE:
+                    shutil.rmtree(old, ignore_errors=True)
+            except OSError:
+                pass
+
+    def put(self, job, part, pcm):
+        if part not in self.PART:
+            raise ValueError('Unknown part of an export')
+        with self.lock:
+            self._sweep()
+            folder = self._job(job)
+            folder.mkdir(parents=True, exist_ok=True)
+        encode_pcm(self.project, pcm, folder / f'{part}.mp3')
+        return {'ok': True}
+
+    def send(self, job, kind, title, attachment, write):
+        """Stream the finished export: kind 'mix' -> one MP3, 'stems' -> a zip of one MP3 per stem. Then the parts are removed."""
+        import shutil, zipfile
+        folder = self._job(job)
+        try:
+            if kind == 'mix':
+                path = folder / 'mix.mp3'
+                if not path.is_file():
+                    raise KeyError('That export is not ready')
+                attachment('audio/mpeg', title + '.mp3', path.stat().st_size)
+                with open(path, 'rb') as source:
+                    while block := source.read(1 << 20):
+                        write(block)
+                return
+            if kind != 'stems':
+                raise ValueError('Unknown export')
+            parts = [role for role in STEM_FILE_NAMES if (folder / f'{role}.mp3').is_file()]
+            if not parts:
+                raise KeyError('That export is not ready')
+            attachment('application/zip', title + ' - stems.zip')
+            with zipfile.ZipFile(_Sink(write), 'w', zipfile.ZIP_STORED) as archive:
+                for role in parts:
+                    with archive.open(f'{title}_{STEM_FILE_NAMES[role]}.mp3', 'w', force_zip64=True) as member, open(folder / f'{role}.mp3', 'rb') as source:
+                        while block := source.read(1 << 20):
+                            member.write(block)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)

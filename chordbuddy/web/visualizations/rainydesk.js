@@ -377,7 +377,7 @@ export default {
       if(line&&words.length){
         const key=line.index+'|'+line.text+'|'+Math.round(box.w)+'|'+Math.round(fs0);
         if(lyr.key!==key){
-          const toks=words.map((wd,i)=>{const s=String(wd.text||'');const join=s.length>1&&s.endsWith('-');return {i,text:join?s.slice(0,-1):s,join};});
+          const toks=words.map((wd,i)=>{const s=String(wd.text||'');const join=!!wd.joined;return {i,text:s,join};});
           const groups=[];let g=[];toks.forEach(tk=>{g.push(tk);if(!tk.join){groups.push(g);g=[];}});if(g.length)groups.push(g);
           let fs=fs0,rows;
           for(let tries=0;tries<8;tries++){c.font=`700 ${fs}px ${TYPE}`;const sp=c.measureText(' ').width;rows=[{w:0,t:[]}];

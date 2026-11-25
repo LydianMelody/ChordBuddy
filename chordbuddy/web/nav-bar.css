@@ -31,18 +31,18 @@
 /* lane */
 .nav-center{display:flex;flex-direction:column;gap:8px;min-width:0}
 .practice-timeline{display:flex;flex-direction:column;gap:8px;min-width:0;padding-top:0}
-.practice-scrubber{position:relative;height:104px;border:var(--bd) solid var(--k-edge);border-radius:var(--k-r-l);background:var(--desk);overflow:hidden;touch-action:none;user-select:none}
-.practice-current-band{position:absolute;top:62px;bottom:0;background:color-mix(in srgb,var(--hl) 40%,transparent);border-left:2px solid var(--k-edge);border-right:2px solid var(--k-edge);display:none;pointer-events:none}
-.practice-section-track{position:absolute;left:0;right:0;top:26px;height:30px}
-.practice-section-block{position:absolute;top:0;height:28px;padding:0 2px;background:none;border:0;min-width:0}
-.practice-section-block{display:block;text-align:center;font:800 12px/24px var(--g);font-stretch:88%;text-transform:uppercase;letter-spacing:.03em;color:var(--ink);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;border:2px solid var(--k-edge);border-radius:var(--k-r-m);background:var(--tint);box-sizing:border-box;margin:0 1px}
+.practice-scrubber{position:relative;height:74px;border:var(--bd) solid var(--k-edge);border-radius:var(--k-r-l);background:var(--desk);overflow:hidden;touch-action:none;user-select:none}
+.practice-current-band{position:absolute;top:22px;bottom:0;background:color-mix(in srgb,var(--hl) 40%,transparent);border-left:2px solid var(--k-edge);border-right:2px solid var(--k-edge);display:none;pointer-events:none}
+.practice-section-track{position:absolute;left:0;right:0;top:0;height:22px;border-bottom:2px solid var(--k-edge);box-sizing:border-box}
+.practice-section-block{position:absolute;top:0;height:20px;padding:0 2px;background:none;border:0;min-width:0}
+.practice-section-block{display:block;text-align:center;font:800 12px/20px var(--g);font-stretch:88%;text-transform:uppercase;letter-spacing:.03em;color:var(--ink);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;border:0;border-right:2px solid var(--k-edge);border-radius:0;background:var(--tint);box-sizing:border-box;margin:0}
+.practice-section-block:focus-visible{outline:3px solid var(--a2);outline-offset:-3px}
 .practice-section-block[data-name="verse"]{background:var(--a3);color:var(--onA3)}
 .practice-section-block[data-name="chorus"]{background:var(--a1);color:var(--onA1)}
 .practice-section-block[data-name="interlude"],.practice-section-block[data-name="bridge"]{background:var(--a2);color:var(--onA2)}
 .practice-section-block:not(.current){filter:saturate(.55) brightness(1.06)}
-.practice-section-block.current{box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);transform:translateY(-2px)}
 .practice-section-block:disabled{opacity:1;cursor:pointer}
-.practice-waveform{position:absolute;left:0;right:0;top:62px;bottom:0;overflow:hidden}
+.practice-waveform{position:absolute;left:0;right:0;top:22px;bottom:0;overflow:hidden}
 .practice-waveform-canvas{position:absolute;inset:0;display:block;width:100%;height:100%}
 .practice-waveform-canvas.played{pointer-events:none}
 .practice-waveform-notice{position:absolute;inset:0;display:grid;place-items:center;font:400 11.5px var(--m);color:var(--soft);pointer-events:none}
@@ -51,12 +51,10 @@
 .practice-waveform:focus-within{outline:3px solid var(--a2);outline-offset:-3px}
 .practice-playhead{position:absolute;top:0;bottom:0;width:3px;margin-left:-1.5px;background:var(--gold);z-index:4;pointer-events:none}
 .practice-playhead[hidden]{display:none}
-.practice-playhead-grip{position:absolute;top:22px;left:50%;width:16px;height:16px;transform:translateX(-50%);border-radius:50%;background:var(--gold);border:var(--k-bd) solid var(--k-edge);pointer-events:auto;cursor:grab;box-sizing:border-box}
-.practice-scrubber .practice-position{position:absolute;top:3px;transform:translateX(-50%);white-space:nowrap;background:var(--page);border:2px solid var(--k-edge);border-radius:var(--k-r-m);padding:1px 7px;font:700 11px var(--m);z-index:5;pointer-events:none}
-.practice-position.outside{color:var(--soft);background:var(--hl)}
+.practice-playhead-grip{position:absolute;top:0;left:50%;width:16px;height:16px;transform:translateX(-50%);border-radius:50%;background:var(--gold);border:var(--k-bd) solid var(--k-edge);pointer-events:auto;cursor:grab;box-sizing:border-box}
 
 /* loop range */
-.practice-loop{position:absolute;top:24px;bottom:0;display:none;z-index:3;background:color-mix(in srgb,var(--violet) 22%,transparent);border-left:3px solid var(--violet);border-right:3px solid var(--violet);pointer-events:none}
+.practice-loop{position:absolute;top:0;bottom:0;display:none;z-index:3;background:color-mix(in srgb,var(--violet) 22%,transparent);border-left:3px solid var(--violet);border-right:3px solid var(--violet);pointer-events:none}
 .practice-loop.show{display:block}
 .practice-loop.draft{background:color-mix(in srgb,var(--violet) 30%,transparent);border-style:dashed}
 .practice-loop-handle{position:absolute;top:-2px;width:14px;height:20px;background:var(--violet);border:2px solid var(--k-edge);border-radius:var(--k-r-s);cursor:ew-resize;pointer-events:auto;box-sizing:border-box}
@@ -73,24 +71,54 @@
 .practice-overview-loop{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--violet) 45%,transparent);display:none}
 .practice-ov-head{position:absolute;top:0;bottom:0;width:2px;background:var(--gold)}
 
-/* clock, pass, speed */
+/* clock, and the Tempo / Pitch table */
 .nav-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
-.clock{font:700 22px var(--m);letter-spacing:-.02em;white-space:nowrap}
-.pass{font:700 11px var(--m);color:var(--a1t);min-height:15px}
-.speed{display:flex;align-items:center;border:var(--bd) solid var(--k-edge);border-radius:999px;overflow:hidden;background:var(--page);box-shadow:var(--k-sh) var(--k-sh) 0 var(--k-shade);height:42px}
-.speed button{width:30px;height:100%;padding:0;display:grid;place-items:center;font:800 18px/1 var(--g);background:none;min-width:0;min-height:0}
-.speed button:hover:not(:disabled){background:var(--hl)}
-.speed button:disabled{opacity:.4;cursor:default}
-.speed>span{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:46px;padding:0 6px;font:700 12px var(--m);border-left:2px solid var(--k-edge);border-right:2px solid var(--k-edge);height:100%}
-.speed>span small{font:800 9px/1 var(--g);letter-spacing:.1em;text-transform:uppercase;color:var(--soft)}
-.speed.slowed>span small{color:inherit}
-.speed.slowed>span{background:var(--hl)}
-/* the tempo you're hearing, under the speed: a small button that turns into a box to type a tempo in */
-.speed{height:50px}
-.speed>span{gap:1px;min-width:54px}
-.speed .tempo-read{width:auto;height:auto;padding:1px 4px;border-radius:var(--k-r-m);font:700 11px/1.1 var(--m);text-decoration:underline dotted;text-underline-offset:2px}
-.speed .tempo-read:disabled{text-decoration:none}
-.speed .tempo-entry{width:48px;height:18px;padding:0 2px;border:2px solid var(--k-edge);border-radius:var(--k-r-s);background:var(--page);color:var(--ink);font:700 11px var(--m);text-align:center}
+.clock{font:700 22px/1.15 var(--m);letter-spacing:-.02em;white-space:nowrap}
+/* Tempo and pitch: one small table with a row each (name, −, value, +). Lines between every cell show each button's edge. Under it,
+   "Pitch affects:" with two tick boxes, Audio and Charts. A changed value shows on the kit's yellow. The table and its line stay no taller
+   than the timeline beside them, so the bar keeps its height. */
+.tune{position:relative;display:flex;flex-direction:column;gap:6px;align-self:stretch}
+.tune-panel{border:var(--bd) solid var(--k-edge);border-radius:var(--k-r-l);background:var(--page);overflow:hidden}
+.tune-row{display:grid;grid-template-columns:50px 26px minmax(0,1fr) 26px;height:32px}
+.tune-row+.tune-row{border-top:2px solid var(--k-edge)}
+.tune-row>*+*{border-left:2px solid var(--k-edge)}
+.tune-name{display:flex;align-items:center;justify-content:center;min-width:0;font:700 9px var(--m);letter-spacing:.08em;text-transform:uppercase;color:var(--ink)}
+.tune-row .tune-step{width:auto;height:100%;padding:0;display:grid;place-items:center;border-radius:0;font:800 16px/1 var(--g);background:none;min-width:0;min-height:0;transition:background-color .12s}
+.tune-row .tune-step:hover:not(:disabled){background:var(--k-sel-bg);color:var(--k-sel-fg)}
+.tune-row .tune-step:active:not(:disabled){transform:translateY(2px)}
+.tune-row .tune-step:disabled{opacity:.4;cursor:default}
+.tune-read{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;padding:0 2px;font:700 12px/1.1 var(--m);transition:opacity .2s}
+.tune-row.changed .tune-read,.speed.slowed .tune-read{background:var(--k-sel-bg);color:var(--k-sel-fg)}
+.tune-row.dim .tune-read{opacity:.55}
+/* the tempo you're hearing under the speed, and the key under the pitch: a small button that turns into a box to type in */
+.tune-read .tempo-read{width:auto;height:auto;min-width:0;min-height:0;padding:0 4px;border-radius:var(--k-r-m);background:none;font:700 10.5px/1.15 var(--m);text-decoration:underline dotted;text-underline-offset:2px;color:inherit}
+.tune-read .tempo-read:disabled{text-decoration:none}
+.tune-read .tempo-entry{width:44px;height:15px;padding:0 2px;border:2px solid var(--k-edge);border-radius:var(--k-r-s);background:var(--page);color:var(--ink);font:700 11px var(--m);text-align:center}
+.tune-read .tempo-entry.bad{border-color:var(--a1);animation:tune-shake .3s}
+/* the pitch number rolls up or down like an odometer when it changes */
+.tune-value{display:block;height:14px;overflow:hidden;line-height:14px}
+.tune-value>span{display:block}
+.tune-value.up>span{animation:tune-roll-up .22s ease-out}
+.tune-value.down>span{animation:tune-roll-down .22s ease-out}
+.tune-row.waiting .tune-value{animation:tune-pulse 1s ease-in-out infinite alternate}
+/* Pitch affects: Audio and Charts, two tick boxes (the kit's, a size smaller to fit the line) */
+.tune-affects{display:flex;align-items:center;justify-content:space-between;gap:4px;min-height:22px;transition:opacity .2s}
+.tune-affects-name{width:min-content;font:700 9px/1.15 var(--m);letter-spacing:.04em;text-transform:uppercase;color:var(--ink)}
+.tune-tick{display:inline-flex;align-items:center;gap:3px;font:700 10px var(--m);white-space:nowrap;cursor:pointer}
+.tune-tick input[type=checkbox]{width:15px;height:15px;min-width:15px;min-height:15px;border-width:2px;border-radius:var(--k-r-s)}
+.tune-tick input[type=checkbox]::after{width:7px;height:3.5px;border-width:0 0 2.5px 2.5px}
+.tune-affects.off .tune-tick{cursor:default}
+/* coming round the corner (+6 to -5, or -6 to +5): the number wobbles and a badge pops up over the pitch row */
+.tune-badge{position:absolute;top:24px;left:50%;z-index:3;transform:translateX(-50%) scale(0);padding:3px 7px;border:2px solid var(--k-edge);border-radius:999px;background:var(--a2);color:var(--onA2);font:800 8px/1 var(--g);letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;pointer-events:none}
+.tune-row.wrapped .tune-read{animation:tune-wobble .55s}
+.tune:has(.tune-row.wrapped) .tune-badge{animation:tune-badge 1.1s}
+@keyframes tune-roll-up{from{transform:translateY(100%);opacity:0}}
+@keyframes tune-roll-down{from{transform:translateY(-100%);opacity:0}}
+@keyframes tune-shake{25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+@keyframes tune-pulse{to{opacity:.35}}
+@keyframes tune-wobble{25%{transform:rotate(-3deg) scale(1.06)}60%{transform:rotate(2deg)}}
+@keyframes tune-badge{15%{transform:translateX(-50%) scale(1.1)}25%,75%{transform:translateX(-50%) scale(1)}100%{transform:translateX(-50%) scale(0)}}
+@media (prefers-reduced-motion:reduce){.tune-value>span,.tune-row.wrapped .tune-read,.tune-row.waiting .tune-value,.tune-read .tempo-entry.bad{animation:none!important}.tune-row .tune-step,.tune-read,.tune-affects{transition:none}.tune:has(.tune-row.wrapped) .tune-badge{animation:none;transform:translateX(-50%) scale(1)}}
 
 /* locked: dim everything but the pill */
 .nav-lock{position:absolute;top:-13px;left:0;right:0;margin:0;display:flex;justify-content:center;pointer-events:none;width:auto;z-index:6}
@@ -100,4 +128,4 @@
 .player:has(.nav-lock:not(.hidden)) .nav-grid{opacity:.45;pointer-events:none;filter:grayscale(.6)}
 
 @media (max-width:1100px){.nav-grid{grid-template-columns:210px minmax(0,1fr) 140px;gap:12px}}
-@media (max-width:900px){.player{margin:0 -14px;padding:10px 14px}.nav-grid{grid-template-columns:1fr}.nav-right{flex-direction:row;align-items:center;justify-content:space-between}}
+@media (max-width:900px){.player{margin:0 -14px;padding:10px 14px}.nav-grid{grid-template-columns:1fr}.nav-right{flex-direction:row;align-items:center;justify-content:space-between}.tune{flex-direction:row;align-items:center;align-self:auto;gap:12px}.tune-panel{width:190px}}   /* the bar is one column here, with room for speed and pitch side by side */

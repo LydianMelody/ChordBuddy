@@ -6,9 +6,9 @@ export const TOOLS={
   play:{label:'Play',key:'V',title:'Play from a click',
     body:'Click any chord, word, bar number or section name to play from there. Hold Ctrl to edit for one click instead.'},
   edit:{label:'Edit',key:'E',title:'Edit the chart',
-    body:'Click a chord row to retype its chords, under it to type the lyrics, or a section name to rename it. The strip above a line starts a new section there; a barline joins two bars. Hold Ctrl to play from a click instead.'},
+    body:'Click a chord row to retype its chords, under it to type the lyrics, or a section name to rename it. The strip above a line starts a new section there; a barline joins two bars, and a repeat count like (×4) chooses how that repeat is grouped. Drag the thick barline at the very end back to leave out the last bars. Hold Ctrl to play from a click instead.'},
   timing:{label:'Timing',key:'T',title:'Line lyrics and chords up in time',
-    body:'Draws the chart true to time, so you can drag lyrics and chords onto the beat and fold repeats. A click still plays from there. Holding Shift shows this until you let go.'},
+    body:'Draws the chart true to time, so you can drag lyrics and chords onto the beat and fold repeats. The top edge of a word cuts it into syllables, so each one can go on its own beat (a small dot marks the cut; click it to join them again). A click still plays from there. Holding Shift shows this until you let go.'},
   cue:{label:'Cue',key:'Q',title:'Write a cue',
     body:'Click a chord to put a short note above it for that moment, like “pick scratch”, “count-in” or “feedback”. The chord stays as it is. Click a cue to retype it; empty it to remove it.'},
 };
@@ -31,8 +31,9 @@ export const TOOL_ICONS={
   cut:`<path d="M2.5 4.2h4M10 4.2h4M18 4.2h4M25.5 4.2h4" stroke-width="1.8" opacity=".7"/><circle cx="8.6" cy="24" r="3.9" ${HL}/><circle cx="23.4" cy="24" r="3.9" ${HL}/><path d="M11.4 21L24.2 7.2"/><path d="M20.6 21L7.8 7.2"/><circle cx="16" cy="14.1" r="1.4" ${INK}/>`,
   // two section cards pressing together
   glue:`<rect x="4.5" y="2.8" width="23" height="9" rx="2.6" ${HL}/><rect x="4.5" y="20.2" width="23" height="9" rx="2.6" ${PG}/><path d="M9 7.3h8M9 24.7h10" stroke-width="1.8"/><path d="M12 13.8l4 2.7 4-2.7M12 18.2l4-2.7 4 2.7" stroke-width="2"/>`,
-  // a repeat sign with a x2 bubble
-  repeat:`<path d="M20 4.5v23" stroke-width="4.4"/><path d="M13.6 4.5v23" stroke-width="1.8"/><circle cx="7.6" cy="12.6" r="2.1" ${INK}/><circle cx="7.6" cy="19.4" r="2.1" ${INK}/><rect x="21.6" y="1.8" width="9" height="8" rx="4" ${HL}/><text x="26.1" y="7.9" text-anchor="middle" font-size="6.6" font-weight="800" stroke="none" fill="currentColor" style="font-family:var(--g)">×2</text>`,
+  // a small pointer with a tall start-repeat sign |: right beside it, on a light card with no outline so it reads on a dark chart: the cursor over repeat counts and
+  // the bar numbers that pick a repeat (no count of its own: the page already says how many times)
+  repeat:`<path d="M2 2l12.3 6.1-5 1.6 3.3 5.9-2.8 1.5-3.3-5.9-3.7 3.5z" ${HL} stroke-width="1.8"/><rect x="15" y="3" width="15" height="27" rx="3" fill="var(--page)" stroke="none"/><path d="M18.9 6.5v20" stroke-width="3.6" stroke-linecap="butt"/><path d="M23.1 6.5v20" stroke-width="1.6" stroke-linecap="butt"/><circle cx="26.7" cy="13.2" r="1.8" ${INK}/><circle cx="26.7" cy="19.8" r="1.8" ${INK}/>`,
   // a word chip you slide along the beats
   words:`<rect x="6.8" y="6.5" width="18.4" height="10" rx="3.2" ${HL}/><path d="M10.6 11.6h5.4M18.6 11.6h2.2" stroke-width="1.8"/><path d="M2.4 11.5l3.2-2.8v5.6zM29.6 11.5l-3.2-2.8v5.6z" ${INK}/><path d="M7 21.5v6M13.2 21.5v6M19.4 21.5v6M25.6 21.5v6" stroke-width="1.8"/><path d="M13.2 21.5v6" stroke-width="3.2"/>`,
   // two barlines and a new one being added between them
@@ -47,14 +48,21 @@ TOOL_ICONS.play=TOOL_ICONS.navigate;TOOL_ICONS.edit=TOOL_ICONS.write;TOOL_ICONS.
 TOOL_ICONS['prepare-select']=TOOL_ICONS.navigate;TOOL_ICONS['prepare-action']=TOOL_ICONS.write;
 export const toolIcon=(name,cls='')=>`<svg class="tool-ic ${cls}" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${TOOL_ICONS[name]||''}</svg>`;
 
+// scissors pointing down, their tips at the bottom: a cursor that sits above the word it cuts (never on it). Open finger rings (yellow,
+// with a hole you can see through), handles crossing at a screw, two light blades whose flat inner edges meet down the middle, and a light edge around it all, like a system cursor's, so
+// its ink outline still shows on a dark chart (on a light one the edge melts into the page).
+export const SNIP=`<g transform="translate(16 31) scale(.9) translate(-16 -31)"><g stroke="var(--page)" stroke-linecap="round" stroke-linejoin="round"><path d="M15.7 15.2L14.9 30.6Q11.6 24.2 12.3 17.6Q13 15.6 15.7 15.2ZM16.3 15.2L17.1 30.6Q20.4 24.2 19.7 17.6Q19 15.6 16.3 15.2Z" stroke-width="4.5"/><path d="M13.6 16.8L20.2 9.8M18.4 16.8L11.8 9.8" stroke-width="5.6"/><circle cx="9.6" cy="6.4" r="7" stroke-width="1.6"/><circle cx="22.4" cy="6.4" r="7" stroke-width="1.6"/></g><path d="M13.6 16.8L20.2 9.8M18.4 16.8L11.8 9.8" stroke="currentColor" stroke-width="2.6"/><path d="M15.7 15.2L14.9 30.6Q11.6 24.2 12.3 17.6Q13 15.6 15.7 15.2Z" fill="var(--page)" stroke="currentColor" stroke-width="1.5"/><path d="M16.3 15.2L17.1 30.6Q20.4 24.2 19.7 17.6Q19 15.6 16.3 15.2Z" fill="var(--page)" stroke="currentColor" stroke-width="1.5"/><circle cx="16" cy="14.3" r="1.3" fill="currentColor" stroke="none"/><circle cx="9.6" cy="6.4" r="4.4" stroke="currentColor" stroke-width="4"/><circle cx="22.4" cy="6.4" r="4.4" stroke="currentColor" stroke-width="4"/><circle cx="9.6" cy="6.4" r="4.4" stroke="var(--hl)" stroke-width="1.6"/><circle cx="22.4" cy="6.4" r="4.4" stroke="var(--hl)" stroke-width="1.6"/></g>`;
+TOOL_ICONS.snip=SNIP;
+
 // Cursors: the tool's own icon, in plain ink and yellow so it reads on any theme.
-const CURSOR_HOT={cue:[10,24],navigate:[6,4],cut:[16,6],glue:[16,16],repeat:[16,16],barlines:[16,16],words:[16,16],write:[16,16]};
+const CURSOR_HOT={cue:[10,24],navigate:[6,4],cut:[16,6],snip:[16,30],glue:[16,16],repeat:[2,2],barlines:[16,16],words:[16,16],write:[16,16]};
 // `turn` rotates the icon (in degrees): the glue cards pressing side by side are joining bars, not sections.
-export function toolCursor(name,turn=0){
+// `hot` moves the point that clicks: [16,31] puts the whole drawing above the pointer, clear of the letters under it.
+export function toolCursor(name,turn=0,hot=null){
   const icon=(TOOL_ICONS[name]||'').replace(/var\(--hl\)/g,'#FFD84A').replace(/var\(--page\)/g,'#FBF7EE').replace(/currentColor/g,'#1A1C24').replace(/style="[^"]*"/g,'');
   const body=turn?`<g transform="rotate(${turn} 16 16)">${icon}</g>`:icon;
   const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="#1A1C24" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
-  const [x,y]=CURSOR_HOT[name]||[16,16];
+  const [x,y]=hot||CURSOR_HOT[name]||[16,16];
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${x} ${y}, crosshair`;
 }
 
@@ -70,4 +78,10 @@ export const TOOL_ART={
   cue:`<svg class="tip-art" viewBox="0 0 168 58" aria-hidden="true"><rect x="10" y="4" width="78" height="17" rx="6" class="a-fill-hl a-pop"/><text x="49" y="16" text-anchor="middle" class="a-word a-ink">pick scratch</text><path d="M84 7v11" class="a-caret"/><rect x="10" y="28" width="40" height="22" rx="6" class="a-box"/><text x="30" y="44" text-anchor="middle" class="a-chord">N</text><rect x="58" y="28" width="40" height="22" rx="6" class="a-box"/><text x="78" y="44" text-anchor="middle" class="a-chord">D#m</text><rect x="106" y="28" width="40" height="22" rx="6" class="a-box"/><text x="126" y="44" text-anchor="middle" class="a-chord">C#</text></svg>`,
   barlines:`<svg class="tip-art" viewBox="0 0 168 58" aria-hidden="true"><path d="M10 8v42M158 8v42" class="a-barline"/><path d="M84 8v42" class="a-barline a-new-line"/><circle cx="84" cy="29" r="9" class="a-fill-hl a-knob"/><path d="M84 24v10M79 29h10" class="a-plus"/><path d="M20 29h46M102 29h46" class="a-line"/></svg>`,
 };
+// a word cut into syllables: the scissors come down on "together", it parts into "to·" and "gether", and "gether" slides onto the next beat
+TOOL_ART.syllable=`<svg class="tip-art" viewBox="0 0 168 58" aria-hidden="true"><path d="M10 50h148" class="a-line"/><path d="M26 45v10M66 45v10M106 45v10M146 45v10" class="a-tick"/><g class="a-syl-whole"><rect x="22" y="22" width="60" height="17" rx="6" class="a-fill-hl"/><text x="42" y="34" text-anchor="end" class="a-word a-ink">to</text><text x="43" y="34" class="a-word a-ink">gether</text></g><g class="a-syl-split"><rect x="22" y="22" width="27" height="17" rx="6" class="a-fill-hl"/><text x="41" y="34" text-anchor="end" class="a-word a-ink">to</text><circle cx="44.5" cy="30.2" r="1.3" class="a-syl-dot"/><g class="a-syl-move"><rect x="52" y="22" width="40" height="17" rx="6" class="a-fill-hl"/><text x="56" y="34" class="a-word a-ink">gether</text></g></g><path d="M42.5 18v24" class="a-cutline a-syl-aim"/><g class="a-syl-snip"><g transform="translate(31.3 1.5) scale(.7)" fill="none" stroke-linecap="round" stroke-linejoin="round">${SNIP.replace(/currentColor/g,'#1A1C24')}</g></g><circle cx="106" cy="50" r="4.2" class="a-pin a-syl-pin"/></svg>`;
+// joining it again: the dot is clicked, "gether" slides back beside "to·" and they become one word
+TOOL_ART.unsplit=`<svg class="tip-art" viewBox="0 0 168 58" aria-hidden="true"><path d="M10 50h148" class="a-line"/><path d="M26 45v10M66 45v10M106 45v10M146 45v10" class="a-tick"/><g class="a-uns-split"><rect x="22" y="22" width="27" height="17" rx="6" class="a-fill-hl"/><text x="41" y="34" text-anchor="end" class="a-word a-ink">to</text><circle cx="44.5" cy="30.2" r="1.3" class="a-syl-dot"/><g class="a-uns-move"><rect x="52" y="22" width="40" height="17" rx="6" class="a-fill-hl"/><text x="56" y="34" class="a-word a-ink">gether</text></g></g><g class="a-uns-whole"><rect x="22" y="22" width="60" height="17" rx="6" class="a-fill-hl"/><text x="42" y="34" text-anchor="end" class="a-word a-ink">to</text><text x="43" y="34" class="a-word a-ink">gether</text></g><circle cx="44.5" cy="30.2" r="4" class="a-uns-ring"/></svg>`;
+// the end of the chart: its final barline slides back two bars, and the bars after it fade out (the recording still plays them)
+TOOL_ART.end=`<svg class="tip-art" viewBox="0 0 168 58" aria-hidden="true"><g class="a-bars">${bars(8,20,3,26,17,4)}</g><g class="a-bars a-end-fade">${bars(98,20,2,26,17,4)}</g><g class="a-end-cap"><path d="M157 14v29" class="a-end-thin"/><path d="M162 14v29" class="a-end-thick"/></g></svg>`;
 TOOL_ART.play=TOOL_ART.navigate;TOOL_ART.edit=TOOL_ART.write;TOOL_ART.timing=TOOL_ART.words;

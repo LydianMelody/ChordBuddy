@@ -1,6 +1,7 @@
 // The always-visible mixer rack: one vertical channel strip per practice stem, presets, and Master.
 // The audio engine owns the mix (Transport.setMix); this module is only the control surface.
 import {icon} from './icons.js';
+import {exportPitched} from './pitch-export.js';
 
 // Track order inside the PCM mixer (mix.gains/mutes/solos are indexed this way). Never reorder.
 export const STEM_INDEX={bass:0,drums:1,other:2,vocals:3,piano:4,lead:5,rhythm:6};
@@ -118,18 +119,35 @@ export function mountMixer(root,{transport,onError=()=>{},exportTarget=()=>null,
     for(const button of presetButtons){button.classList.toggle('on',button.dataset.preset===current);button.disabled=!ready;}
     if(document.activeElement!==master)master.value=Math.round(mix.master*100);
     master.disabled=!ready;masterOut.textContent=Math.round(mix.master*100);
-    const target=ready?exportTarget():null;
-    if(exportLink){
+    const target=ready?exportTarget():null,moved=target?.pitch?.semitones?target.pitch.suffix:'';
+    if(exportLink&&!exportLink.dataset.busy){
       exportLink.classList.toggle('disabled',!target);
-      if(target){exportLink.href=target.url(mixExportQuery(mix),`${target.title} - ${mixLabel(mix)}`);exportLink.title=`Save this mix (${mixLabel(mix)}) as an MP3`;}
+      if(target){exportLink.href=target.url(mixExportQuery(mix),`${target.title} - ${mixLabel(mix)}`);exportLink.title=`Save this mix (${mixLabel(mix)}) as an MP3`+(moved?`, at the pitch you hear${moved}`:'');}
       else{exportLink.removeAttribute('href');exportLink.title='Available when the stems are ready';}
     }
-    if(stemsLink){
+    if(stemsLink&&!stemsLink.dataset.busy){
       stemsLink.classList.toggle('disabled',!target);
-      if(target){stemsLink.href=target.stemsUrl(target.title);stemsLink.title='Save every stem as its own MP3, each at full level (the faders are not used)';}
+      if(target){stemsLink.href=target.stemsUrl(target.title);stemsLink.title='Save every stem as its own MP3, each at full level (the faders are not used)'+(moved?`, at the pitch you hear${moved}`:'');}
       else{stemsLink.removeAttribute('href');stemsLink.title='Available when the stems are ready';}
     }
   }
+  // With the pitch you hear moved (Sound on), the exports are made at that pitch: rendered here by the same engine as playback, so they
+  // take a little while. The button shows how far along it is.
+  async function pitchedExport(link,kind,event){
+    const target=exportTarget(),pitch=target?.pitch;
+    if(!pitch?.semitones||link.classList.contains('disabled'))return;
+    event.preventDefault();if(link.dataset.busy)return;
+    const note=link.querySelector('small'),was=note?.textContent;link.dataset.busy='1';link.classList.add('busy');
+    try{
+      const mix=transport.getSnapshot().mix,title=kind==='mix'?`${target.title}${pitch.suffix} - ${mixLabel(mix)}`:target.title+pitch.suffix;
+      const url=await exportPitched({kind,runId:target.runId,mixQuery:mixExportQuery(mix),title,semitones:pitch.semitones,token:target.token,
+        onProgress:p=>{if(note)note.textContent=`Moving the pitch… ${Math.round(p*100)}%`;}});
+      const a=document.createElement('a');a.href=url;a.download='';document.body.append(a);a.click();a.remove();
+    }catch(error){onError(error);}
+    finally{delete link.dataset.busy;link.classList.remove('busy');if(note)note.textContent=was;render();}
+  }
+  if(exportLink)exportLink.addEventListener('click',event=>pitchedExport(exportLink,'mix',event));
+  if(stemsLink)stemsLink.addEventListener('click',event=>pitchedExport(stemsLink,'stems',event));
   const unsubscribe=transport.subscribe(render);
   render();
   return {render,dispose:unsubscribe,setSplit};

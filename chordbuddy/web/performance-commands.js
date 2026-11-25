@@ -31,6 +31,9 @@ export const COMMANDS=Object.freeze([
   {id:'tempo-set',group:'playback',label:'Set tempo (BPM)',help:'Plays at the tempo you choose, in beats per minute, by changing the speed. The pitch stays the same. In a song whose tempo moves, the speed comes from the tempo where the music is.',params:[['bpm','number','Tempo (BPM)',{value:80,min:20,max:300}]],describe:p=>`Set tempo to ${p.bpm} BPM`},
   {id:'speed-change',group:'playback',label:'Adjust playback speed',help:'Changes the speed a little with each press.',params:[['direction','choice','Direction',{value:-1,choices:[[-1,'Slower'],[1,'Faster']]}],['percent','number','How much each press (%)',{value:5,min:1,max:25}]],describe:p=>`${p.direction<0?'Slower':'Faster'} by ${p.percent}%`},
   {id:'speed-normal',group:'playback',label:'Reset playback speed',help:'Returns to 100% speed.'},
+  // pitch: the same in practice and in a show (ctx.pitch is the song's pitch control, with its Sound and Chart switches)
+  {id:'pitch-change',group:'playback',label:'Raise or lower the pitch',help:'Moves the song up or down one half step (one piano key) with each press. Past six it comes round to the other side, the same note an octave over. The speed stays the same.',params:[['direction','choice','Direction',{value:1,choices:[[1,'Up'],[-1,'Down']]}]],describe:p=>p.direction>0?'Raise the pitch a half step':'Lower the pitch a half step'},
+  {id:'pitch-normal',group:'playback',label:'Reset the pitch',help:'Puts the song back in its own key.'},
   {id:'tap-tempo',group:'playback',label:'Virtual tap tempo',help:'Taps a tempo into your Helix. Following the song sends only tempo changes, so you can still tap your own between them; press it again to go back to the song’s tempo.',params:[['mode','choice','Tempo',{value:'follow',choices:[['follow','Follow song’s tempo map'],['bpm','Set a BPM']]}],['bpm','number','BPM (40 to 240)',{value:120,min:40,max:240,when:p=>p.mode==='bpm'}]],describe:p=>p.mode==='bpm'?`Virtual tap tempo: ${p.bpm} BPM`:'Virtual tap tempo: follow song’s tempo map'},
   {id:'resume-automation',group:'playback',label:'Switch to song defaults',help:'During a show, undoes what you changed by hand, so the song goes back to what you planned for it.'},
 
@@ -143,6 +146,8 @@ export function runCommand(command,saved,ctx){
     case 'speed-set':t.setRate(clamp(p.percent,50,125))?.catch?.(()=>{});break;
     case 'speed-change':t.setRate(clamp((t.getSnapshot().rate??100)+p.direction*p.percent,50,125))?.catch?.(()=>{});break;
     case 'speed-normal':t.setRate(100)?.catch?.(()=>{});break;
+    case 'pitch-change':ctx.pitch?.step(p.direction);break;
+    case 'pitch-normal':ctx.pitch?.set(0);break;
     // the page says what the song's tempo is where the music is (ctx.speedForBpm); a tempo the speed can't reach says why
     case 'tempo-set':{const r=ctx.speedForBpm?.(p.bpm);if(!r)break;if(r.error)throw Error(r.error);t.setRate(r.percent)?.catch?.(()=>{});break;}
     case 'visual-step':stepVisual(ctx,p.direction,p);break;

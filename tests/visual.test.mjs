@@ -283,17 +283,18 @@ test('each note gets a strength from its own stem as it starts (the MIDI itself 
   assert.equal(noteStrengths(midi,null),midi);                              // no stem data: unchanged (every strength 1)
 });
 
-test('lyric layout joins split syllables, keeps each part\'s state, and wraps a long line into two rows', () => {
+test('lyric layout draws a cut word whole, keeps typed dashes and each part\'s state, and wraps a long line into two rows', () => {
   const g={font:'',measureText(text){const px=parseFloat(/(\d+(?:\.\d+)?)px/.exec(this.font)[1]);return {width:text.length*px*0.5};}};
-  const words=[{text:'ex-',state:'sung'},{text:'pected',state:'now'},{text:'to',state:'ahead'}];
+  const words=[{text:'ex',joined:true,state:'sung'},{text:'pected',state:'now'},{text:'o-',joined:true,state:'ahead'},{text:'own',state:'ahead'}];
   const one=layoutLyricLine(g,words,{maxWidth:1000,size:20});
-  assert.equal(one.rows.length,1);assert.deepEqual(one.rows[0].parts.map(p=>[p.text,p.state]),[['ex','sung'],['pected','now'],['to','ahead']]);
+  assert.equal(one.rows.length,1);assert.deepEqual(one.rows[0].parts.map(p=>[p.text,p.state]),[['ex','sung'],['pected','now'],['o-','ahead'],['own','ahead']]);
   assert.equal(one.rows[0].parts[1].x,one.rows[0].parts[0].width);        // no space inside the word
+  assert.equal(one.rows[0].parts[3].x,one.rows[0].parts[2].x+one.rows[0].parts[2].width);   // a typed dash shows, and its word stays whole
   const long=Array.from({length:16},(_,i)=>({text:'word'+i,state:'ahead'}));
   const two=layoutLyricLine(g,long,{maxWidth:300,size:20});
   assert.equal(two.rows.length,2);assert.ok(two.rows.every(r=>r.width<=300+1e-6));
   assert.deepEqual(layoutLyricLine(g,[],{maxWidth:300,size:20}).rows,[]);
-  assert.equal(joinSyllables('How much can I be ex-pected to tole- rate?'),'How much can I be expected to tolerate?');
+  assert.equal(joinSyllables('I o-open and ex­pected to ad­'),'I o-open and expected to ad-');   // typed dashes stay; hidden splits go
 });
 
 // ---- harmony helpers ----

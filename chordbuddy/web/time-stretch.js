@@ -12,6 +12,10 @@ export const MIN_RATE=.5,MAX_RATE=1.25;
 export function checkRate(rate){
   if(!Number.isFinite(rate)||rate<MIN_RATE||rate>MAX_RATE)throw Error('Speed must be between 50% and 125%');
 }
+// Pitch is a separate setting from speed: whole half steps, -6..+6. Only Signalsmith can move it.
+export function checkSemitones(semitones){
+  if(!Number.isInteger(semitones)||semitones<-6||semitones>6)throw Error('Pitch must be a whole number of half steps from -6 to +6');
+}
 
 // ----- Signalsmith Stretch -----
 // One engine holds one stream, which is all the player needs: a new stretcher (after a seek or a loop change) takes it over.
@@ -37,9 +41,13 @@ export class SignalsmithStretcher{
     this.len=Math.ceil(this.inLat+this.outLat*MAX_RATE)+2*hop;
     this.ptr=engine._setBuffers(2,this.len);this.heap=null;
     this.readyL=new Float32Array(hop);this.readyR=new Float32Array(hop);
-    this.rate=1;this.reset();
+    this.rate=1;this.semitones=0;this.reset();
   }
   setRate(rate){checkRate(rate);this.rate=rate;}
+  // The engine is shared (one stream at a time), so each stretcher hands it its own pitch before every step. A change takes effect
+  // on the next step, smoothly, with no restart.
+  setSemitones(semitones){checkSemitones(semitones);this.semitones=semitones;}
+  applySemitones(){if(this.engine.cbSemitones!==this.semitones){this.engine._setTransposeSemitones(this.semitones,0);this.engine.cbSemitones=this.semitones;}}
   reset(){this.engine._reset();this.inEnd=0;this.map=[];this.carry=0;this.primed=false;this.readyPos=this.Hs;this.heard=0;}
   // Views of the engine's input and output buffers (made again if its memory ever grows).
   views(){
@@ -65,7 +73,7 @@ export class SignalsmithStretcher{
   // The sound coming out now is the input fed so far, less the engine's input latency and its output latency (in input frames).
   currentSourceFrame(){return this.sourceAt(this.heard+this.readyPos*this.rate);}
   step(){
-    this.views();
+    this.views();this.applySemitones();
     if(!this.primed){
       // Start on the spot: hand the engine enough audio that its very first output frame is the first frame pulled.
       const ahead=Math.round(this.inLat+this.outLat*this.rate);
@@ -106,6 +114,7 @@ export class WsolaStretcher{
     this.rate=1;this.reset();
   }
   setRate(rate){checkRate(rate);this.rate=rate;}
+  setSemitones(semitones){checkSemitones(semitones);}   // can't move the pitch: the player swaps to Signalsmith once it has loaded
   reset(){
     // Absolute input index 0 is the first frame pulled after a reset; earlier indexes read as silence.
     this.base=-(this.N+2*this.tol+this.Hs+this.dec);

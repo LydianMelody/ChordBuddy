@@ -334,6 +334,7 @@ export class PerformanceRunner{
     this.planned=clone(this.current?.state??this.planned);
     this.engine.schedule(atPlayed,{kind:'mix',mix:mixFromState(state,this.baseMix)},`mix:${atPlayed}:whole`);
     if(state.rate!==undefined){this.engine.schedule(atPlayed,{kind:'rate',percent:state.rate},`rate:${atPlayed}`);this.rate=state.rate;}
+    this.schedulePitch(atPlayed,state);
     this.out({type:'state',atPlayed,state});
     this.queuedActions=[];
   }
@@ -349,7 +350,18 @@ export class PerformanceRunner{
     const state=this.withOverrides(segment.state);
     this.engine.schedule(atPlayed,{kind:'mix',mix:mixFromState(state,this.baseMix)},`mix:${atPlayed}:whole`);
     if(state.rate!==undefined)this.engine.schedule(atPlayed,{kind:'rate',percent:state.rate},`rate:${atPlayed}`);
+    this.schedulePitch(atPlayed,state);
     this.out({type:'state',atPlayed,state});
+  }
+  // The pitch you hear (pitch.sound). A song with any pitch flag keeps its stretcher running from the start (keep), so planned changes are
+  // smooth; the chart's pitch (pitch.chart) is drawn by the page from the 'state' and 'pitch' messages.
+  get keepPitch(){
+    if(this._keepPitch===undefined)this._keepPitch=(this.compiled?.segments||[]).some(seg=>(seg.actions||[]).some(a=>a.action?.type==='pitch.set'))||Object.keys(this.planned||{}).some(p=>p.startsWith('pitch.'));
+    return this._keepPitch;
+  }
+  schedulePitch(atPlayed,state){
+    if(state['pitch.sound']===undefined&&!this.keepPitch)return;
+    this.engine.schedule(atPlayed,{kind:'pitch',pitch:{semitones:state['pitch.sound']??0,keep:this.keepPitch}},`pitch:${atPlayed}`);
   }
   scheduleWindow(){
     const list=[this.current,this.boundary?this.boundary.segment:null];
@@ -386,6 +398,11 @@ export class PerformanceRunner{
     if(suppressed.length===writesOf(action.action).length&&suppressed.length){this.out({type:'suppressed',atPlayed:at,action:action.action});return;}
     if(MIX_ACTIONS.has(type)){this.scheduleMixChange(at,action);return;}
     if(type==='rate.set'){this.engine.schedule(at,{kind:'rate',percent:action.action.percent},`rate:${at}`);this.out({type:'rate',atPlayed:at,percent:action.action.percent});return;}
+    if(type==='pitch.set'){
+      const writes=Object.fromEntries(writesOf(action.action).filter(([p])=>!this.isOverridden(p)));
+      if(writes['pitch.sound']!==undefined)this.engine.schedule(at,{kind:'pitch',pitch:{semitones:writes['pitch.sound'],keep:true}},`pitch:${at}`);
+      this.out({type:'pitch',atPlayed:at,sound:writes['pitch.sound'],chart:writes['pitch.chart'],action:action.action});return;
+    }
     this.out({type:type.startsWith('midi.')?'midi':'visual',atPlayed:at,action:action.action,id:key,leadMs:action.leadMs});
   }
   isOverridden(property){
@@ -507,6 +524,9 @@ export class PerformanceRunner{
       const waiting=this.queuedActions.filter(q=>q.at>at&&MIX_ACTIONS.has(q.action.action.type));
       this.pendingWrites=(this.pendingWrites||[]).filter(w=>w.at<=at);
       for(const q of waiting){if(writesOf(q.action.action).every(([p])=>this.isOverridden(p)))continue;this.scheduleMixChange(q.at,q.action);}
+    }else if(property==='pitch.sound'){
+      this.engine.cancel('pitch:');this.engine.schedule(at,{kind:'pitch',pitch:{semitones:state['pitch.sound']??0,keep:true}},`pitch:${at}:live`);
+      this.out({type:'live',atPlayed:at,property,value:state[property]??0});
     }else if(property==='rate'){
       const value=state.rate??100;this.rate=value;this.liveRate=this.overrides.has('rate');
       this.engine.cancel('rate:');this.engine.schedule(at,{kind:'rate',percent:value},`rate:${at}:live`);

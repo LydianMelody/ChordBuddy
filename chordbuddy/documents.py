@@ -13,7 +13,7 @@ import time
 import io
 import zipfile
 from .filenames import safe_stem, unique
-from .midi import read_midi, validate_midi, write_midi, split_tracks
+from .midi import read_midi, validate_midi, write_midi, split_tracks, transpose_midi
 from .chords import chord_label
 from .chart import seed_chart,validate_chart
 from .music import read_music
@@ -645,14 +645,19 @@ class DocumentStore:
         if row['kind']=='chart':return json.dumps(content,ensure_ascii=False,allow_nan=False,indent=2).encode('utf-8')
         return content['abc' if row['kind']=='abc' else 'text'].encode('utf-8')
 
-    def midi_download(self,document_id,mode='single'):
-        """The MIDI for a download or another program: one multichannel file, or a zip with one file per track."""
+    def midi_download(self,document_id,mode='single',transpose=0,shown_key=''):
+        """The MIDI for a download or another program: one multichannel file, or a zip with one file per track. transpose (-6..+6 half
+        steps) moves every note but the drums, for the pitch control; the file name then says so, with the key shown ('C minor')."""
         if mode not in ('single','tracks'):raise ValueError('Choose one file or one file per track')
+        if shown_key and not re.fullmatch(r'[A-G][#b]? (major|minor)',shown_key):raise ValueError('Unknown key')
         with self.library.lock:
             row=self._row(document_id)
             if row['kind']!='midi':raise ValueError('Choose a MIDI output')
             data=self._export_payload(row,self._get(document_id)['content'])
             stem=safe_stem(self.library.song(row['song_id'])['title'],'Song')
+        if transpose:
+            data=transpose_midi(data,transpose)
+            stem=safe_stem(f"{stem} ({'+' if transpose>0 else ''}{transpose}{', '+shown_key if shown_key else ''})",'Song')
         if mode=='single':return data,stem+'.mid'
         files=split_tracks(data)
         names=unique([safe_stem(name,'Track')+'.mid' for name,_ in files])

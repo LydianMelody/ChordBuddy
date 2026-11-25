@@ -88,18 +88,15 @@ test('the playing chord is highlighted through every pass, and clicking it seeks
   assert.equal(JSON.stringify(f),copy);                                // drawing never rewrites the chart
 });
 
-test('every chord in a changed ending is reachable, and the alternative ending is shown once', () => {
+test('a changed last chord is written out in its own bar, never listed as an ending below a repeat', () => {
   const f=fixture();f.content.chords.at(-1).label='C/E';
-  const {root,view,seeks}=mount(f);
-  const alts=byClass(root,'alt-ending');assert.equal(alts.length,1);assert.equal(byClass(root,'ending-label')[0].textContent,'Ending 4');
-  byClass(root,'ending-chord')[0].onclick();assert.deepEqual(seeks,[30]);
-  // while the shared progression plays, the main row is lit; while the changed ending plays, the alternative is lit instead
-  view.updatePlayback({seconds:25,ready:true,playing:true});
-  assert.equal(byClass(root,'chunk').filter(n=>has(n,'now')).length,1);assert.equal(byClass(root,'ending-chord').filter(n=>has(n,'now')).length,0);
+  const {root,view}=mount(f);
+  assert.equal(byClass(root,'alt-endings').length+byClass(root,'ending-chord').length,0);
+  const ce=byClass(root,'chunk').find(n=>byClass(n,'chord').some(c=>c.textContent==='C/E'));assert.ok(ce,'C/E is drawn on the chart');
   view.updatePlayback({seconds:31,ready:true,playing:true});
-  assert.equal(byClass(root,'chunk').filter(n=>has(n,'now')).length,0);assert.equal(byClass(root,'ending-chord').filter(n=>has(n,'now')).length,1);
-  view.updatePlayback({seconds:7,ready:true,playing:true});                                       // pass 1 plays its own (unchanged) ending
-  assert.equal(byClass(root,'chunk').filter(n=>has(n,'now')).length,1);assert.equal(byClass(root,'ending-chord').filter(n=>has(n,'now')).length,0);
+  assert.ok(has(ce,'now'),'and lit while it plays');
+  view.updatePlayback({seconds:7,ready:true,playing:true});
+  assert.ok(!has(ce,'now'));
 });
 
 test('edge N placeholders disappear in Navigate and Edit while pickups, interior N and explicit rests survive', () => {

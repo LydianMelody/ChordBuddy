@@ -21,7 +21,7 @@ function audio(start,count){
 export class Sim{
   constructor({performance,g=grid(),sections=[],policy=null,trim=null,start=0,withhold=()=>false,lateAnswers=false}){
     this.late=lateAnswers;this.waitingAnswers=[];
-    this.g=g;this.withhold=withhold;this.events=[];this.mixes=[];this.rates=[];this.out=[];this.level=[];this.delayedPrepare=[];
+    this.g=g;this.withhold=withhold;this.events=[];this.mixes=[];this.rates=[];this.pitches=[];this.out=[];this.level=[];this.delayedPrepare=[];
     this.compiled=compilePerformance(performance,g);
     if(!this.compiled.ok)throw Error(JSON.stringify(this.compiled.errors));
     const m=this.mixer=new PathMixer();
@@ -37,6 +37,7 @@ export class Sim{
       schedule(atPlayed,payload,id){m.schedule(atPlayed,x=>{
         if(payload.kind==='mix'){x.setMix(payload.mix);sim.mixes.push({played:x.played,mix:payload.mix,id});}
         else if(payload.kind==='rate')sim.rates.push({played:x.played,percent:payload.percent});
+        else if(payload.kind==='pitch')sim.pitches.push({played:x.played,...payload.pitch});
         else if(payload.kind==='hold'){x.setPlaying(false);sim.events.push({type:'held',played:x.played});}
       },id);},
       cancel(prefix){m.cancel(a=>String(a.id).startsWith(prefix));},

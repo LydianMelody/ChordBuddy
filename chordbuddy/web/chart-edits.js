@@ -2,8 +2,8 @@
 // Lyrics are typed under chords; the first word of what you type is pinned to that chord, everything else is a puppet
 // (it spreads between pins), and editing words never loses the timing of words that are still there.
 import {appendLine,removeLine,replaceLineText,similarity} from './lyric-warp.js';
-import {lyricTokens} from './lyric-chunks.js';
-import {placeWord,defaultLayout,effectiveMeasures} from './chart-layout.js';
+import {lyricTokens,SPLIT} from './lyric-chunks.js';
+import {placeWord,defaultLayout,effectiveMeasures,updateLyricLine} from './chart-layout.js';
 import {addressAtSeconds} from './musical-grid.js';
 
 const chars=s=>Array.from(s);
@@ -120,4 +120,28 @@ function pinWordAt({content,music,sectionId,line,offset,address}){
   catch(error){return {candidate:null,conflicts:[{message:error.message}],label:'Pin word'};}
 }
 
-export const planPageEdit={slotText,laneText,fragmentText,pinWordAt,placeOnRow,releaseWord};
+// Cut a word into syllables, or join two back: `offset` is the place in the line (in characters) between two letters. Where there is
+// no split, a hidden one goes in (the word still reads whole, and each piece can be timed on its own); where a hidden split is, it comes
+// out. Every pin keeps its word; the new second piece starts unpinned and spreads between its neighbors.
+function cutWord({content,sectionId,line,offset}){
+  const section=content.sections?.find(s=>s.id===sectionId);
+  if(!section)throw Error('Choose an existing section.');
+  const text=String(section.lyrics??'').split('\n')[line];
+  if(text===undefined)throw Error('Choose an existing lyric line.');
+  const chars=Array.from(text),letter=c=>!!c&&/[\p{L}\p{M}\p{N}]/u.test(c);
+  if(chars[offset-1]===SPLIT){chars.splice(offset-1,1);return {candidate:updateLyricLine(content,sectionId,line,chars.join('')),label:'Join syllables'};}
+  if(!letter(chars[offset-1])||!letter(chars[offset]))throw Error('A word can only be cut between two letters.');
+  chars.splice(offset,0,SPLIT);
+  return {candidate:updateLyricLine(content,sectionId,line,chars.join('')),label:'Cut into syllables'};
+}
+
+// Where the chart ends: the time of a barline (seconds in the recording, so a new tempo grid keeps it), or null to end where the music
+// fades out again. Only what the chart shows: chords, words and the recording are not changed, and the bars after it come back with it.
+function endChartAt({content,seconds}){
+  if(seconds!==null&&!Number.isFinite(seconds))throw Error('Choose a barline for the chart to end on.');
+  const next=structuredClone(content);next.layout={...next.layout};
+  if(seconds===null)delete next.layout.chart_end;else next.layout.chart_end=Math.round(seconds*1000)/1000;
+  return {candidate:next,label:'Move the end of the chart'};
+}
+
+export const planPageEdit={slotText,laneText,fragmentText,pinWordAt,placeOnRow,releaseWord,cutWord,endChartAt};

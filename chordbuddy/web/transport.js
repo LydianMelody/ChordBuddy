@@ -12,7 +12,7 @@ export function heardSeconds(m,primed,rate=1){
  if(wrapped&&raw<loop.start&&at>=loop.start)return raw+(loop.end-loop.start);
  return wrapped||primed.spliced?raw:Math.max(primed.start,raw);
 }
-const initialState=songId=>({songId,runId:null,ready:false,readiness:'Analyze this song to enable playback.',mode:'stems',stems:true,sourceRunId:null,seconds:0,duration:0,playing:false,playIntent:false,buffering:false,error:null,mix:defaultMix(),loop:noLoop(),rate:100,levels:null,seeks:0});
+const initialState=songId=>({songId,runId:null,ready:false,readiness:'Analyze this song to enable playback.',mode:'stems',stems:true,sourceRunId:null,seconds:0,duration:0,playing:false,playIntent:false,buffering:false,error:null,mix:defaultMix(),loop:noLoop(),rate:100,pitch:{semitones:0,keep:false},pitchPending:false,levels:null,seeks:0});
 export class Transport{
  constructor({audio,token,createPcm=createPcmSession}){
   this.audio=audio;this.token=token;this.factory=createPcm;this.listeners=new Set();this.serial=0;this.pcm=null;this.active=false;this.separation=null;this.sessionEpoch=null;
@@ -133,6 +133,17 @@ export class Transport{
   if(this.performer){const r=this.performer.setLive('rate',percent);if(!r.accepted)throw Error(r.reason);this.state.rate=percent;this.emit();return;}
   this.state.rate=percent;this.pcm?.rate?.(percent/100);this.emit();
  }
+ // The pitch you hear, separate from the speed: {semitones: -6..+6, keep}. keep holds the stretcher running once a song's pitch has been
+ // changed at all, so later changes are smooth. In a show the performer decides (its pitch flags and live changes).
+ setPitch(value){
+  const semitones=value?.semitones??0;
+  if(!Number.isInteger(semitones)||semitones<-6||semitones>6)throw Error('Pitch must be a whole number of half steps from -6 to +6.');
+  const next={semitones,keep:!!value?.keep};
+  if(next.semitones===this.state.pitch.semitones&&next.keep===this.state.pitch.keep)return;
+  if(this.performer){const r=this.performer.setLive?.('pitch',next.semitones);if(r&&!r.accepted)throw Error(r.reason);}
+  else this.pcm?.pitch?.(next);
+  this.state.pitch=next;this.emit();
+ }
  setMix(value){const validator=new PcmMixer();validator.setMix(value);
   if(this.performer){const r=this.performer.handMix(value,this.state.mix);if(!r.accepted)throw Error(r.reason);}
   this.state.mix=structuredClone(value);this.pcm?.mix(value);this.emit();}
@@ -157,7 +168,7 @@ export class Transport{
      if(!current()||!this.state.ready||!this.active||m.runId!==this.state.runId||this.state.buffering&&this.priming)return;
      this.diagnostics={...m,wall:performance.now()};
      this.state.seconds=Math.min(this.state.duration,Math.max(0,heardSeconds(m,this.primed,this.state.rate/100)));
-     this.state.levels=this.state.playIntent&&Array.isArray(m.levels)?m.levels:null;
+     this.state.levels=this.state.playIntent&&Array.isArray(m.levels)?m.levels:null;this.state.pitchPending=!!m.pitchPending;
      this.state.playing=this.state.playIntent&&m.state==='playing'&&m.contextState!=='suspended';this.state.buffering=m.state==='buffering';
      if(m.state==='ended'){this.state.playIntent=false;this.ranOut=true;}else if(m.state==='playing')this.ranOut=false;this.emit();
     },onError:error=>{if(current())this.failPlayback(error);}});
@@ -169,7 +180,7 @@ export class Transport{
    await this.pcm.prime(manifest,startFrame,loop);
    if(serial!==this.serial)return;
    this.currentManifest=manifest;this.active=true;this.state.runId=manifest.run_id;this.state.duration=manifest.frames/44100;this.state.seconds=Math.min(seconds,this.state.duration);
-   this.state.buffering=false;this.priming=false;this.pendingManifest=null;this.pcm.mix(this.state.mix);this.pcm.mode(manifest.stems===false?'original':'stems');this.pcm.rate?.(this.state.rate/100);
+   this.state.buffering=false;this.priming=false;this.pendingManifest=null;this.pcm.mix(this.state.mix);this.pcm.mode(manifest.stems===false?'original':'stems');this.pcm.rate?.(this.state.rate/100);this.pcm.pitch?.(this.state.pitch);
    const pcm=this.pcm;await pcm.resume();
    if(serial!==this.serial||pcm!==this.pcm)return;
    if(this.state.playIntent)this.startSound(pcm);else pcm.play(false);this.emit();

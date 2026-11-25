@@ -5,8 +5,10 @@
 // wire() attaches the menu's buttons.
 import {askChoice} from './dialogs.js';
 import {tempoMapMidi,SMOOTHING} from './tempo-map.js';
+import {pitchSuffix} from './transpose.js';
 
-export function createExportFlow({$,model,prefs,api,mediaUrl,practiceView,getLeadView,currentSong,currentRecord,chartDoc,loadChartRecord,selectDocument,songContext,showError}){
+// chartPitch(): {offset, key} the chart is moved by (Chart switch), for the exports that follow what you see: PDF, MIDI and MusicXML.
+export function createExportFlow({$,model,prefs,api,mediaUrl,practiceView,getLeadView,currentSong,currentRecord,chartDoc,loadChartRecord,selectDocument,songContext,showError,chartPitch=()=>({offset:0,key:null})}){
 // ---- Export: saving and exporting live in one menu, in the same place in every view ----
 function renderExportMenu(){
   const docs=model.detail?.documents||[],song=currentSong();
@@ -20,7 +22,7 @@ async function runExport(kind){
   const docs=model.detail?.documents||[],midi=docs.find(d=>d.kind==='midi'&&d.name==='transcription.mid')||docs.find(d=>d.kind==='midi');
   if(kind==='pdf-chart')return exportPdf('chart');
   if(kind==='pdf-lead')return exportPdf('lead');
-  if(kind==='midi'||kind==='midi-tracks'){if(!midi)throw new Error('This song has no MIDI yet.');return downloadUrl(mediaUrl('/api/export-midi/'+encodeURIComponent(midi.id))+'&mode='+(kind==='midi'?'single':'tracks'));}
+  if(kind==='midi'||kind==='midi-tracks'){if(!midi)throw new Error('This song has no MIDI yet.');const p=chartPitch(),moved=p.offset?'&transpose='+p.offset+(p.key?'&key='+encodeURIComponent(p.key):''):'';return downloadUrl(mediaUrl('/api/export-midi/'+encodeURIComponent(midi.id))+'&mode='+(kind==='midi'?'single':'tracks')+moved);}
   if(kind==='tempo-map')return exportTempoMap(song);
   if(kind==='outputs')return downloadUrl(mediaUrl('/api/export-outputs/'+encodeURIComponent(song.id)));
   if(kind==='song')return exportSong(song);
@@ -75,7 +77,10 @@ async function exportSong(song){
 // Export PDF: print only the page that is showing, the lead sheet or the chart (print rules live in shell.css). The page is drawn in light
 // colours, without tool hints, whichever look is on screen.
 const exportChartPdf=()=>exportPdf(currentRecord()?.doc.kind==='abc'?'lead':'chart');
+// A moved chart's PDF is named for it (the file name a browser offers comes from the page title): 'Song (+3, C minor)'.
 async function exportPdf(which){
+ const title=document.title,p=chartPitch(),song=currentSong();
+ if(p.offset&&song)document.title=song.title+pitchSuffix(p.offset,p.key);
  try{
   if(which==='lead'){
    const lead=model.detail?.documents.find(doc=>doc.kind==='abc');if(!lead)throw new Error('This song has no lead sheet to export yet.');
@@ -92,6 +97,7 @@ async function exportPdf(which){
   if(currentRecord()?.doc.kind!=='chart')return;
   practiceView.setMode('nav');await new Promise(resolve=>setTimeout(resolve,60));window.print();
  }catch(error){showError(error);}
+ finally{document.title=title;}
 }
 function wire(){
 for(const button of document.querySelectorAll('[data-export]'))button.onclick=()=>{$('export-menu').open=false;runExport(button.dataset.export).catch(showError);};

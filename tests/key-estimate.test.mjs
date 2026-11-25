@@ -34,7 +34,7 @@ test('longer chords count for more, and nothing to go on gives no key', () => {
 });
 
 test('keys are named the way players write them and every key can be chosen', () => {
-  assert.equal(keyName(10,'major'),'Bb major');assert.equal(keyName(6,'major'),'F# major');assert.equal(keyName(0,'minor'),'C minor');
+  assert.equal(keyName(10,'major'),'Bb major');assert.equal(keyName(6,'major'),'Gb major');assert.equal(keyName(3,'minor'),'Eb minor');assert.equal(keyName(6,'minor'),'F# minor');assert.equal(keyName(8,'minor'),'G# minor');assert.equal(keyName(1,'minor'),'C# minor');assert.equal(keyName(8,'major'),'Ab major');assert.equal(keyName(0,'minor'),'C minor');
   assert.equal(KEY_CHOICES.length,24);assert.equal(new Set(KEY_CHOICES).size,24);
 });
 
@@ -69,4 +69,17 @@ test('the analysis key is kept unless the chords plainly argue with it', () => {
   const fits=[{label:'C',start:0,end:4},{label:'F',start:4,end:8},{label:'G',start:8,end:12},{label:'Bb',start:12,end:13}];   // one borrowed chord is fine
   assert.deepEqual(chooseKey(parseKeyLab('0 13 C:major'),fits),{key:parseKeyLab('0 13 C:major'),source:'model',overruled:null});
   assert.equal(chooseKey(null,fits).source,'chords');
+});
+
+test('a key choice saved under an older spelling reads as today\'s name for the same key', async () => {
+  const {savedKeyName,KEY_CHOICES}=await import('../chordbuddy/web/key-estimate.js');
+  assert.equal(savedKeyName('F# major'),'Gb major');
+  assert.equal(savedKeyName('D# minor'),'Eb minor');
+  assert.equal(savedKeyName('A# minor'),'Bb minor');
+  assert.equal(savedKeyName('C minor'),'C minor');
+  assert.equal(savedKeyName('F# minor'),'F# minor');
+  for(const bad of ['','nonsense',null,'H major'])assert.equal(savedKeyName(bad),'');
+  for(const name of KEY_CHOICES)assert.equal(savedKeyName(name),name);
+  // every key name avoids double sharps and flats: no G# major, D# major, A# major, Db minor, Gb minor
+  for(const bad of ['G# major','D# major','A# major','Db minor','Gb minor','Cb major','Fb major'])assert.ok(!KEY_CHOICES.includes(bad),bad);
 });

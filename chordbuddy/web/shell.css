@@ -380,7 +380,7 @@ dialog{border:var(--bd) solid var(--k-edge);border-radius:16px;background:var(--
   /* pure white paper: the page, its header and everything that borrows the paper colour */
   html[data-theme],html[data-theme][data-scheme]{--page:#fff;--desk:#fff}
   /* the playhead is not part of the printed chart: no highlighted or underlined chord, no lit word, dimmed lyric or marked section */
-  .chunk.now .chord,.ending-chord.now,.w.wnow,.wchip.wnow,.lane-tag.cur{background:none!important;box-shadow:none!important}
+  .chunk.now .chord,.w.wnow,.wchip.wnow,.lane-tag.cur{background:none!important;box-shadow:none!important}
   .chunk.now .chord::after{display:none!important}
   .sec.now .sec-num{color:var(--faint)!important}
   .sec.now .sec-num::before{content:none!important}
@@ -449,7 +449,8 @@ dialog{border:var(--bd) solid var(--k-edge);border-radius:16px;background:var(--
 button.chip.key{cursor:pointer;font:inherit}
 button.chip.key:hover{background:var(--hl)}
 button.chip.key.set{border-style:solid}
-.key-pop{display:flex;align-items:center;gap:10px;color:var(--ink)}
+.key-pop{display:grid;grid-template-columns:auto auto;align-items:center;gap:8px 10px;color:var(--ink)}
+.key-pop-hint{grid-column:1/-1;max-width:280px;font:400 11.5px/1.35 var(--m);color:var(--soft)}
 .key-pop label{font:800 12px var(--g)}
 .key-pop select{font:700 13px var(--m);padding:3px 6px;border:2px solid var(--k-edge);border-radius:8px;background:var(--page);color:var(--ink)}
 

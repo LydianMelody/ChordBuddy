@@ -9,6 +9,12 @@ import venv
 
 from chordbuddy.engine import MODEL_ID, MODEL_REVISION, local_environment
 
+# The Torch versions and download index come from the same files the Windows installer uses, so the two never ask for different builds.
+HERE = Path(__file__).resolve().parent
+TORCH_INDEX = json.loads((HERE / "installer-pins.json").read_text(encoding="utf-8"))["torch_index"]
+TORCH_PINS = [line.strip() for line in (HERE / "requirements-engine.txt").read_text(encoding="utf-8").splitlines()
+              if line.strip().startswith(("torch==", "torchaudio=="))]
+
 
 def run(command, env, cwd):
     subprocess.run(command, env=env, cwd=cwd, check=True)
@@ -17,7 +23,7 @@ def run(command, env, cwd):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Set up real SheetSage2 inference with project-local caches.")
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu",
-                        help="cpu works without an NVIDIA GPU; cuda installs official CUDA 12.6 wheels")
+                        help="cpu works without an NVIDIA graphics card; cuda installs the official NVIDIA (CUDA) build the Windows installer uses")
     parser.add_argument("--login", action="store_true", help="Sign in to Hugging Face; token stored only in this project's .models")
     parser.add_argument("--download", action="store_true", help="Download pinned SheetSage2 and parent weights now")
     args = parser.parse_args(argv)
@@ -35,9 +41,8 @@ def main(argv=None):
         venv.EnvBuilder(with_pip=True).create(target)
         python = target / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
         run([str(python), "-m", "pip", "install", "--upgrade", "pip"], environment, project)
-        index = "https://download.pytorch.org/whl/" + ("cu126" if args.device == "cuda" else "cpu")
-        print("Installing official Torch 2.8 and SheetSage2 dependencies…", flush=True)
-        run([str(python), "-m", "pip", "install", "torch==2.8.0", "torchaudio==2.8.0", "--index-url", index], environment, project)
+        print(f"Installing official {' and '.join(TORCH_PINS)} and SheetSage2 dependencies…", flush=True)
+        run([str(python), "-m", "pip", "install", *TORCH_PINS, "--index-url", TORCH_INDEX[args.device]], environment, project)
         run([str(python), "-m", "pip", "install", "-r", str(project / "requirements-engine.txt")], environment, project)
         if args.login:
             print("Use an HF read token with access to SheetSage2 and MERT-v2-FullSong. Token stays in project .models.", flush=True)
